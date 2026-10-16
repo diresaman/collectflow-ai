@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     # Local
     "apps.core",
     "apps.invoices",
+    "apps.followups",
 ]
 
 MIDDLEWARE = [
@@ -164,3 +165,11 @@ GOOGLE_SHEETS_RANGE = os.environ.get("GOOGLE_SHEETS_RANGE", "Sheet1!A1:G")
 # Path to a service account JSON key; relative paths resolve from the backend directory.
 _credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
 GOOGLE_APPLICATION_CREDENTIALS = str(BASE_DIR / _credentials_path) if _credentials_path else ""
+
+
+# Gemini (AI follow-up drafts)
+# ------------------------------------------------------------------------------
+
+# Server-side only; never exposed to the frontend.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")

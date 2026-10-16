@@ -28,6 +28,8 @@ function getApiBaseUrl(): string {
 type RequestOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** JSON-serializable request body (POST/PATCH only). */
+  body?: unknown;
 };
 
 type Validator<T> = (data: unknown) => data is T;
@@ -42,9 +44,9 @@ function errorMessage(status: number, body: unknown): string {
 
 async function request<T>(
   url: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH",
   isValid: Validator<T>,
-  { signal, timeoutMs = DEFAULT_TIMEOUT_MS }: RequestOptions,
+  { signal, timeoutMs = DEFAULT_TIMEOUT_MS, body }: RequestOptions,
 ): Promise<T> {
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
@@ -53,7 +55,11 @@ async function request<T>(
   try {
     response = await fetch(url, {
       method,
-      headers: { Accept: "application/json" },
+      headers:
+        body === undefined
+          ? { Accept: "application/json" }
+          : { Accept: "application/json", "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
       cache: "no-store",
       signal: combinedSignal,
     });
@@ -100,4 +106,9 @@ export async function backendGet<T>(path: string, isValid: Validator<T>, options
 /** POST to a business endpoint through the server-side proxy. */
 export async function backendPost<T>(path: string, isValid: Validator<T>, options: RequestOptions = {}): Promise<T> {
   return request(`${BACKEND_PROXY_PREFIX}${path}`, "POST", isValid, options);
+}
+
+/** PATCH a business endpoint through the server-side proxy. */
+export async function backendPatch<T>(path: string, isValid: Validator<T>, options: RequestOptions = {}): Promise<T> {
+  return request(`${BACKEND_PROXY_PREFIX}${path}`, "PATCH", isValid, options);
 }

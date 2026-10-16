@@ -1,10 +1,20 @@
 import { useState, type ReactNode } from "react";
 
+import type { FollowUp } from "@/lib/api/followups";
 import type { Invoice } from "@/lib/api/invoices";
 import { formatDate, formatMoney } from "@/lib/format";
 
+import { FollowUpStatusBadge } from "./FollowUpBadges";
 import type { Loadable } from "./types";
-import { Card, ErrorMessage, Skeleton } from "./ui";
+import { Card, ErrorMessage, Icon, Skeleton, Spinner } from "./ui";
+
+export type FollowUpActions = {
+  /** Active (DRAFT/APPROVED) follow-up for the invoice, plus how many exist in total. */
+  followUpFor: (invoiceId: string) => { active: FollowUp | null; total: number };
+  analyzingInvoiceId: string | null;
+  onAnalyze: (invoiceId: string) => void;
+  onOpen: (invoiceId: string) => void;
+};
 
 type Filter = "all" | "overdue" | "unpaid" | "paid";
 
@@ -67,6 +77,56 @@ function OverdueNote({ invoice, block = false }: { invoice: Invoice; block?: boo
   );
 }
 
+function FollowUpCell({ invoice, actions }: { invoice: Invoice; actions: FollowUpActions }) {
+  const { active, total } = actions.followUpFor(invoice.id);
+
+  if (actions.analyzingInvoiceId === invoice.id) {
+    return (
+      <span className="inline-flex items-center gap-2 text-xs font-medium text-indigo-600">
+        <Spinner className="h-3.5 w-3.5" />
+        Analyzing…
+      </span>
+    );
+  }
+  if (active) {
+    return (
+      <button
+        type="button"
+        onClick={() => actions.onOpen(invoice.id)}
+        className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        title="Review follow-up"
+      >
+        <FollowUpStatusBadge status={active.status} />
+      </button>
+    );
+  }
+  if (invoice.is_overdue) {
+    return (
+      <button
+        type="button"
+        onClick={() => actions.onAnalyze(invoice.id)}
+        disabled={actions.analyzingInvoiceId !== null}
+        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Icon name="sparkles" className="h-3.5 w-3.5" />
+        Analyze with AI
+      </button>
+    );
+  }
+  if (total > 0) {
+    return (
+      <button
+        type="button"
+        onClick={() => actions.onOpen(invoice.id)}
+        className="text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
+      >
+        View history
+      </button>
+    );
+  }
+  return <span className="text-slate-300">—</span>;
+}
+
 function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <div className="px-6 py-14 text-center">
@@ -76,7 +136,15 @@ function EmptyState({ title, children }: { title: string; children?: ReactNode }
   );
 }
 
-export function InvoiceTable({ state, expectedColumns }: { state: Loadable<Invoice[]>; expectedColumns: string[] }) {
+export function InvoiceTable({
+  state,
+  expectedColumns,
+  followUps,
+}: {
+  state: Loadable<Invoice[]>;
+  expectedColumns: string[];
+  followUps: FollowUpActions;
+}) {
   const [filter, setFilter] = useState<Filter>("all");
   const invoices = state.kind === "ready" ? state.data : [];
   const activeFilter = FILTERS.find((option) => option.key === filter) ?? FILTERS[0]!;
@@ -169,6 +237,9 @@ export function InvoiceTable({ state, expectedColumns }: { state: Loadable<Invoi
                   <span>Due {formatDate(invoice.due_date)}</span>
                   <OverdueNote invoice={invoice} />
                 </div>
+                <div className="pt-1">
+                  <FollowUpCell invoice={invoice} actions={followUps} />
+                </div>
               </div>
             </li>
           ))}
@@ -185,6 +256,7 @@ export function InvoiceTable({ state, expectedColumns }: { state: Loadable<Invoi
                 <th scope="col" className="px-5 py-3">Due date</th>
                 <th scope="col" className="px-5 py-3 text-right">Amount</th>
                 <th scope="col" className="px-5 py-3">Status</th>
+                <th scope="col" className="px-5 py-3">Follow-up</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -209,6 +281,9 @@ export function InvoiceTable({ state, expectedColumns }: { state: Loadable<Invoi
                   </td>
                   <td className="whitespace-nowrap px-5 py-4">
                     <StatusBadge invoice={invoice} />
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-4">
+                    <FollowUpCell invoice={invoice} actions={followUps} />
                   </td>
                 </tr>
               ))}

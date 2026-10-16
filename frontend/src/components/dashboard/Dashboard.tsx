@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ApiError } from "@/lib/api/client";
+import { ACTIVE_STATUSES, analyzeInvoice, getFollowUps, type FollowUp } from "@/lib/api/followups";
 import {
   getAutomationRuns,
   getDashboard,
@@ -13,7 +14,9 @@ import {
   type Invoice,
 } from "@/lib/api/invoices";
 
-import { InvoiceTable } from "./InvoiceTable";
+import { FollowUpDrawer, type GenerationState } from "./FollowUpDrawer";
+import { FollowUpHistory } from "./FollowUpHistory";
+import { InvoiceTable, type FollowUpActions } from "./InvoiceTable";
 import { SummaryCards } from "./SummaryCards";
 import { SyncButton, SyncStatus } from "./SyncStatus";
 import type { Loadable } from "./types";
@@ -38,6 +41,17 @@ export function Dashboard() {
   const [syncError, setSyncError] = useState<string | null>(null);
   // Incrementing this reloads all dashboard data; previous data stays visible meanwhile.
   const [reloadKey, setReloadKey] = useState(0);
+
+  const [followUps, setFollowUps] = useState<Loadable<FollowUp[]>>({ kind: "loading" });
+  const [followUpsKey, setFollowUpsKey] = useState(0);
+  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
+  const [generation, setGeneration] = useState<(GenerationState & { invoiceId: string }) | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    track(getFollowUps(controller.signal), setFollowUps, controller.signal);
+    return () => controller.abort();
+  }, [followUpsKey, reloadKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -68,6 +82,54 @@ export function Dashboard() {
 
   const expectedColumns = summary.kind === "ready" ? summary.data.expected_columns : [];
 
+  const allFollowUps = followUps.kind === "ready" ? followUps.data : [];
+  const followUpsForInvoice = (invoiceId: string) =>
+    allFollowUps.filter((followUp) => followUp.invoice_id === invoiceId);
+
+  const handleAnalyze = async (invoiceId: string, regenerate: boolean) => {
+    setOpenInvoiceId(invoiceId);
+    setGeneration({ invoiceId, running: true, regenerate, error: null });
+    try {
+      await analyzeInvoice(invoiceId, regenerate);
+      setGeneration(null);
+    } catch (error) {
+      setGeneration({ invoiceId, running: false, regenerate, error: describeError(error) });
+    } finally {
+      // Regeneration also retires the previous draft, so reload the full list.
+      setFollowUpsKey((key) => key + 1);
+    }
+  };
+
+  const handleFollowUpChanged = () => {
+    setFollowUpsKey((key) => key + 1);
+  };
+
+  const closeDrawer = useCallback(() => {
+    setOpenInvoiceId(null);
+    setGeneration((current) => (current?.running ? current : null));
+  }, []);
+
+  const followUpActions: FollowUpActions = {
+    followUpFor: (invoiceId) => {
+      const forInvoice = followUpsForInvoice(invoiceId);
+      return {
+        active: forInvoice.find((followUp) => ACTIVE_STATUSES.includes(followUp.status)) ?? null,
+        total: forInvoice.length,
+      };
+    },
+    analyzingInvoiceId: generation?.running ? generation.invoiceId : null,
+    onAnalyze: (invoiceId) => void handleAnalyze(invoiceId, false),
+    onOpen: (invoiceId) => {
+      setOpenInvoiceId(invoiceId);
+      setGeneration((current) => (current && current.invoiceId !== invoiceId && !current.running ? null : current));
+    },
+  };
+
+  const openInvoice =
+    openInvoiceId && invoices.kind === "ready"
+      ? (invoices.data.find((invoice) => invoice.id === openInvoiceId) ?? null)
+      : null;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -84,7 +146,19 @@ export function Dashboard() {
       </div>
       <SyncStatus lastRun={lastRun} syncError={syncError} />
       <SummaryCards state={summary} />
-      <InvoiceTable state={invoices} expectedColumns={expectedColumns} />
+      <InvoiceTable state={invoices} expectedColumns={expectedColumns} followUps={followUpActions} />
+      <FollowUpHistory state={followUps} onOpen={followUpActions.onOpen} />
+
+      {openInvoice && (
+        <FollowUpDrawer
+          invoice={openInvoice}
+          followUps={followUpsForInvoice(openInvoice.id)}
+          generation={generation?.invoiceId === openInvoice.id ? generation : null}
+          onAnalyze={(regenerate) => void handleAnalyze(openInvoice.id, regenerate)}
+          onChanged={handleFollowUpChanged}
+          onClose={closeDrawer}
+        />
+      )}
     </div>
   );
 }

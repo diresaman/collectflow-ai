@@ -1,0 +1,35 @@
+import type { FollowUpStatus, Tone } from "@/lib/api/followups";
+
+const STATUS_META: Record<FollowUpStatus, { label: string; style: string; dot: string }> = {
+  DRAFT: { label: "Generated Draft", style: "bg-indigo-50 text-indigo-700 ring-indigo-600/20", dot: "bg-indigo-500" },
+  APPROVED: { label: "Approved", style: "bg-emerald-50 text-emerald-700 ring-emerald-600/20", dot: "bg-emerald-500" },
+  REJECTED: { label: "Rejected", style: "bg-slate-100 text-slate-600 ring-slate-500/20", dot: "bg-slate-400" },
+  SENT: { label: "Sent", style: "bg-sky-50 text-sky-700 ring-sky-600/20", dot: "bg-sky-500" },
+  FAILED: { label: "Failed", style: "bg-rose-50 text-rose-700 ring-rose-600/20", dot: "bg-rose-500" },
+};
+
+const TONE_STYLE: Record<Tone, string> = {
+  FRIENDLY: "bg-sky-50 text-sky-700",
+  PROFESSIONAL: "bg-violet-50 text-violet-700",
+  FIRM: "bg-amber-50 text-amber-800",
+};
+
+export function FollowUpStatusBadge({ status }: { status: FollowUpStatus }) {
+  const meta = STATUS_META[status];
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${meta.style}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
+      {meta.label}
+    </span>
+  );
+}
+
+export function ToneBadge({ tone }: { tone: Tone }) {
+  return (
+    <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${TONE_STYLE[tone]}`}>
+      {tone.charAt(0) + tone.slice(1).toLowerCase()} tone
+    </span>
+  );
+}

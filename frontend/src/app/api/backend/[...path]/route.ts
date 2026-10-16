@@ -7,16 +7,27 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-type Method = "GET" | "POST";
+type Method = "GET" | "POST" | "PATCH";
 
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 
 const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
-  GET: [/^invoices$/, new RegExp(`^invoices/${UUID}$`), /^dashboard$/, /^automation-runs$/],
-  POST: [/^sync$/],
+  GET: [
+    /^invoices$/,
+    new RegExp(`^invoices/${UUID}$`),
+    /^dashboard$/,
+    /^automation-runs$/,
+    /^follow-ups$/,
+    new RegExp(`^follow-ups/${UUID}$`),
+  ],
+  POST: [/^sync$/, new RegExp(`^invoices/${UUID}/analyze$`), new RegExp(`^follow-ups/${UUID}/(approve|reject)$`)],
+  PATCH: [new RegExp(`^follow-ups/${UUID}$`)],
 };
 
-const TIMEOUT_MS: Record<Method, number> = { GET: 10_000, POST: 40_000 };
+// POST covers sync (Google Sheets) and AI generation (Gemini), both bounded by ~30s upstream timeouts.
+const TIMEOUT_MS: Record<Method, number> = { GET: 10_000, POST: 45_000, PATCH: 10_000 };
+
+const MAX_BODY_BYTES = 20_000;
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 
@@ -39,7 +50,7 @@ async function proxy(request: NextRequest, context: RouteContext, method: Method
     return errorResponse(404, "Not found.");
   }
   // State-changing requests must come from this app, not another site in the same browser.
-  if (method === "POST" && !isSameOrigin(request)) {
+  if (method !== "GET" && !isSameOrigin(request)) {
     return errorResponse(403, "Cross-origin requests are not allowed.");
   }
 
@@ -49,11 +60,22 @@ async function proxy(request: NextRequest, context: RouteContext, method: Method
     return errorResponse(500, "Proxy is not configured: set API_BASE_URL and COLLECTFLOW_OPERATOR_TOKEN.");
   }
 
+  let body: string | undefined;
+  if (method !== "GET") {
+    body = await request.text();
+    if (body.length > MAX_BODY_BYTES) return errorResponse(413, "Request body is too large.");
+  }
+
   let upstream: Response;
   try {
     upstream = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/${route}/`, {
       method,
-      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body || undefined,
       cache: "no-store",
       signal: AbortSignal.timeout(TIMEOUT_MS[method]),
     });
@@ -61,8 +83,8 @@ async function proxy(request: NextRequest, context: RouteContext, method: Method
     return errorResponse(502, "Backend API is unreachable.");
   }
 
-  const body = await upstream.text();
-  return new NextResponse(body, {
+  const responseBody = await upstream.text();
+  return new NextResponse(responseBody, {
     status: upstream.status,
     headers: { "Content-Type": upstream.headers.get("content-type") ?? "application/json" },
   });
@@ -74,4 +96,8 @@ export function GET(request: NextRequest, context: RouteContext): Promise<NextRe
 
 export function POST(request: NextRequest, context: RouteContext): Promise<NextResponse> {
   return proxy(request, context, "POST");
+}
+
+export function PATCH(request: NextRequest, context: RouteContext): Promise<NextResponse> {
+  return proxy(request, context, "PATCH");
 }
