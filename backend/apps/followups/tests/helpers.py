@@ -72,3 +72,38 @@ def make_follow_up(invoice: Invoice, status: str = FollowUp.Status.DRAFT, **over
     }
     fields.update(overrides)
     return FollowUp.objects.create(**fields)
+
+
+class FakeGmail:
+    """Stands in for GmailClient; never touches the network."""
+
+    def __init__(
+        self,
+        *,
+        ready: bool = True,
+        detail: str = "Gmail is ready to send.",
+        result: Any = None,
+        error: Exception | None = None,
+        on_check: Any = None,
+    ) -> None:
+        from integrations.gmail import DeliveryResult
+
+        self.ready = ready
+        self.detail = detail
+        self.result = result or DeliveryResult(message_id="msg-123", thread_id="thread-456")
+        self.error = error
+        self.on_check = on_check
+        self.sent: list[dict[str, str]] = []
+
+    def check_ready(self):  # type: ignore[no-untyped-def]
+        from integrations.gmail import GmailStatus
+
+        if self.on_check:
+            self.on_check()
+        return GmailStatus(True, self.ready, "sender@example.test", "sender@example.test", self.detail)
+
+    def send(self, *, recipient: str, subject: str, body: str):  # type: ignore[no-untyped-def]
+        self.sent.append({"recipient": recipient, "subject": subject, "body": body})
+        if self.error:
+            raise self.error
+        return self.result

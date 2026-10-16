@@ -150,9 +150,11 @@ class FollowUpGenerationService:
 
         existing = FollowUp.objects.filter(invoice=invoice, status__in=FollowUp.ACTIVE_STATUSES).first()
         if existing is not None:
-            if existing.status == FollowUp.Status.APPROVED:
+            if existing.status != FollowUp.Status.DRAFT:
+                label = existing.get_status_display().lower()
                 raise ActiveFollowUpExists(
-                    "This invoice already has an approved reminder.", follow_up_id=str(existing.pk)
+                    f"This invoice already has a reminder that is {label}; it cannot be regenerated.",
+                    follow_up_id=str(existing.pk),
                 )
             if not regenerate:
                 raise ActiveFollowUpExists(
@@ -272,6 +274,9 @@ def update_draft(follow_up_id: uuid.UUID, changes: dict[str, Any]) -> FollowUp:
         validated["subject"] = validate_subject(changes["subject"])
     if "body" in changes:
         validated["body"] = validate_body(changes["body"])
+    if any(URL_PATTERN.search(value) for value in validated.values()):
+        # No payment links in this MVP, whether written by the AI or an operator.
+        raise InvalidContent("Links are not allowed in reminders.")
 
     with transaction.atomic():
         follow_up = _locked(follow_up_id)

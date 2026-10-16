@@ -19,13 +19,20 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     /^automation-runs$/,
     /^follow-ups$/,
     new RegExp(`^follow-ups/${UUID}$`),
+    new RegExp(`^follow-ups/${UUID}/delivery-attempts$`),
+    /^integrations\/gmail\/status$/,
   ],
-  POST: [/^sync$/, new RegExp(`^invoices/${UUID}/analyze$`), new RegExp(`^follow-ups/${UUID}/(approve|reject)$`)],
+  POST: [
+    /^sync$/,
+    new RegExp(`^invoices/${UUID}/analyze$`),
+    new RegExp(`^follow-ups/${UUID}/(approve|reject|send)$`),
+  ],
   PATCH: [new RegExp(`^follow-ups/${UUID}$`)],
 };
 
-// POST covers sync (Google Sheets) and AI generation (Gemini), both bounded by ~30s upstream timeouts.
-const TIMEOUT_MS: Record<Method, number> = { GET: 10_000, POST: 45_000, PATCH: 10_000 };
+// POST covers sync (Google Sheets), AI generation (Gemini) and Gmail delivery, all bounded
+// upstream. If the proxy times out on a send, the browser treats the outcome as unknown.
+const TIMEOUT_MS: Record<Method, number> = { GET: 20_000, POST: 45_000, PATCH: 10_000 };
 
 const MAX_BODY_BYTES = 20_000;
 

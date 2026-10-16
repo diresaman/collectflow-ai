@@ -22,19 +22,30 @@ class FollowUp(models.Model):
         DRAFT = "DRAFT", "Draft"
         APPROVED = "APPROVED", "Approved"
         REJECTED = "REJECTED", "Rejected"
-        # Reserved for email delivery (Milestone 04); nothing transitions into them yet.
+        SENDING = "SENDING", "Sending"
         SENT = "SENT", "Sent"
         FAILED = "FAILED", "Failed"
+        DELIVERY_UNKNOWN = "DELIVERY_UNKNOWN", "Delivery unknown"
 
-    # At most one follow-up per invoice may be in an active status.
-    ACTIVE_STATUSES = (Status.DRAFT, Status.APPROVED)
+    # At most one follow-up per invoice may be in an active status. In-flight and
+    # unresolved deliveries count as active so no new reminder is drafted meanwhile.
+    ACTIVE_STATUSES = (Status.DRAFT, Status.APPROVED, Status.SENDING, Status.DELIVERY_UNKNOWN)
 
     ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
         Status.DRAFT: frozenset({Status.APPROVED, Status.REJECTED}),
-        Status.APPROVED: frozenset(),
+        Status.APPROVED: frozenset({Status.SENDING}),
+        Status.SENDING: frozenset({Status.SENT, Status.FAILED, Status.DELIVERY_UNKNOWN}),
         Status.REJECTED: frozenset(),
         Status.SENT: frozenset(),
         Status.FAILED: frozenset(),
+        Status.DELIVERY_UNKNOWN: frozenset(),
+    }
+
+    # Only an operator who has checked Gmail may resolve an uncertain delivery
+    # (see the `reconcile_delivery` command). Never used automatically.
+    RECONCILIATION_TRANSITIONS: dict[str, frozenset[str]] = {
+        Status.SENDING: frozenset({Status.SENT, Status.FAILED}),
+        Status.DELIVERY_UNKNOWN: frozenset({Status.SENT, Status.FAILED}),
     }
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -44,7 +55,7 @@ class FollowUp(models.Model):
     tone = models.CharField(max_length=20, choices=Tone.choices)
     reasoning = models.TextField()
     recommended_action = models.TextField()
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     # Invoice facts the draft was written from; approval is refused if they change.
     invoice_snapshot = models.JSONField()
     ai_model = models.CharField(max_length=100, blank=True)
@@ -58,7 +69,7 @@ class FollowUp(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["invoice"],
-                condition=Q(status__in=["DRAFT", "APPROVED"]),
+                condition=Q(status__in=["DRAFT", "APPROVED", "SENDING", "DELIVERY_UNKNOWN"]),
                 name="one_active_follow_up_per_invoice",
             ),
         ]
@@ -94,3 +105,33 @@ class GenerationAttempt(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class DeliveryAttempt(models.Model):
+    """One attempt to submit a follow-up to Gmail. Stores sanitized errors only; never credentials."""
+
+    class Status(models.TextChoices):
+        SENDING = "SENDING", "Sending"
+        SENT = "SENT", "Sent"
+        FAILED = "FAILED", "Failed"
+        DELIVERY_UNKNOWN = "DELIVERY_UNKNOWN", "Delivery unknown"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    follow_up = models.ForeignKey(FollowUp, on_delete=models.PROTECT, related_name="delivery_attempts")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SENDING)
+    recipient_email = models.EmailField()
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    gmail_message_id = models.CharField(max_length=100, blank=True)
+    gmail_thread_id = models.CharField(max_length=100, blank=True)
+    error_code = models.CharField(max_length=50, blank=True)
+    error_summary = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        constraints = [
+            # Database-level backstop: one in-flight attempt per follow-up.
+            models.UniqueConstraint(
+                fields=["follow_up"], condition=Q(status="SENDING"), name="one_sending_attempt_per_follow_up"
+            ),
+        ]

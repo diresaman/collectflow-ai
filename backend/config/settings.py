@@ -173,3 +173,21 @@ GOOGLE_APPLICATION_CREDENTIALS = str(BASE_DIR / _credentials_path) if _credentia
 # Server-side only; never exposed to the frontend.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+
+
+# Gmail (sending approved reminders)
+# ------------------------------------------------------------------------------
+
+def _backend_path(name: str, default: str) -> str:
+    value = os.environ.get(name, default)
+    return str(BASE_DIR / value) if value else ""
+
+
+# OAuth client (Desktop app) downloaded from Google Cloud; used only by `authorize_gmail`.
+GMAIL_OAUTH_CLIENT_FILE = _backend_path("GMAIL_OAUTH_CLIENT_FILE", "credentials/gmail-oauth-client.json")
+# Authorized user token written by `authorize_gmail` (gitignored, mode 0600).
+GMAIL_TOKEN_FILE = _backend_path("GMAIL_TOKEN_FILE", "credentials/gmail-token.json")
+GMAIL_SENDER_EMAIL = os.environ.get("GMAIL_SENDER_EMAIL", "").strip()
+# Recipients that may be emailed: addresses or @domains. Required while DEBUG is on so
+# development can only email addresses the developer controls. Empty in production = no limit.
+GMAIL_ALLOWED_RECIPIENTS = [item.lower() for item in env_list("GMAIL_ALLOWED_RECIPIENTS")]

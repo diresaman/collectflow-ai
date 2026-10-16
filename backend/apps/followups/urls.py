@@ -8,4 +8,11 @@ urlpatterns = [
     path("follow-ups/<uuid:pk>/", views.FollowUpDetailView.as_view(), name="follow-up-detail"),
     path("follow-ups/<uuid:pk>/approve/", views.ApproveFollowUpView.as_view(), name="follow-up-approve"),
     path("follow-ups/<uuid:pk>/reject/", views.RejectFollowUpView.as_view(), name="follow-up-reject"),
+    path("follow-ups/<uuid:pk>/send/", views.SendFollowUpView.as_view(), name="follow-up-send"),
+    path(
+        "follow-ups/<uuid:pk>/delivery-attempts/",
+        views.DeliveryAttemptListView.as_view(),
+        name="follow-up-delivery-attempts",
+    ),
+    path("integrations/gmail/status/", views.GmailStatusView.as_view(), name="gmail-status"),
 ]

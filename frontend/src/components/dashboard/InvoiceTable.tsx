@@ -9,8 +9,8 @@ import type { Loadable } from "./types";
 import { Card, ErrorMessage, Icon, Skeleton, Spinner } from "./ui";
 
 export type FollowUpActions = {
-  /** Active (DRAFT/APPROVED) follow-up for the invoice, plus how many exist in total. */
-  followUpFor: (invoiceId: string) => { active: FollowUp | null; total: number };
+  /** Active follow-up for the invoice, its most recent one, and how many exist in total. */
+  followUpFor: (invoiceId: string) => { active: FollowUp | null; latest: FollowUp | null; total: number };
   analyzingInvoiceId: string | null;
   onAnalyze: (invoiceId: string) => void;
   onOpen: (invoiceId: string) => void;
@@ -78,7 +78,7 @@ function OverdueNote({ invoice, block = false }: { invoice: Invoice; block?: boo
 }
 
 function FollowUpCell({ invoice, actions }: { invoice: Invoice; actions: FollowUpActions }) {
-  const { active, total } = actions.followUpFor(invoice.id);
+  const { active, latest, total } = actions.followUpFor(invoice.id);
 
   if (actions.analyzingInvoiceId === invoice.id) {
     return (
@@ -88,7 +88,8 @@ function FollowUpCell({ invoice, actions }: { invoice: Invoice; actions: FollowU
       </span>
     );
   }
-  if (active) {
+  const shown = active ?? (latest && (latest.status === "SENT" || latest.status === "FAILED") ? latest : null);
+  if (shown) {
     return (
       <button
         type="button"
@@ -96,7 +97,7 @@ function FollowUpCell({ invoice, actions }: { invoice: Invoice; actions: FollowU
         className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         title="Review follow-up"
       >
-        <FollowUpStatusBadge status={active.status} />
+        <FollowUpStatusBadge status={shown.status} />
       </button>
     );
   }

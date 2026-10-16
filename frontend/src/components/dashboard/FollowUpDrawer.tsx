@@ -6,6 +6,7 @@ import { ACTIVE_STATUSES, type FollowUp } from "@/lib/api/followups";
 import type { Invoice } from "@/lib/api/invoices";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 
+import { DeliveryPanel } from "./DeliveryPanel";
 import { DraftEditor } from "./DraftEditor";
 import { FollowUpStatusBadge, ToneBadge } from "./FollowUpBadges";
 import { ErrorMessage, Icon, Spinner } from "./ui";
@@ -97,7 +98,11 @@ export function FollowUpDrawer({
   }, [onClose]);
 
   const active = followUps.find((followUp) => ACTIVE_STATUSES.includes(followUp.status)) ?? null;
-  const history = followUps.filter((followUp) => followUp !== active);
+  // Keep showing the latest reminder after delivery finishes (sent or failed).
+  const latest = followUps[0] ?? null;
+  const current = active ?? (latest && (latest.status === "SENT" || latest.status === "FAILED") ? latest : null);
+  const history = followUps.filter((followUp) => followUp !== current);
+  const canDraftNew = active === null && invoice.is_overdue;
   const running = generation?.running ?? false;
 
   return (
@@ -158,7 +163,7 @@ export function FollowUpDrawer({
             </div>
           )}
 
-          {active === null && !running && !generation?.error && (
+          {current === null && !running && !generation?.error && (
             <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center">
               {invoice.is_overdue ? (
                 <>
@@ -183,29 +188,42 @@ export function FollowUpDrawer({
             </div>
           )}
 
-          {active && (
+          {current && (
             <section className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <FollowUpStatusBadge status={active.status} />
-                <span className="text-xs text-slate-500">Generated {formatDateTime(active.generated_at)}</span>
+                <FollowUpStatusBadge status={current.status} />
+                <span className="text-xs text-slate-500">Generated {formatDateTime(current.generated_at)}</span>
               </div>
-              <AiInsight followUp={active} />
-              {active.status === "DRAFT" ? (
+              <AiInsight followUp={current} />
+              {current.status === "DRAFT" ? (
                 <DraftEditor
-                  key={`${active.id}:${active.updated_at}`}
-                  followUp={active}
+                  key={`${current.id}:${current.updated_at}`}
+                  followUp={current}
                   regenerating={running}
                   onChanged={onChanged}
                   onRegenerate={() => onAnalyze(true)}
                 />
               ) : (
                 <>
-                  <ReadOnlyMessage followUp={active} />
-                  <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                    Approved{active.approved_at ? ` on ${formatDateTime(active.approved_at)}` : ""}.{" "}
-                    <span className="font-medium">Not sent</span> — email delivery is not enabled yet.
-                  </p>
+                  <ReadOnlyMessage followUp={current} />
+                  {current.status === "APPROVED" && (
+                    <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                      Approved{current.approved_at ? ` on ${formatDateTime(current.approved_at)}` : ""}.{" "}
+                      <span className="font-medium">Not sent yet</span> — review the details below before sending.
+                    </p>
+                  )}
+                  <DeliveryPanel key={`${current.id}:${current.status}`} followUp={current} onChanged={() => onChanged(current)} />
                 </>
+              )}
+              {canDraftNew && current.status !== "DRAFT" && !running && (
+                <button
+                  type="button"
+                  onClick={() => onAnalyze(false)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-50"
+                >
+                  <Icon name="sparkles" className="h-4 w-4" />
+                  Draft a new reminder
+                </button>
               )}
             </section>
           )}

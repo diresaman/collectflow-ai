@@ -114,6 +114,7 @@ export function Dashboard() {
       const forInvoice = followUpsForInvoice(invoiceId);
       return {
         active: forInvoice.find((followUp) => ACTIVE_STATUSES.includes(followUp.status)) ?? null,
+        latest: forInvoice[0] ?? null,
         total: forInvoice.length,
       };
     },

@@ -2,9 +2,10 @@
 
 An AI-powered accounts receivable follow-up assistant for small service businesses.
 
-> **Current status — Milestone 03 (Gemini AI follow-ups):** invoices sync from a Google Sheet,
-> and Gemini drafts payment reminders for overdue invoices that an operator edits, approves or
-> rejects. Email delivery (Gmail) is not implemented yet: approving a reminder does **not** send it.
+> **Current status — Milestone 04 (Gmail delivery):** invoices sync from a Google Sheet, Gemini
+> drafts reminders for overdue invoices, an operator edits and approves them, and approved
+> reminders are sent through Gmail after an explicit confirmation. There is no scheduling and no
+> inbox reading.
 
 ## Repository layout
 
@@ -25,7 +26,9 @@ collectflow-ai/
 │   │   ├── prompts.py          Gemini instructions, minimal context, output schema
 │   │   ├── services.py         Generation service, edit/approve/reject workflow
 │   │   └── views.py            REST endpoints
+│   │   ├── delivery.py         Gmail delivery service and manual reconciliation
 │   ├── integrations/gemini.py  Gemini API adapter (google-genai)
+│   ├── integrations/gmail.py   Gmail send-only adapter (OAuth 2.0 user credentials)
 │   ├── credentials/            Service account key (gitignored; create locally)
 │   ├── requirements.txt
 │   └── .env.example
@@ -72,6 +75,10 @@ Check it: `curl http://localhost:8000/api/health/` → `{"status": "ok", "servic
 | `GOOGLE_APPLICATION_CREDENTIALS` | — (required for sync)    | Path to the service account JSON key (relative to `backend/`). |
 | `GEMINI_API_KEY`                 | — (required for AI)      | Gemini API key. Server-side only; never sent to the frontend.  |
 | `GEMINI_MODEL`                   | `gemini-3.5-flash`       | Gemini model used for drafting reminders.                      |
+| `GMAIL_OAUTH_CLIENT_FILE`        | `credentials/gmail-oauth-client.json` | OAuth "Desktop app" client JSON (used by `authorize_gmail`). |
+| `GMAIL_TOKEN_FILE`               | `credentials/gmail-token.json` | Authorized user token written by `authorize_gmail`.      |
+| `GMAIL_SENDER_EMAIL`             | — (required to send)     | Dedicated sender account; must match the authorized account.   |
+| `GMAIL_ALLOWED_RECIPIENTS`       | — (required in debug)    | Comma-separated addresses / `@domains` that may be emailed.    |
 
 ## Google Sheets setup
 
@@ -145,16 +152,19 @@ threatening the customer, claiming a payment was verified, or claiming any actio
 ### Follow-up lifecycle
 
 ```
-DRAFT ──approve──▶ APPROVED      (SENT / FAILED reserved for email delivery, Milestone 04)
-  │
-  └──reject───▶ REJECTED
+DRAFT ──approve──▶ APPROVED ──send──▶ SENDING ──▶ SENT
+  │                                       ├──▶ FAILED            (Gmail refused; not sent)
+  └──reject───▶ REJECTED                  └──▶ DELIVERY_UNKNOWN  (may have been sent)
+
+SENDING / DELIVERY_UNKNOWN ──(operator, after checking Gmail)──▶ SENT or FAILED
 ```
 
 - Only `DRAFT` follow-ups can be edited (subject ≤ 150 chars, single line; body 20–5000 chars).
 - **Approve** re-reads the invoice. It refuses (HTTP 409) if the invoice is no longer eligible
   (e.g. now paid) or if any snapshot field changed since generation (`external_id`,
   `client_name`, `client_email`, `amount`, `currency`, `due_date`, `status`).
-- Approval only records the decision; **it does not send any email**.
+- Approval only records the decision; **it does not send any email**. Sending is a separate,
+  confirmed action (see below).
 - **Regenerate** must be explicit (`{"regenerate": true}`). It replaces the current draft and marks the old
   one `REJECTED`. An approved reminder cannot be regenerated.
 
@@ -169,6 +179,108 @@ DRAFT ──approve──▶ APPROVED      (SENT / FAILED reserved for email del
 - The link check is deterministic, but other content rules (e.g. no invented penalties) rely on
   the model following instructions plus human review before approval.
 - Drafts are written in English only, and the sign-off is a generic "Accounts Receivable Team".
+
+## Gmail delivery
+
+### OAuth setup (one time)
+
+Use a **dedicated test Gmail account** as the sender.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/) (any project, e.g. the one used
+   for Sheets): **APIs & Services → Library → Gmail API → Enable**.
+2. **APIs & Services → OAuth consent screen**: choose *External*, fill in the app name and
+   emails, and under **Test users** add the sender Gmail account. Leaving the app in *Testing* is
+   fine for local use.
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID → Desktop app**.
+   Download the JSON and save it as `backend/credentials/gmail-oauth-client.json`.
+4. In `backend/.env` set `GMAIL_SENDER_EMAIL` to the sender account and
+   `GMAIL_ALLOWED_RECIPIENTS` to test addresses you control (e.g. `you@gmail.com,@example.com`).
+5. Authorize, in a terminal on the machine running the backend:
+
+   ```bash
+   cd backend && source .venv/bin/activate
+   python manage.py authorize_gmail          # opens a browser; sign in as GMAIL_SENDER_EMAIL
+   python manage.py authorize_gmail --no-browser   # prints the URL instead
+   ```
+
+   It requests `https://www.googleapis.com/auth/gmail.send` plus the identity-only scopes
+   `openid` and `userinfo.email`. The identity scopes are used only to confirm the authorized
+   account matches `GMAIL_SENDER_EMAIL`, because `gmail.send` alone cannot reveal it. **No
+   mail-reading scope is requested.**
+6. Restart Django. `GET /api/integrations/gmail/status/` (and the dashboard's Send panel) should
+   report "Gmail is ready to send."
+
+### Token storage and security
+
+- The OAuth client JSON and the user token live in `backend/credentials/`, which is gitignored.
+  The token is written atomically with permissions `600`.
+- Expired access tokens are refreshed automatically with the stored refresh token, and the
+  refreshed token is saved back to the file. If Google revokes it (password change, app removed,
+  or a 7-day expiry while the consent screen is in *Testing*), sending reports "not ready" until you
+  run `authorize_gmail` again.
+- Tokens are never stored in the database, logged, returned by the API or sent to the browser.
+  `DeliveryAttempt` stores only status, Gmail message/thread IDs and sanitized error text.
+
+### Delivery flow
+
+1. **Send Email** is shown only for `APPROVED` reminders. The panel shows From, To (the address
+   captured in the approved snapshot), Subject and Body, and asks for confirmation.
+2. `POST /api/follow-ups/{id}/send/` re-validates everything before touching Gmail:
+   - the follow-up is `APPROVED`;
+   - the invoice is still unpaid and overdue, and its snapshot fields are unchanged;
+   - the recipient is valid and allowed;
+   - subject and body are within the limits and contain no links;
+   - Gmail is authorized for the configured sender.
+3. **Reservation:** a single conditional `UPDATE … SET status='SENDING' WHERE status='APPROVED'`
+   plus a `DeliveryAttempt` row, committed before Gmail is called. Only one request can win the
+   update, on any database, and a partial unique index allows only one `SENDING` attempt per
+   reminder.
+4. Gmail `users.messages.send` is called with no transaction open and **no retries**. The
+   exact approved subject and body are sent as a plain-text MIME message, base64url-encoded.
+5. The result is recorded with conditional updates.
+
+| Outcome | Follow-up / attempt | HTTP | Meaning |
+| --- | --- | --- | --- |
+| Gmail returned a message ID | `SENT` (+ message/thread ID, `sent_at`) | `200` `code: sent` | Gmail accepted the email. |
+| Gmail answered 4xx, or the connection could not be opened | `FAILED` | `502` `code: delivery_failed` | Reliable evidence it was **not** sent. |
+| Timeout, dropped connection, 5xx, response without ID, crash | `DELIVERY_UNKNOWN` | `202` `code: delivery_unknown`, `requires_reconciliation: true` | It **may** have been sent. Do not resend. |
+| Not ready / ineligible / duplicate / invalid, before reservation | unchanged | `503` / `409` / `400` | Nothing was submitted. |
+
+`202` is used for unknown outcomes on purpose: a `5xx` would invite clients to retry.
+
+### Duplicate-send protection
+
+- Only `APPROVED` reminders can be sent. `SENDING`, `SENT` and `DELIVERY_UNKNOWN` return `409
+  duplicate_delivery`.
+- The reservation is an atomic conditional update (it does not rely on `select_for_update`,
+  which SQLite ignores), backed by a unique index on in-flight attempts.
+- Gmail calls never retry, and the UI disables the button while sending. A lost response is
+  shown as "outcome unknown" and is never retried.
+- While a reminder is `SENDING` or `DELIVERY_UNKNOWN`, no new reminder can be generated for that
+  invoice.
+
+### Manual reconciliation
+
+A reminder left in `SENDING` (process crashed mid-send) or `DELIVERY_UNKNOWN` needs a human:
+
+```bash
+python manage.py reconcile_delivery                      # list unresolved deliveries
+# Check the sender account's Gmail "Sent" folder for the subject, then:
+python manage.py reconcile_delivery <follow-up-id> --sent [--message-id <id>]
+python manage.py reconcile_delivery <follow-up-id> --failed
+```
+
+Nothing is ever resent automatically. After `--failed`, draft a new reminder to try again.
+
+### Known MVP limitations
+
+- Sending is synchronous within the request; there is no queue or scheduler.
+- Plain-text emails only; one sender account; no reply tracking or inbox monitoring.
+- Reconciliation is a CLI step; there is no UI for it yet.
+- With the consent screen in *Testing*, Google expires refresh tokens after 7 days, so you need
+  to re-run `authorize_gmail` periodically.
+- In production (`DEBUG=false`) an empty `GMAIL_ALLOWED_RECIPIENTS` means any recipient is
+  allowed.
 
 ## Frontend setup
 
@@ -208,7 +320,7 @@ npm run typecheck
 npm run build
 ```
 
-Tests mock the Google Sheets and Gemini APIs; they never make network calls.
+Tests mock the Google Sheets, Gemini and Gmail APIs; they never make network calls or send email.
 
 ## API
 
@@ -228,5 +340,8 @@ All endpoints except `/api/health/` require `Authorization: Bearer <COLLECTFLOW_
 | PATCH  | `/api/follow-ups/{id}/`  | Edit `subject` / `body` of a draft. `400` invalid content; `409` not a draft      |
 | POST   | `/api/follow-ups/{id}/approve/` | `DRAFT → APPROVED` (no email is sent). `409` wrong status or stale invoice |
 | POST   | `/api/follow-ups/{id}/reject/`  | `DRAFT → REJECTED`. `409` wrong status                                     |
+| POST   | `/api/follow-ups/{id}/send/`    | Send an approved reminder via Gmail. `200` sent · `202` delivery unknown (reconcile, do not retry) · `502` Gmail refused · `409` wrong state/stale/duplicate · `503` Gmail not ready |
+| GET    | `/api/follow-ups/{id}/delivery-attempts/` | Delivery attempts, newest first                                  |
+| GET    | `/api/integrations/gmail/status/` | Whether Gmail is configured, authorized and matches the sender           |
 
 Errors return `{"detail": "...", "code": "..."}`; `401` means a missing or invalid operator token.

@@ -1,0 +1,252 @@
+"""
+Gmail adapter: sends single messages through users.messages.send using OAuth 2.0 user
+credentials. It never reads mail. Callers get typed results or typed errors whose
+messages are safe to show to operators (no tokens, no raw provider payloads).
+
+Error classification matters because a duplicate payment reminder is worse than a
+missing one:
+- GmailNotReady:        nothing was sent (configuration/authorization problem found first).
+- GmailRejected:        reliable evidence Gmail did not accept the message.
+- GmailDeliveryUnknown: the message may or may not have been accepted. Never retry.
+"""
+
+import base64
+import json
+import logging
+import os
+import socket
+import tempfile
+import urllib.parse
+from dataclasses import dataclass
+from email.message import EmailMessage
+from pathlib import Path
+from typing import Any
+
+import httplib2
+from django.conf import settings
+from google.auth.exceptions import GoogleAuthError, RefreshError
+from google.oauth2.credentials import Credentials
+from google_auth_httplib2 import AuthorizedHttp, Request
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+logger = logging.getLogger(__name__)
+
+SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+# Identity-only scopes, used solely to confirm which account authorized sending.
+IDENTITY_SCOPES = ("openid", "https://www.googleapis.com/auth/userinfo.email")
+SCOPES = [SEND_SCOPE, *IDENTITY_SCOPES]
+
+TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+READINESS_TIMEOUT_SECONDS = 10
+SEND_TIMEOUT_SECONDS = 25
+
+
+class GmailError(Exception):
+    code = "gmail_error"
+
+
+class GmailNotReady(GmailError):
+    code = "gmail_not_ready"
+
+
+class GmailRejected(GmailError):
+    code = "gmail_rejected"
+
+    def __init__(self, message: str, code: str = "gmail_rejected") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class GmailDeliveryUnknown(GmailError):
+    code = "delivery_unknown"
+
+
+@dataclass(frozen=True)
+class GmailStatus:
+    configured: bool
+    ready: bool
+    sender_email: str
+    authorized_email: str | None
+    detail: str
+
+
+@dataclass(frozen=True)
+class DeliveryResult:
+    message_id: str
+    thread_id: str | None
+
+
+def build_message(*, sender: str, recipient: str, subject: str, body: str) -> EmailMessage:
+    """Plain-text MIME message. EmailMessage rejects header values containing newlines."""
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = recipient
+    message["Subject"] = subject
+    message.set_content(body)
+    return message
+
+
+def encode_message(message: EmailMessage) -> str:
+    return base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+
+
+def save_token(credentials: Credentials, token_file: Path) -> None:
+    """Writes the token atomically, readable only by the current user."""
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(dir=token_file.parent, prefix=".gmail-token-")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            handle.write(credentials.to_json())
+        os.replace(temp_path, token_file)
+    except BaseException:
+        Path(temp_path).unlink(missing_ok=True)
+        raise
+
+
+class GmailClient:
+    def __init__(self, *, token_file: str, sender_email: str) -> None:
+        self.token_file = Path(token_file) if token_file else None
+        self.sender_email = sender_email.strip().lower()
+        self._credentials: Credentials | None = None
+
+    @classmethod
+    def from_settings(cls) -> "GmailClient":
+        return cls(token_file=settings.GMAIL_TOKEN_FILE, sender_email=settings.GMAIL_SENDER_EMAIL)
+
+    # Readiness ----------------------------------------------------------------
+
+    def _load_credentials(self) -> Credentials:
+        if not self.sender_email:
+            raise GmailNotReady("GMAIL_SENDER_EMAIL is not configured.")
+        if self.token_file is None:
+            raise GmailNotReady("GMAIL_TOKEN_FILE is not configured.")
+        if not self.token_file.is_file():
+            raise GmailNotReady("Gmail is not authorized yet. Run: python manage.py authorize_gmail")
+        try:
+            credentials = Credentials.from_authorized_user_file(str(self.token_file), SCOPES)
+        except (ValueError, KeyError, json.JSONDecodeError, OSError):
+            raise GmailNotReady("The Gmail token file is invalid. Run: python manage.py authorize_gmail") from None
+
+        if not credentials.valid:
+            if not credentials.refresh_token:
+                raise GmailNotReady("Gmail authorization has expired. Run: python manage.py authorize_gmail")
+            try:
+                credentials.refresh(Request(httplib2.Http(timeout=READINESS_TIMEOUT_SECONDS)))
+            except RefreshError:
+                logger.warning("Gmail token refresh was refused")
+                raise GmailNotReady(
+                    "Gmail authorization was revoked or expired. Run: python manage.py authorize_gmail"
+                ) from None
+            except (GoogleAuthError, httplib2.HttpLib2Error, OSError):
+                logger.warning("Gmail token refresh failed (network)")
+                raise GmailNotReady("Could not reach Google to refresh Gmail authorization.") from None
+            save_token(credentials, self.token_file)
+        return credentials
+
+    def _token_identity(self, credentials: Credentials) -> tuple[str, set[str]]:
+        """Asks Google which account and scopes the access token belongs to."""
+        http = httplib2.Http(timeout=READINESS_TIMEOUT_SECONDS)
+        try:
+            response, content = http.request(
+                TOKENINFO_URL,
+                method="POST",
+                body=urllib.parse.urlencode({"access_token": credentials.token}),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        except (httplib2.HttpLib2Error, OSError):
+            logger.warning("Could not reach Google tokeninfo")
+            raise GmailNotReady("Could not reach Google to verify Gmail authorization.") from None
+        if response.status != 200:
+            logger.warning("Google tokeninfo returned HTTP %s", response.status)
+            raise GmailNotReady("Google could not verify the Gmail authorization. Run: python manage.py authorize_gmail")
+        try:
+            info = json.loads(content)
+        except json.JSONDecodeError:
+            raise GmailNotReady("Google returned an unexpected token verification response.") from None
+        return str(info.get("email", "")).lower(), set(str(info.get("scope", "")).split())
+
+    def check_ready(self) -> GmailStatus:
+        """Verifies configuration, authorization, scope and sender identity. Never sends."""
+        configured = bool(self.sender_email and self.token_file)
+        try:
+            credentials = self._load_credentials()
+            authorized_email, scopes = self._token_identity(credentials)
+        except GmailNotReady as exc:
+            return GmailStatus(configured, False, self.sender_email, None, str(exc))
+
+        if SEND_SCOPE not in scopes:
+            return GmailStatus(
+                configured, False, self.sender_email, authorized_email,
+                "The Gmail authorization does not include the gmail.send scope. Run: python manage.py authorize_gmail",
+            )
+        if not authorized_email:
+            return GmailStatus(
+                configured, False, self.sender_email, None,
+                "Could not confirm the authorized account's email. Run: python manage.py authorize_gmail",
+            )
+        if authorized_email != self.sender_email:
+            return GmailStatus(
+                configured, False, self.sender_email, authorized_email,
+                f"GMAIL_SENDER_EMAIL ({self.sender_email}) does not match the authorized account ({authorized_email}).",
+            )
+
+        self._credentials = credentials
+        return GmailStatus(configured, True, self.sender_email, authorized_email, "Gmail is ready to send.")
+
+    # Sending ------------------------------------------------------------------
+
+    def send(self, *, recipient: str, subject: str, body: str) -> DeliveryResult:
+        """Sends one message. Must be called after check_ready(); never retries."""
+        if self._credentials is None:
+            raise GmailNotReady("Gmail readiness was not verified before sending.")
+
+        try:
+            raw = encode_message(build_message(sender=self.sender_email, recipient=recipient, subject=subject, body=body))
+        except (ValueError, TypeError):
+            raise GmailRejected("The email could not be built (invalid header value).", code="invalid_message") from None
+
+        http = AuthorizedHttp(self._credentials, http=httplib2.Http(timeout=SEND_TIMEOUT_SECONDS))
+        try:
+            service = build("gmail", "v1", http=http, cache_discovery=False)
+        except (httplib2.HttpLib2Error, OSError, HttpError):
+            # Building the client happens before the send request: nothing was submitted.
+            logger.warning("Could not initialise the Gmail API client")
+            raise GmailRejected("Could not reach the Gmail API; the email was not sent.", code="gmail_unreachable") from None
+
+        request = service.users().messages().send(userId="me", body={"raw": raw})
+        try:
+            response: dict[str, Any] = request.execute(num_retries=0)
+        except HttpError as exc:
+            status = exc.resp.status if exc.resp is not None else None
+            logger.warning("Gmail send returned HTTP %s", status)
+            if status is not None and 400 <= int(status) < 500:
+                # Gmail explicitly refused the request; it was not accepted.
+                raise GmailRejected(_describe_rejection(int(status)), code=f"gmail_http_{status}") from None
+            raise GmailDeliveryUnknown(
+                f"Gmail returned HTTP {status}; it is unknown whether the email was accepted."
+            ) from None
+        except (httplib2.ServerNotFoundError, ConnectionRefusedError):
+            # The connection was never established, so the request cannot have been received.
+            logger.warning("Gmail send could not connect")
+            raise GmailRejected("Could not connect to Gmail; the email was not sent.", code="gmail_unreachable") from None
+        except (TimeoutError, socket.timeout, httplib2.HttpLib2Error, OSError):
+            logger.warning("Gmail send was interrupted (timeout or connection error)")
+            raise GmailDeliveryUnknown(
+                "The connection to Gmail was interrupted; it is unknown whether the email was accepted."
+            ) from None
+
+        message_id = response.get("id") if isinstance(response, dict) else None
+        if not message_id:
+            raise GmailDeliveryUnknown("Gmail responded without a message ID; delivery could not be confirmed.")
+        thread_id = response.get("threadId")
+        return DeliveryResult(message_id=str(message_id), thread_id=str(thread_id) if thread_id else None)
+
+
+def _describe_rejection(status: int) -> str:
+    if status in (401, 403):
+        return f"Gmail refused the request (HTTP {status}). Re-authorize with: python manage.py authorize_gmail"
+    if status == 429:
+        return "Gmail rate limit reached (HTTP 429); the email was not sent."
+    return f"Gmail rejected the email (HTTP {status}); it was not sent."
