@@ -1,0 +1,26 @@
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Environment files (commit only the examples)
+.env
+.env.*
+!.env.example
+
+# Python / Django (backend)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.sqlite3
+/backend/staticfiles/
+/backend/media/
+.coverage
+htmlcov/
+
+# Node / Next.js (frontend) — see also frontend/.gitignore
+node_modules/
+.next/
+out/
+*.tsbuildinfo
