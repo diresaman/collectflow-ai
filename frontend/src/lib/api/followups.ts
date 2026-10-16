@@ -20,6 +20,8 @@ export type FollowUp = {
   recipient_email: string;
   /** Material invoice changes since generation (DRAFT/APPROVED only); non-empty means "review". */
   invoice_changed_fields: string[];
+  /** Invoice facts captured at generation (amount, currency, due_date, ...). */
+  invoice_snapshot: Record<string, string>;
   subject: string;
   body: string;
   tone: Tone;
@@ -42,7 +44,7 @@ export const ACTIVE_STATUSES: readonly FollowUpStatus[] = ["DRAFT", "APPROVED", 
 const TONES: readonly string[] = ["FRIENDLY", "PROFESSIONAL", "FIRM"];
 const STATUSES: readonly string[] = ["DRAFT", "APPROVED", "REJECTED", "SENDING", "SENT", "FAILED", "DELIVERY_UNKNOWN"];
 
-function isFollowUp(value: unknown): value is FollowUp {
+export function isFollowUp(value: unknown): value is FollowUp {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   const str = (key: string) => typeof v[key] === "string";
@@ -53,6 +55,8 @@ function isFollowUp(value: unknown): value is FollowUp {
     ["recommended_action", "generated_at", "updated_at"].every(str) &&
     Array.isArray(v.invoice_changed_fields) &&
     (v.invoice_changed_fields as unknown[]).every((field) => typeof field === "string") &&
+    typeof v.invoice_snapshot === "object" &&
+    v.invoice_snapshot !== null &&
     nullableStr("approved_at") &&
     nullableStr("sent_at") &&
     TONES.includes(v.tone as string) &&

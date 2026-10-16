@@ -142,10 +142,24 @@ class ReviewEndpointTests(TestCase):
         self.client.post(self.url("follow-up-approve"), **AUTH)
 
         self.assertEqual(self.client.post(self.url("follow-up-approve"), **AUTH).status_code, 409)
-        self.assertEqual(self.client.post(self.url("follow-up-reject"), **AUTH).status_code, 409)
         response = self.patch(subject="Edited after approval")
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["code"], "invalid_status_transition")
+
+    def test_unsent_approval_can_be_withdrawn_once(self) -> None:
+        self.client.post(self.url("follow-up-approve"), **AUTH)
+
+        withdrawn = self.client.post(self.url("follow-up-reject"), **AUTH)
+
+        self.assertEqual(withdrawn.status_code, 200)
+        self.assertEqual(withdrawn.json()["status"], "REJECTED")
+        self.assertEqual(self.client.post(self.url("follow-up-reject"), **AUTH).status_code, 409)
+        self.follow_up.refresh_from_db()
+        self.assertEqual(self.follow_up.subject, "Reminder: invoice INV-100")  # content untouched
+
+    def test_sent_reminder_cannot_be_withdrawn(self) -> None:
+        FollowUp.objects.filter(pk=self.follow_up.pk).update(status=FollowUp.Status.SENT)
+        self.assertEqual(self.client.post(self.url("follow-up-reject"), **AUTH).status_code, 409)
 
     def test_rejected_cannot_be_approved(self) -> None:
         self.client.post(self.url("follow-up-reject"), **AUTH)

@@ -2,10 +2,10 @@
 
 An AI-powered accounts receivable follow-up assistant for small service businesses.
 
-> **Current status — Milestone 05 (proactive automation):** invoices sync from a Google Sheet;
-> an automation run (button or cron) drafts Gemini reminders for eligible overdue invoices into
-> an approval queue; an operator edits, approves and explicitly sends them through Gmail.
-> Automation never sends email, and nothing reads the inbox.
+> **Current status — Milestone 05.5 (interactive automation workflow):** the `/automation`
+> workspace runs the whole loop in one place: sync → AI drafts → human review → per-reminder
+> Gmail confirmation → summary. Progress is persisted, so a refresh resumes where you left off.
+> Nothing is emailed without an explicit confirmation of that specific reminder.
 
 ## Repository layout
 
@@ -31,14 +31,15 @@ collectflow-ai/
 │   │   ├── policy.py           Deterministic eligibility / cooldown policy
 │   │   ├── lease.py            Database-backed run lease (one run at a time)
 │   │   ├── orchestrator.py     AutomationOrchestrator (sync → evaluate → draft)
-│   │   └── models.py           AutomationRunItem, AutomationLease
+│   │   ├── workflow.py         Interactive workflow state (derived from persisted data)
+│   │   └── models.py           AutomationRunItem, AutomationLease, WorkflowStep
 │   ├── integrations/gemini.py  Gemini API adapter (google-genai)
 │   ├── integrations/gmail.py   Gmail send-only adapter (OAuth 2.0 user credentials)
 │   ├── credentials/            Service account key (gitignored; create locally)
 │   ├── requirements.txt
 │   └── .env.example
 └── frontend/                   Next.js (App Router) + TypeScript + Tailwind CSS
-    ├── src/app/                Page, layout, and /api/backend proxy route
+    ├── src/app/                Dashboard (/), automation workspace (/automation), /api/backend proxy
     ├── src/components/         ApiStatus and dashboard components
     ├── src/lib/api/            Typed API client
     └── .env.example
@@ -161,13 +162,17 @@ threatening the customer, claiming a payment was verified, or claiming any actio
 
 ```
 DRAFT ──approve──▶ APPROVED ──send──▶ SENDING ──▶ SENT
-  │                                       ├──▶ FAILED            (Gmail refused; not sent)
-  └──reject───▶ REJECTED                  └──▶ DELIVERY_UNKNOWN  (may have been sent)
+  │                  │                    ├──▶ FAILED            (Gmail refused; not sent)
+  └──reject───▶ REJECTED ◀──withdraw──┘    └──▶ DELIVERY_UNKNOWN  (may have been sent)
 
 SENDING / DELIVERY_UNKNOWN ──(operator, after checking Gmail)──▶ SENT or FAILED
 ```
 
 - Only `DRAFT` follow-ups can be edited (subject ≤ 150 chars, single line; body 20–5000 chars).
+- **Withdraw approval:** an `APPROVED` reminder that was never sent can be moved to `REJECTED`
+  (`POST /reject/`). Its content stays unchanged. Sent, sending or unknown deliveries can't be
+  withdrawn, and the change is a conditional update, so it can't overwrite a send that just
+  started.
 - **Approve** re-reads the invoice. It refuses (HTTP 409) if the invoice is no longer eligible
   (e.g. now paid) or if any snapshot field changed since generation (`external_id`,
   `client_name`, `client_email`, `amount`, `currency`, `due_date`, `status`).
@@ -394,9 +399,80 @@ workers or hosts, use PostgreSQL.
   the run.
 - Runs are bounded by `AUTOMATION_MAX_DRAFTS_PER_RUN`; remaining eligible invoices are drafted
   on the next run.
-- A stale **approved** reminder (invoice changed after approval) can't be sent, and there is
-  currently no transition to withdraw it, so it blocks new reminders for that invoice.
+- A stale **approved** reminder (invoice changed after approval) can't be sent. Withdraw the
+  approval, and the next run (or a manual Analyze) drafts a fresh one.
 - The dry run evaluates current data without syncing first.
+
+## Interactive automation workspace (`/automation`)
+
+One page for the whole loop: **Run Automation**, live progress, review drafts, confirm each
+Gmail send, see delivery results, then **Finish**. It talks only to existing services through
+the same server-side proxy.
+
+### Workflow state machine
+
+A workflow is an `AUTOMATION` run (the workflow ID is the run ID). Steps, in order:
+
+| Step | Persisted / derived | Meaning |
+| --- | --- | --- |
+| `SYNCING_INVOICES` | persisted (`WorkflowStep`) | Google Sheets sync |
+| `EVALUATING_INVOICES` | persisted | Policy applied to every invoice (counts eligible / overdue) |
+| `GENERATING_DRAFTS` | persisted, detail updated per invoice ("3 of 5 done") | Gemini drafts |
+| `WAITING_FOR_APPROVAL` | derived from this run's drafts | `RUNNING` while any draft is still `DRAFT` |
+| `WAITING_FOR_SEND_CONFIRMATION` | derived | `RUNNING` while approved reminders are neither sent nor left unsent |
+| `SENDING` | derived from follow-ups and delivery attempts | `RUNNING` while a send is in flight; `FAILED` if any delivery failed or is unknown |
+| `FINALIZING` | persisted | Set by **Finish** (or automatically when nothing needed review) |
+
+Each step is `PENDING`, `RUNNING`, `COMPLETED`, `FAILED` or `SKIPPED`, with start and finish times
+and a short, sanitized detail. The overall state is `PROCESSING` → `WAITING_FOR_APPROVAL` →
+`WAITING_FOR_SEND_CONFIRMATION` / `SENDING` → `READY_TO_FINALIZE` → `FINALIZED`.
+
+### How it pauses and resumes
+
+- The orchestrator only does the automated part. When drafting ends it releases the run lease
+  and returns. **No request, transaction or lease is held while waiting for a person.**
+- The human steps are recomputed from the database on every read. Drafts are followed through
+  regeneration, so a regenerated draft stays part of the workflow. Approve, reject, edit,
+  regenerate and send use the **existing** follow-up endpoints, unchanged. Refreshing the page
+  (or coming back days later) shows the same state and never re-syncs or regenerates.
+- `GET /api/automation/workflows/current/` returns the workflow to show: one that is processing,
+  otherwise the newest unfinished one, otherwise the newest. The page polls every 1.5s only while
+  processing or sending.
+- If nothing needs review (no drafts), the run finalizes itself.
+
+### Gmail confirmation
+
+- Approving **never** sends. Approved reminders move to **Confirm Gmail sends**, which shows the
+  recipient (from the approved snapshot), subject and full body.
+- Each reminder is sent only when you click **Send Email** and confirm the dialog. That calls the
+  existing `POST /api/follow-ups/{id}/send/`, with all its eligibility, snapshot, allowlist and
+  duplicate-send checks. There is no bulk send.
+- **Leave unsent** removes a reminder from this workflow's queue. It stays `APPROVED` and can
+  still be sent later from the dashboard. **Finish** leaves any remaining approved reminders
+  unsent in the same way.
+- "Accepted by Gmail" (`SENT`) means Gmail took the message for delivery, not that the
+  recipient received it. `DELIVERY_UNKNOWN` is never counted as sent, never offered for resending,
+  and stays visible until reconciled (`manage.py reconcile_delivery`).
+
+### API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/automation/run/` | Start a run (same orchestrator as the command; `409` if one is active) |
+| GET | `/api/automation/workflows/current/` | `{"workflow": … \| null}`, used to resume after refresh |
+| GET | `/api/automation/workflows/{id}/` | State, current step, steps, summary, pending actions |
+| GET | `/api/automation/workflows/{id}/steps/` | Steps only |
+| GET | `/api/automation/workflows/{id}/pending-actions/` | Approvals, send confirmations, deliveries, left unsent, attention |
+| POST | `/api/automation/workflows/{id}/items/{item_id}/leave-unsent/` | Leave one approved reminder unsent (idempotent) |
+| POST | `/api/automation/workflows/{id}/finalize/` | Finish (idempotent; `409` while processing or sending) |
+
+### Workspace limitations
+
+- One open workflow is shown at a time. While it's unfinished, **Run Automation** is disabled
+  in the workspace (scheduled runs still start, and appear once they're processing).
+- Drafting happens inside the `POST /api/automation/run/` request. Closing the page doesn't stop
+  it, and the workspace picks it up again by polling.
+- Unreviewed drafts left when you click Finish stay in the dashboard's approval queue.
 
 ## Frontend setup
 
@@ -452,6 +528,7 @@ All endpoints except `/api/health/` require `Authorization: Bearer <COLLECTFLOW_
 | GET    | `/api/automation-runs/`  | The 20 most recent runs, newest first. Filter: `?kind=SYNC` or `?kind=AUTOMATION` |
 | GET    | `/api/automation-runs/{id}/` | One run; automation runs include per-invoice `items`                      |
 | POST   | `/api/automation/run/`   | Run the automation (sync + drafts, never sends). `200` completed/partial · `502` failed (body has the run) · `409 automation_running` |
+| GET/POST | `/api/automation/workflows/…` | Interactive workflow endpoints (see "Interactive automation workspace") |
 | POST   | `/api/invoices/{id}/analyze/` | Generate an AI draft. Body: `{"regenerate": false}`. `201` draft; `409` not eligible / active reminder exists / invoice changed; `502` invalid AI output; `503` Gemini unavailable |
 | GET    | `/api/follow-ups/`       | Follow-ups, newest first. Filters: `?invoice=<id>`, `?status=DRAFT`              |
 | GET    | `/api/follow-ups/{id}/`  | A single follow-up                                                               |

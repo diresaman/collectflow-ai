@@ -88,9 +88,13 @@ class AutomationRun(models.Model):
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="automation_runs"
     )
     invoices_evaluated = models.PositiveIntegerField(default=0)
+    # Unpaid invoices past their due date at evaluation time.
+    invoices_overdue = models.PositiveIntegerField(default=0)
     drafts_generated = models.PositiveIntegerField(default=0)
     invoices_skipped = models.PositiveIntegerField(default=0)
     generation_failures = models.PositiveIntegerField(default=0)
+    # Set when the interactive workflow for this run is closed (automatically if nothing needed review).
+    finalized_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-started_at", "-id"]

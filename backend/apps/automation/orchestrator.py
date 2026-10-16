@@ -21,7 +21,7 @@ from apps.invoices.sync import sync_invoices
 from integrations.gemini import GeminiClient
 
 from .lease import Lease, LeaseUnavailable
-from .models import AutomationRunItem
+from .models import AutomationRunItem, WorkflowStep
 from .policy import Decision, evaluate
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,7 @@ class AutomationOrchestrator:
             run = AutomationRun.objects.create(
                 kind=AutomationRun.Kind.AUTOMATION, trigger=trigger, status=AutomationRun.Status.RUNNING
             )
+            WorkflowStep.objects.bulk_create(WorkflowStep(run=run, key=key) for key in WorkflowStep.Key.values)
             lease.attach_run(run)
             try:
                 self._execute(run, lease)
@@ -79,6 +80,7 @@ class AutomationOrchestrator:
             except Exception:
                 logger.exception("Automation run %s failed unexpectedly", run.pk)
                 self._finish(run, AutomationRun.Status.FAILED, "Unexpected error; the run was stopped.")
+            self._close_steps(run)
             return run
         finally:
             lease.release()
@@ -100,39 +102,73 @@ class AutomationOrchestrator:
     # Execution ----------------------------------------------------------------
 
     def _execute(self, run: AutomationRun, lease: Lease) -> None:
+        self._step(run, WorkflowStep.Key.SYNCING_INVOICES, WorkflowStep.Status.RUNNING)
         sync_run = sync_invoices(trigger=run.trigger, client=self._sheets_client)
         run.sync_run = sync_run
         run.save(update_fields=["sync_run"])
         if sync_run.status != AutomationRun.Status.SUCCEEDED:
             headline = sync_run.error_summary.split("\n", 1)[0]
+            self._step(run, WorkflowStep.Key.SYNCING_INVOICES, WorkflowStep.Status.FAILED, headline)
             self._finish(run, AutomationRun.Status.FAILED, f"Synchronization failed; no invoices evaluated. {headline}")
             return
+        self._step(
+            run, WorkflowStep.Key.SYNCING_INVOICES, WorkflowStep.Status.COMPLETED,
+            f"{sync_run.records_processed} rows: {sync_run.created_count} new, {sync_run.updated_count} updated.",
+        )
         self._heartbeat(lease)
 
-        generator = FollowUpGenerationService(gemini=self._gemini)
+        # Evaluate every invoice first (no external calls), then draft for the eligible ones.
+        self._step(run, WorkflowStep.Key.EVALUATING_INVOICES, WorkflowStep.Status.RUNNING)
+        eligible: list[Invoice] = []
+        today = timezone.localdate()
         for invoice, decision in self._decisions():
-            if decision.eligible and run.drafts_generated >= settings.AUTOMATION_MAX_DRAFTS_PER_RUN:
+            if invoice.status == Invoice.Status.UNPAID and invoice.due_date < today:
+                run.invoices_overdue += 1
+            if decision.eligible and len(eligible) >= settings.AUTOMATION_MAX_DRAFTS_PER_RUN:
                 decision = Decision.skip("run_limit_reached", "Draft limit for one run reached.")
-            if not decision.eligible:
+            if decision.eligible:
+                eligible.append(invoice)
+            else:
                 self._record(run, invoice, AutomationRunItem.Outcome.SKIPPED, decision.reason_code, decision.detail,
                              decision.follow_up)
-                continue
+        run.save(update_fields=["invoices_overdue"])
+        self._step(
+            run, WorkflowStep.Key.EVALUATING_INVOICES, WorkflowStep.Status.COMPLETED,
+            f"{run.invoices_skipped + len(eligible)} invoices evaluated, {run.invoices_overdue} overdue, "
+            f"{len(eligible)} eligible for a draft.",
+        )
+        self._heartbeat(lease)
 
-            # Generation enforces eligibility and uniqueness again at the service/database level.
-            try:
-                follow_up = generator.generate(invoice.pk)
-            except (NotEligible, ActiveFollowUpExists) as exc:
-                self._record(run, invoice, AutomationRunItem.Outcome.SKIPPED, exc.code, exc.message)
-            except FollowUpError as exc:
-                self._record(run, invoice, AutomationRunItem.Outcome.FAILED, exc.code, exc.message)
-            except Exception:
-                logger.exception("Unexpected error generating a follow-up in automation run %s", run.pk)
-                self._record(run, invoice, AutomationRunItem.Outcome.FAILED, "unexpected_error",
-                             "Unexpected error while generating the draft.")
-            else:
-                self._record(run, invoice, AutomationRunItem.Outcome.GENERATED, "", "Draft generated; awaiting approval.",
-                             follow_up)
-            self._heartbeat(lease)
+        if not eligible:
+            self._step(run, WorkflowStep.Key.GENERATING_DRAFTS, WorkflowStep.Status.SKIPPED, "No eligible invoices.")
+        else:
+            self._step(run, WorkflowStep.Key.GENERATING_DRAFTS, WorkflowStep.Status.RUNNING, f"0 of {len(eligible)} done.")
+            generator = FollowUpGenerationService(gemini=self._gemini)
+            for done, invoice in enumerate(eligible, start=1):
+                # Generation enforces eligibility and uniqueness again at the service/database level.
+                try:
+                    follow_up = generator.generate(invoice.pk)
+                except (NotEligible, ActiveFollowUpExists) as exc:
+                    self._record(run, invoice, AutomationRunItem.Outcome.SKIPPED, exc.code, exc.message)
+                except FollowUpError as exc:
+                    self._record(run, invoice, AutomationRunItem.Outcome.FAILED, exc.code, exc.message)
+                except Exception:
+                    logger.exception("Unexpected error generating a follow-up in automation run %s", run.pk)
+                    self._record(run, invoice, AutomationRunItem.Outcome.FAILED, "unexpected_error",
+                                 "Unexpected error while generating the draft.")
+                else:
+                    self._record(run, invoice, AutomationRunItem.Outcome.GENERATED, "",
+                                 "Draft generated; awaiting approval.", follow_up)
+                self._step(run, WorkflowStep.Key.GENERATING_DRAFTS, WorkflowStep.Status.RUNNING,
+                           f"{done} of {len(eligible)} done: {run.drafts_generated} drafted, "
+                           f"{run.generation_failures} failed.")
+                self._heartbeat(lease)
+            all_failed = run.drafts_generated == 0 and run.generation_failures > 0
+            self._step(
+                run, WorkflowStep.Key.GENERATING_DRAFTS,
+                WorkflowStep.Status.FAILED if all_failed else WorkflowStep.Status.COMPLETED,
+                f"{run.drafts_generated} drafted, {run.generation_failures} failed.",
+            )
 
         if run.generation_failures == 0:
             self._finish(run, AutomationRun.Status.COMPLETED)
@@ -142,6 +178,33 @@ class AutomationOrchestrator:
         else:
             self._finish(run, AutomationRun.Status.FAILED,
                          f"All {run.generation_failures} draft generation attempt(s) failed; see run items.")
+
+    @staticmethod
+    def _step(run: AutomationRun, key: str, status: str, detail: str = "") -> None:
+        now = timezone.now()
+        fields: dict[str, object] = {"status": status, "detail": detail[:300]}
+        if status == WorkflowStep.Status.RUNNING:
+            WorkflowStep.objects.filter(run=run, key=key, started_at__isnull=True).update(started_at=now)
+        else:
+            WorkflowStep.objects.filter(run=run, key=key, started_at__isnull=True).update(started_at=now)
+            fields["completed_at"] = now
+        WorkflowStep.objects.filter(run=run, key=key).update(**fields)
+
+    @staticmethod
+    def _close_steps(run: AutomationRun) -> None:
+        """After processing: skip steps that never ran; finalize at once if nothing needs review."""
+        steps = WorkflowStep.objects.filter(run=run).exclude(key=WorkflowStep.Key.FINALIZING)
+        # A step still RUNNING was interrupted by a failure; steps that never started were skipped.
+        steps.filter(status=WorkflowStep.Status.RUNNING).update(status=WorkflowStep.Status.FAILED, completed_at=timezone.now())
+        steps.filter(status=WorkflowStep.Status.PENDING).update(status=WorkflowStep.Status.SKIPPED)
+        if run.drafts_generated == 0:
+            now = timezone.now()
+            AutomationRun.objects.filter(pk=run.pk, finalized_at__isnull=True).update(finalized_at=now)
+            run.refresh_from_db(fields=["finalized_at"])
+            WorkflowStep.objects.filter(run=run, key=WorkflowStep.Key.FINALIZING).update(
+                status=WorkflowStep.Status.COMPLETED, started_at=now, completed_at=now,
+                detail="Nothing needed review; finalized automatically.",
+            )
 
     @staticmethod
     def _decisions():  # type: ignore[no-untyped-def]

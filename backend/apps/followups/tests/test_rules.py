@@ -57,11 +57,17 @@ class TransitionTests(TestCase):
         self.assertEqual(follow_up.status, FollowUp.Status.APPROVED)
         self.assertIsNotNone(follow_up.approved_at)
 
+    def test_approval_can_be_withdrawn(self) -> None:
+        follow_up = FollowUp(invoice=overdue_invoice(), status=FollowUp.Status.APPROVED)
+        follow_up.transition_to(FollowUp.Status.REJECTED)
+        self.assertEqual(follow_up.status, FollowUp.Status.REJECTED)
+
     def test_invalid_transitions_raise(self) -> None:
         invoice = overdue_invoice()
         cases = [
-            (FollowUp.Status.APPROVED, FollowUp.Status.REJECTED),
             (FollowUp.Status.APPROVED, FollowUp.Status.DRAFT),
+            (FollowUp.Status.SENT, FollowUp.Status.REJECTED),
+            (FollowUp.Status.DELIVERY_UNKNOWN, FollowUp.Status.REJECTED),
             (FollowUp.Status.REJECTED, FollowUp.Status.APPROVED),
             (FollowUp.Status.DRAFT, FollowUp.Status.SENT),  # reserved for Milestone 04
         ]

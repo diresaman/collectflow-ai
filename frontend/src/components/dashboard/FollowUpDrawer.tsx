@@ -200,7 +200,7 @@ export function FollowUpDrawer({
                   {current.invoice_changed_fields.join(", ")}).{" "}
                   {current.status === "DRAFT"
                     ? "It cannot be approved as is; regenerate or reject it."
-                    : "It can no longer be sent. Approved reminders cannot currently be withdrawn, so this invoice will not get a new reminder until that is resolved."}
+                    : "It can no longer be sent. Withdraw the approval below, then draft a new reminder."}
                 </p>
               )}
               <AiInsight followUp={current} />

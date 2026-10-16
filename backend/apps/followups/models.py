@@ -33,7 +33,8 @@ class FollowUp(models.Model):
 
     ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
         Status.DRAFT: frozenset({Status.APPROVED, Status.REJECTED}),
-        Status.APPROVED: frozenset({Status.SENDING}),
+        # REJECTED here means "withdraw approval" (unsent reminders only; content stays immutable).
+        Status.APPROVED: frozenset({Status.SENDING, Status.REJECTED}),
         Status.SENDING: frozenset({Status.SENT, Status.FAILED, Status.DELIVERY_UNKNOWN}),
         Status.REJECTED: frozenset(),
         Status.SENT: frozenset(),

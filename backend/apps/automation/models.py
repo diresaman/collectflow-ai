@@ -21,9 +21,42 @@ class AutomationRunItem(models.Model):
     detail = models.CharField(max_length=300, blank=True)
     follow_up = models.ForeignKey(FollowUp, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now)
+    # Operator chose not to send this approved reminder in this workflow (it stays APPROVED).
+    left_unsent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["id"]
+
+
+class WorkflowStep(models.Model):
+    """
+    Persisted progress of the automated phases of a workflow (an AUTOMATION run).
+    The human phases (approval, send confirmation, sending) are derived from follow-ups and
+    delivery attempts instead; see apps/automation/workflow.py.
+    """
+
+    class Key(models.TextChoices):
+        SYNCING_INVOICES = "SYNCING_INVOICES", "Syncing invoices"
+        EVALUATING_INVOICES = "EVALUATING_INVOICES", "Evaluating invoices"
+        GENERATING_DRAFTS = "GENERATING_DRAFTS", "Generating drafts"
+        FINALIZING = "FINALIZING", "Finalizing"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        RUNNING = "RUNNING", "Running"
+        COMPLETED = "COMPLETED", "Completed"
+        FAILED = "FAILED", "Failed"
+        SKIPPED = "SKIPPED", "Skipped"
+
+    run = models.ForeignKey(AutomationRun, on_delete=models.CASCADE, related_name="workflow_steps")
+    key = models.CharField(max_length=30, choices=Key.choices)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    detail = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["run", "key"], name="one_step_per_key_per_run")]
 
 
 class AutomationLease(models.Model):

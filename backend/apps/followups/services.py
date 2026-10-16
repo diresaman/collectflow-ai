@@ -12,13 +12,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from apps.invoices.models import Invoice
 from integrations.gemini import GeminiClient, GeminiError, GeminiResponseError
 
 from . import prompts
 from .eligibility import changed_snapshot_fields, ineligibility_reasons, invoice_snapshot, tone_for_days_overdue
-from .models import FollowUp, GenerationAttempt, InvalidTransition
+from .models import FollowUp, GenerationAttempt
 
 logger = logging.getLogger(__name__)
 
@@ -307,17 +308,29 @@ def approve(follow_up_id: uuid.UUID) -> FollowUp:
                 changed_fields=changed,
             )
 
-        follow_up.transition_to(FollowUp.Status.APPROVED)
-        follow_up.save(update_fields=["status", "approved_at", "updated_at"])
+        _conditional_transition(follow_up, FollowUp.Status.APPROVED, approved_at=timezone.now())
     return follow_up
 
 
 def reject(follow_up_id: uuid.UUID) -> FollowUp:
+    """DRAFT -> REJECTED, or APPROVED -> REJECTED (withdraw an approval that was never sent)."""
     with transaction.atomic():
         follow_up = _locked(follow_up_id)
-        try:
-            follow_up.transition_to(FollowUp.Status.REJECTED)
-        except InvalidTransition:
-            raise InvalidState(f"Cannot reject a follow-up that is {follow_up.status}.") from None
-        follow_up.save(update_fields=["status", "updated_at"])
+        if not follow_up.can_transition_to(FollowUp.Status.REJECTED):
+            raise InvalidState(f"Cannot reject a follow-up that is {follow_up.status}.")
+        _conditional_transition(follow_up, FollowUp.Status.REJECTED)
     return follow_up
+
+
+def _conditional_transition(follow_up: FollowUp, new_status: str, **fields: Any) -> None:
+    """
+    Applies a transition only if the status is still what was read. SQLite ignores row locks, so
+    this is what stops, e.g., a withdrawal from overwriting a send that just reserved the reminder.
+    """
+    now = timezone.now()
+    updated = FollowUp.objects.filter(pk=follow_up.pk, status=follow_up.status).update(
+        status=new_status, updated_at=now, **fields
+    )
+    if updated != 1:
+        raise InvalidState("The follow-up changed at the same time; reload and try again.")
+    follow_up.refresh_from_db()

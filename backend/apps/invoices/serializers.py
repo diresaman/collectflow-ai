@@ -44,8 +44,10 @@ class AutomationRunSerializer(serializers.ModelSerializer):
             "errors",
             "sync_run",
             "invoices_evaluated",
+            "invoices_overdue",
             "drafts_generated",
             "invoices_skipped",
             "generation_failures",
+            "finalized_at",
         ]
         read_only_fields = fields

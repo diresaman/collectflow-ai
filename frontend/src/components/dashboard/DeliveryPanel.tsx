@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api/client";
 import {
   getDeliveryAttempts,
   getGmailStatus,
+  rejectFollowUp,
   sendFollowUp,
   type DeliveryAttempt,
   type FollowUp,
@@ -193,13 +194,23 @@ function ConfirmDialog({
  * Delivery section for a non-draft follow-up. Parent re-mounts it (via `key`) whenever the
  * follow-up's status changes, which resets local state and reloads attempts.
  */
-export function DeliveryPanel({ followUp, onChanged }: { followUp: FollowUp; onChanged: () => void }) {
+export function DeliveryPanel({
+  followUp,
+  onChanged,
+  secondaryActions,
+}: {
+  followUp: FollowUp;
+  onChanged: () => void;
+  /** Extra buttons shown next to Send Email (e.g. "Leave unsent" in the automation workspace). */
+  secondaryActions?: ReactNode;
+}) {
   const canSend = followUp.status === "APPROVED";
   const [gmail, setGmail] = useState<Loadable<GmailStatus>>({ kind: "loading" });
   const [attempts, setAttempts] = useState<Loadable<DeliveryAttempt[]>>({ kind: "loading" });
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<SendError | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -244,6 +255,19 @@ export function DeliveryPanel({ followUp, onChanged }: { followUp: FollowUp; onC
     }
   };
 
+  const withdraw = async () => {
+    setWithdrawing(true);
+    setSendError(null);
+    try {
+      await rejectFollowUp(followUp.id);
+    } catch (error) {
+      setSendError({ kind: "not_sent", message: error instanceof ApiError ? error.message : "Unexpected error." });
+    } finally {
+      setWithdrawing(false);
+      onChanged();
+    }
+  };
+
   return (
     <div className="space-y-4">
       <StatusBanner followUp={followUp} attempts={attempts.kind === "ready" ? attempts.data : []} sender={sender} />
@@ -278,15 +302,28 @@ export function DeliveryPanel({ followUp, onChanged }: { followUp: FollowUp; onC
             </Banner>
           )}
 
-          <button
-            type="button"
-            onClick={() => setConfirming(true)}
-            disabled={!gmailReady || sending || sendError?.kind === "uncertain"}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {sending && <Spinner />}
-            {sending ? "Sending…" : "Send Email"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              disabled={!gmailReady || sending || withdrawing || sendError?.kind === "uncertain" || followUp.invoice_changed_fields.length > 0}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sending && <Spinner />}
+              {sending ? "Sending…" : "Send Email"}
+            </button>
+            {secondaryActions}
+            <button
+              type="button"
+              onClick={() => void withdraw()}
+              disabled={sending || withdrawing}
+              title="Cancel the approval. The reminder is not sent and becomes Rejected."
+              className="ml-auto inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {withdrawing && <Spinner />}
+              Withdraw approval
+            </button>
+          </div>
         </section>
       )}
 
