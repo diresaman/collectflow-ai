@@ -24,3 +24,7 @@ node_modules/
 .next/
 out/
 *.tsbuildinfo
+
+# Google service account keys and other local secrets
+/backend/credentials/
+*service-account*.json

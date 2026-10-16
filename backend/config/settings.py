@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "corsheaders",
     # Local
     "apps.core",
+    "apps.invoices",
 ]
 
 MIDDLEWARE = [
@@ -114,7 +115,8 @@ AUTH_PASSWORD_VALIDATORS = [
 # ------------------------------------------------------------------------------
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+# Determines what "today" means for overdue calculations.
+TIME_ZONE = os.environ.get("DJANGO_TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
 
@@ -134,6 +136,9 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"]
     + (["rest_framework.renderers.BrowsableAPIRenderer"] if DEBUG else []),
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
+    # Business endpoints require the operator token; public views opt out explicitly.
+    "DEFAULT_AUTHENTICATION_CLASSES": ["apps.core.authentication.OperatorTokenAuthentication"],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
 }
 
 
@@ -141,3 +146,21 @@ REST_FRAMEWORK = {
 # ------------------------------------------------------------------------------
 
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", default="http://localhost:3000")
+
+
+# Local operator access
+# ------------------------------------------------------------------------------
+
+# Shared secret for the local MVP. The Next.js server proxy sends it; browsers never see it.
+OPERATOR_TOKEN = os.environ.get("COLLECTFLOW_OPERATOR_TOKEN", "")
+
+
+# Google Sheets
+# ------------------------------------------------------------------------------
+
+GOOGLE_SHEETS_SPREADSHEET_ID = os.environ.get("GOOGLE_SHEETS_SPREADSHEET_ID", "")
+GOOGLE_SHEETS_RANGE = os.environ.get("GOOGLE_SHEETS_RANGE", "Sheet1!A1:G")
+
+# Path to a service account JSON key; relative paths resolve from the backend directory.
+_credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+GOOGLE_APPLICATION_CREDENTIALS = str(BASE_DIR / _credentials_path) if _credentials_path else ""

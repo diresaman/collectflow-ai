@@ -52,44 +52,34 @@ export function ApiStatus() {
     setAttempt((n) => n + 1);
   };
 
+  const detail =
+    state.kind === "connected"
+      ? `Service ${state.data.service} is responding.`
+      : state.kind === "unavailable"
+        ? state.message
+        : "Checking connection to the CollectFlow API.";
+
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">Backend status</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Connection to the CollectFlow API.
-          </p>
-        </div>
-        <span
-          role="status"
-          aria-live="polite"
-          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset ${BADGE_STYLES[state.kind]}`}
-        >
-          <span className={`h-2 w-2 rounded-full ${DOT_STYLES[state.kind]}`} aria-hidden="true" />
-          {LABELS[state.kind]}
-        </span>
-      </div>
-
-      {state.kind === "connected" && (
-        <p className="mt-4 text-sm text-slate-600">
-          Service <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs">{state.data.service}</code>{" "}
-          is responding.
-        </p>
-      )}
-
+    <div className="flex items-center gap-2">
+      <span
+        role="status"
+        aria-live="polite"
+        title={detail}
+        className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset ${BADGE_STYLES[state.kind]}`}
+      >
+        <span className={`h-2 w-2 rounded-full ${DOT_STYLES[state.kind]}`} aria-hidden="true" />
+        {LABELS[state.kind]}
+        <span className="sr-only">: {detail}</span>
+      </span>
       {state.kind === "unavailable" && (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-rose-50 px-4 py-3">
-          <p className="text-sm text-rose-700">{state.message}</p>
-          <button
-            type="button"
-            onClick={retry}
-            className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-rose-700 ring-1 ring-inset ring-rose-200 hover:bg-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-          >
-            Retry
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={retry}
+          className="rounded-md px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+        >
+          Retry
+        </button>
       )}
-    </section>
+    </div>
   );
 }
