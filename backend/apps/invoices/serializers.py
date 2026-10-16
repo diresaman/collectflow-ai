@@ -30,6 +30,7 @@ class AutomationRunSerializer(serializers.ModelSerializer):
         model = AutomationRun
         fields = [
             "id",
+            "kind",
             "trigger",
             "status",
             "started_at",
@@ -41,5 +42,10 @@ class AutomationRunSerializer(serializers.ModelSerializer):
             "rejected_count",
             "error_summary",
             "errors",
+            "sync_run",
+            "invoices_evaluated",
+            "drafts_generated",
+            "invoices_skipped",
+            "generation_failures",
         ]
         read_only_fields = fields

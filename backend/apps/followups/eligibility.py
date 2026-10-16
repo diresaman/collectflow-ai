@@ -11,20 +11,25 @@ from apps.invoices.models import Invoice
 from .models import Tone
 
 
-def ineligibility_reasons(invoice: Invoice) -> list[str]:
-    """Returns why the invoice cannot get a reminder; an empty list means eligible."""
-    reasons: list[str] = []
+def ineligibility(invoice: Invoice) -> list[tuple[str, str]]:
+    """(reason_code, message) pairs explaining why the invoice cannot get a reminder."""
+    reasons: list[tuple[str, str]] = []
     if invoice.status != Invoice.Status.UNPAID:
-        reasons.append("Invoice is not unpaid.")
+        reasons.append(("not_unpaid", "Invoice is not unpaid."))
     if invoice.due_date >= timezone.localdate():
-        reasons.append("Invoice is not overdue yet.")
+        reasons.append(("not_overdue", "Invoice is not overdue yet."))
     try:
         validate_email(invoice.client_email)
     except ValidationError:
-        reasons.append("Client email address is invalid.")
+        reasons.append(("invalid_recipient", "Client email address is invalid."))
     if invoice.amount is None or invoice.amount <= Decimal("0"):
-        reasons.append("Invoice amount must be positive.")
+        reasons.append(("invalid_amount", "Invoice amount must be positive."))
     return reasons
+
+
+def ineligibility_reasons(invoice: Invoice) -> list[str]:
+    """Returns why the invoice cannot get a reminder; an empty list means eligible."""
+    return [message for _, message in ineligibility(invoice)]
 
 
 def tone_for_days_overdue(days_overdue: int) -> str:

@@ -43,7 +43,11 @@ class AutomationRunListView(generics.ListAPIView):
     serializer_class = AutomationRunSerializer
 
     def get_queryset(self) -> QuerySet[AutomationRun]:
-        return AutomationRun.objects.all()[:RECENT_RUNS_LIMIT]
+        queryset = AutomationRun.objects.all()
+        kind = self.request.query_params.get("kind")
+        if kind:
+            queryset = queryset.filter(kind=kind.upper())
+        return queryset[:RECENT_RUNS_LIMIT]
 
 
 def _amounts_by_currency(invoices: QuerySet[Invoice]) -> list[dict[str, str]]:

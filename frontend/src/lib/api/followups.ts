@@ -18,6 +18,8 @@ export type FollowUp = {
   client_name: string;
   /** Recipient captured when the draft was generated; delivery always uses this address. */
   recipient_email: string;
+  /** Material invoice changes since generation (DRAFT/APPROVED only); non-empty means "review". */
+  invoice_changed_fields: string[];
   subject: string;
   body: string;
   tone: Tone;
@@ -49,6 +51,8 @@ function isFollowUp(value: unknown): value is FollowUp {
     ["id", "invoice_id", "invoice_external_id", "client_name", "recipient_email", "subject", "body"].every(str) &&
     str("reasoning") &&
     ["recommended_action", "generated_at", "updated_at"].every(str) &&
+    Array.isArray(v.invoice_changed_fields) &&
+    (v.invoice_changed_fields as unknown[]).every((field) => typeof field === "string") &&
     nullableStr("approved_at") &&
     nullableStr("sent_at") &&
     TONES.includes(v.tone as string) &&

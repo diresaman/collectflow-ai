@@ -38,7 +38,7 @@ export type SyncRowError = {
   message: string;
 };
 
-export type AutomationRunStatus = "RUNNING" | "SUCCEEDED" | "FAILED";
+export type AutomationRunStatus = "RUNNING" | "SUCCEEDED" | "COMPLETED" | "PARTIAL" | "FAILED";
 
 export type AutomationRun = {
   id: number;
@@ -115,7 +115,7 @@ function isAutomationRun(value: unknown): value is AutomationRun {
     isRecord(value) &&
     isNumber(value.id) &&
     isString(value.trigger) &&
-    (value.status === "RUNNING" || value.status === "SUCCEEDED" || value.status === "FAILED") &&
+    ["RUNNING", "SUCCEEDED", "COMPLETED", "PARTIAL", "FAILED"].includes(value.status as string) &&
     isString(value.started_at) &&
     isNullable(isString)(value.completed_at) &&
     isNumber(value.records_processed) &&
@@ -142,7 +142,8 @@ export function getDashboard(signal?: AbortSignal): Promise<DashboardSummary> {
 }
 
 export function getAutomationRuns(signal?: AbortSignal): Promise<AutomationRun[]> {
-  return backendGet("/automation-runs/", isArrayOf(isAutomationRun), { signal });
+  // Google Sheets synchronizations only (automation runs are listed separately).
+  return backendGet("/automation-runs/?kind=SYNC", isArrayOf(isAutomationRun), { signal });
 }
 
 /**

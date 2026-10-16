@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.invoices",
     "apps.followups",
+    "apps.automation",
 ]
 
 MIDDLEWARE = [
@@ -191,3 +192,14 @@ GMAIL_SENDER_EMAIL = os.environ.get("GMAIL_SENDER_EMAIL", "").strip()
 # Recipients that may be emailed: addresses or @domains. Required while DEBUG is on so
 # development can only email addresses the developer controls. Empty in production = no limit.
 GMAIL_ALLOWED_RECIPIENTS = [item.lower() for item in env_list("GMAIL_ALLOWED_RECIPIENTS")]
+
+
+# Proactive automation
+# ------------------------------------------------------------------------------
+
+# Days after a confirmed SENT (or operator-rejected) reminder before another is drafted.
+FOLLOWUP_COOLDOWN_DAYS = int(os.environ.get("FOLLOWUP_COOLDOWN_DAYS", "7"))
+# Upper bound on Gemini drafts per run (bounds runtime and cost).
+AUTOMATION_MAX_DRAFTS_PER_RUN = int(os.environ.get("AUTOMATION_MAX_DRAFTS_PER_RUN", "10"))
+# Lease duration; renewed after every step. Must exceed the slowest single step (~2 minutes).
+AUTOMATION_LEASE_SECONDS = int(os.environ.get("AUTOMATION_LEASE_SECONDS", "600"))

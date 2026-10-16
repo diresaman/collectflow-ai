@@ -14,6 +14,8 @@ import {
   type Invoice,
 } from "@/lib/api/invoices";
 
+import { ApprovalQueue } from "./ApprovalQueue";
+import { AutomationPanel } from "./AutomationPanel";
 import { FollowUpDrawer, type GenerationState } from "./FollowUpDrawer";
 import { FollowUpHistory } from "./FollowUpHistory";
 import { InvoiceTable, type FollowUpActions } from "./InvoiceTable";
@@ -147,6 +149,8 @@ export function Dashboard() {
       </div>
       <SyncStatus lastRun={lastRun} syncError={syncError} />
       <SummaryCards state={summary} />
+      <AutomationPanel onRunFinished={() => setReloadKey((key) => key + 1)} onOpenInvoice={followUpActions.onOpen} />
+      <ApprovalQueue state={followUps} onOpen={followUpActions.onOpen} />
       <InvoiceTable state={invoices} expectedColumns={expectedColumns} followUps={followUpActions} />
       <FollowUpHistory state={followUps} onOpen={followUpActions.onOpen} />
 

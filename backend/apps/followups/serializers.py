@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from .eligibility import changed_snapshot_fields
+
 from .models import DeliveryAttempt, FollowUp
 
 
@@ -10,8 +12,16 @@ class FollowUpSerializer(serializers.ModelSerializer):
     # Delivery always uses the email captured when the draft was generated.
     recipient_email = serializers.SerializerMethodField()
 
+    # Material invoice changes since generation (DRAFT/APPROVED only): the reminder needs review.
+    invoice_changed_fields = serializers.SerializerMethodField()
+
     def get_recipient_email(self, follow_up: FollowUp) -> str:
         return str(follow_up.invoice_snapshot.get("client_email", ""))
+
+    def get_invoice_changed_fields(self, follow_up: FollowUp) -> list[str]:
+        if follow_up.status not in (FollowUp.Status.DRAFT, FollowUp.Status.APPROVED):
+            return []
+        return changed_snapshot_fields(follow_up.invoice_snapshot, follow_up.invoice)
 
     class Meta:
         model = FollowUp
@@ -21,6 +31,7 @@ class FollowUpSerializer(serializers.ModelSerializer):
             "invoice_external_id",
             "client_name",
             "recipient_email",
+            "invoice_changed_fields",
             "subject",
             "body",
             "tone",

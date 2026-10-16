@@ -194,6 +194,15 @@ export function FollowUpDrawer({
                 <FollowUpStatusBadge status={current.status} />
                 <span className="text-xs text-slate-500">Generated {formatDateTime(current.generated_at)}</span>
               </div>
+              {current.invoice_changed_fields.length > 0 && (
+                <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <span className="font-semibold">Invoice changed since this reminder was generated</span> (
+                  {current.invoice_changed_fields.join(", ")}).{" "}
+                  {current.status === "DRAFT"
+                    ? "It cannot be approved as is; regenerate or reject it."
+                    : "It can no longer be sent. Approved reminders cannot currently be withdrawn, so this invoice will not get a new reminder until that is resolved."}
+                </p>
+              )}
               <AiInsight followUp={current} />
               {current.status === "DRAFT" ? (
                 <DraftEditor

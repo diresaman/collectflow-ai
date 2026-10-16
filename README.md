@@ -2,10 +2,10 @@
 
 An AI-powered accounts receivable follow-up assistant for small service businesses.
 
-> **Current status — Milestone 04 (Gmail delivery):** invoices sync from a Google Sheet, Gemini
-> drafts reminders for overdue invoices, an operator edits and approves them, and approved
-> reminders are sent through Gmail after an explicit confirmation. There is no scheduling and no
-> inbox reading.
+> **Current status — Milestone 05 (proactive automation):** invoices sync from a Google Sheet;
+> an automation run (button or cron) drafts Gemini reminders for eligible overdue invoices into
+> an approval queue; an operator edits, approves and explicitly sends them through Gmail.
+> Automation never sends email, and nothing reads the inbox.
 
 ## Repository layout
 
@@ -27,6 +27,11 @@ collectflow-ai/
 │   │   ├── services.py         Generation service, edit/approve/reject workflow
 │   │   └── views.py            REST endpoints
 │   │   ├── delivery.py         Gmail delivery service and manual reconciliation
+│   ├── apps/automation/        Proactive automation
+│   │   ├── policy.py           Deterministic eligibility / cooldown policy
+│   │   ├── lease.py            Database-backed run lease (one run at a time)
+│   │   ├── orchestrator.py     AutomationOrchestrator (sync → evaluate → draft)
+│   │   └── models.py           AutomationRunItem, AutomationLease
 │   ├── integrations/gemini.py  Gemini API adapter (google-genai)
 │   ├── integrations/gmail.py   Gmail send-only adapter (OAuth 2.0 user credentials)
 │   ├── credentials/            Service account key (gitignored; create locally)
@@ -79,6 +84,9 @@ Check it: `curl http://localhost:8000/api/health/` → `{"status": "ok", "servic
 | `GMAIL_TOKEN_FILE`               | `credentials/gmail-token.json` | Authorized user token written by `authorize_gmail`.      |
 | `GMAIL_SENDER_EMAIL`             | — (required to send)     | Dedicated sender account; must match the authorized account.   |
 | `GMAIL_ALLOWED_RECIPIENTS`       | — (required in debug)    | Comma-separated addresses / `@domains` that may be emailed.    |
+| `FOLLOWUP_COOLDOWN_DAYS`         | `7`                      | Days after a SENT (or rejected) reminder before a new draft.   |
+| `AUTOMATION_MAX_DRAFTS_PER_RUN`  | `10`                     | Maximum Gemini drafts generated per automation run.            |
+| `AUTOMATION_LEASE_SECONDS`       | `600`                    | Run lease length; renewed after each step.                     |
 
 ## Google Sheets setup
 
@@ -282,6 +290,114 @@ Nothing is ever resent automatically. After `--failed`, draft a new reminder to 
 - In production (`DEBUG=false`) an empty `GMAIL_ALLOWED_RECIPIENTS` means any recipient is
   allowed.
 
+## Proactive automation
+
+### Architecture
+
+`AutomationOrchestrator` (`apps/automation/orchestrator.py`) reuses the existing services and
+adds no new business logic of its own:
+
+1. **Lease:** acquire the single automation lease, or return a conflict.
+2. **Sync:** `sync_invoices()` (Milestone 02) records its own `SYNC` run. If it fails, the
+   automation run is `FAILED` and **no invoice is evaluated**. Drafts are never generated from a
+   failed sync.
+3. **Evaluate:** every invoice is checked against the policy below, and one
+   `AutomationRunItem` is recorded per invoice (`GENERATED` / `SKIPPED` / `FAILED` plus a
+   `reason_code`).
+4. **Draft:** for eligible invoices, `FollowUpGenerationService.generate()` (Milestone 03) is
+   called, up to `AUTOMATION_MAX_DRAFTS_PER_RUN`. A Gemini failure is recorded on that invoice's
+   item and the run continues.
+5. **Finish:** the run ends `COMPLETED` (no failures), `PARTIAL` (some drafts failed, some
+   succeeded) or `FAILED` (sync failed, every draft failed, or the run was interrupted).
+
+The orchestrator **never calls Gmail**. Every generated draft lands in the dashboard's
+**Approval queue** ("Drafts generated — awaiting approval") and still needs approval plus an
+explicit, confirmed send. No transaction is held during Google Sheets or Gemini calls, and
+Gemini requests are bounded (30s timeout, short retry window).
+
+### Eligibility policy (deterministic)
+
+An invoice gets a new draft only if none of these apply; the first match is the item's
+`reason_code`:
+
+| Reason code | Rule |
+| --- | --- |
+| `stale_draft` / `stale_approved` | An active draft/approval exists but the invoice changed since generation. It is surfaced for review, never replaced or sent. |
+| `draft_awaiting_review` / `approved_awaiting_send` | An active draft or approved reminder already exists. |
+| `delivery_unresolved` | A delivery is `SENDING` or `DELIVERY_UNKNOWN` (reconcile it first). |
+| `not_unpaid` / `not_overdue` / `invalid_recipient` / `invalid_amount` | Invoice rules shared with manual generation (unpaid, due **before** today, valid email, amount > 0). |
+| `delivery_failed` | The most recent reminder's delivery `FAILED`; operator attention needed (draft a new one manually). |
+| `cooldown` | A reminder was confirmed `SENT` less than `FOLLOWUP_COOLDOWN_DAYS` (default 7) ago. |
+| `recently_rejected` | The operator rejected the most recent draft within the cooldown period. |
+| `run_limit_reached` | The run already generated `AUTOMATION_MAX_DRAFTS_PER_RUN` drafts. |
+
+Failures use the generation error codes (`ai_unavailable`, `ai_bad_response`,
+`stale_invoice`, `unexpected_error`). Items store the invoice ID and codes only: no customer
+names or emails.
+
+### Running it
+
+- **Dashboard:** **Run Automation** (`POST /api/automation/run/`, trigger `MANUAL`). The panel
+  polls while a run is active and shows counts and per-invoice results.
+- **Command line:** `python manage.py run_automation` (trigger `SCHEDULED`). It prints a summary
+  with counts and reason codes. Exit codes: `0` completed/partial, `1` fatal failure, `2` another
+  run in progress.
+- **Dry run:** `python manage.py run_automation --dry-run` applies the policy to the current
+  database and prints what would be drafted. No sync, no Gemini, no Gmail, no writes.
+
+### Scheduling with cron (Linux)
+
+The command loads `backend/.env` itself (via its absolute path), so cron only needs absolute
+paths. Example: weekdays at 08:00 with a log file (adjust `/home/dires/projects/collectflow-ai`
+to your checkout):
+
+```bash
+mkdir -p /home/dires/projects/collectflow-ai/backend/logs
+crontab -e
+```
+
+```cron
+# CollectFlow AI: draft reminders for overdue invoices (never sends email)
+0 8 * * 1-5 cd /home/dires/projects/collectflow-ai/backend && /home/dires/projects/collectflow-ai/backend/.venv/bin/python /home/dires/projects/collectflow-ai/backend/manage.py run_automation >> /home/dires/projects/collectflow-ai/backend/logs/automation.log 2>&1
+```
+
+- Environment: `backend/.env` is read automatically. To use a different file, export the
+  variables in the cron line (e.g. `GEMINI_MODEL=... /path/to/python ...`).
+- Test exactly what cron will run, with cron's minimal environment:
+  `env -i HOME=$HOME /bin/sh -c '<the command above, without >> …>'`.
+- Check with `crontab -l` and `tail -f backend/logs/automation.log`. Nothing is scheduled
+  until you add the crontab entry. The command only exists so cron can call it.
+
+### Concurrency and duplicate protection
+
+- **One run at a time:** `AutomationLease` is a single database row acquired with a conditional
+  `UPDATE … WHERE owner='' OR expires_at < now`, which is atomic on SQLite. Manual and scheduled
+  triggers share it. A second trigger gets `409 automation_running`, or exit code `2` from the
+  command.
+- **Heartbeat:** the owner renews the lease after each step (sync, each invoice). Another run can
+  only take over after `AUTOMATION_LEASE_SECONDS` without a heartbeat, i.e. when the owner has
+  crashed or stalled. The abandoned run is then marked `FAILED`, and if the stalled owner resumes,
+  its renewal fails and it stops.
+- **No duplicate drafts:** besides the policy check, generation re-checks under a lock and the
+  database's partial unique constraint allows only one active reminder per invoice. Repeated runs
+  report `draft_awaiting_review` instead of creating duplicates.
+
+**SQLite limitations:** SQLite serializes writes and ignores `select_for_update`. Correctness
+relies on conditional updates and unique constraints, not row locks. A long write elsewhere can
+briefly delay others ("database is locked" after Django's default 5s timeout). For multiple
+workers or hosts, use PostgreSQL.
+
+### Known limitations
+
+- A manual run executes inside the HTTP request (up to roughly `max drafts × ~45s`). There is
+  no background queue, but the dashboard polls progress, and closing the page does not stop
+  the run.
+- Runs are bounded by `AUTOMATION_MAX_DRAFTS_PER_RUN`; remaining eligible invoices are drafted
+  on the next run.
+- A stale **approved** reminder (invoice changed after approval) can't be sent, and there is
+  currently no transition to withdraw it, so it blocks new reminders for that invoice.
+- The dry run evaluates current data without syncing first.
+
 ## Frontend setup
 
 ```bash
@@ -333,7 +449,9 @@ All endpoints except `/api/health/` require `Authorization: Bearer <COLLECTFLOW_
 | GET    | `/api/invoices/`         | List of invoices, including `is_overdue` and `days_overdue`                  |
 | GET    | `/api/invoices/{id}/`    | A single invoice (UUID)                                                      |
 | GET    | `/api/dashboard/`        | Counts, plus outstanding and overdue amounts grouped by currency             |
-| GET    | `/api/automation-runs/`  | The 20 most recent sync runs, newest first                                   |
+| GET    | `/api/automation-runs/`  | The 20 most recent runs, newest first. Filter: `?kind=SYNC` or `?kind=AUTOMATION` |
+| GET    | `/api/automation-runs/{id}/` | One run; automation runs include per-invoice `items`                      |
+| POST   | `/api/automation/run/`   | Run the automation (sync + drafts, never sends). `200` completed/partial · `502` failed (body has the run) · `409 automation_running` |
 | POST   | `/api/invoices/{id}/analyze/` | Generate an AI draft. Body: `{"regenerate": false}`. `201` draft; `409` not eligible / active reminder exists / invoice changed; `502` invalid AI output; `503` Gemini unavailable |
 | GET    | `/api/follow-ups/`       | Follow-ups, newest first. Filters: `?invoice=<id>`, `?status=DRAFT`              |
 | GET    | `/api/follow-ups/{id}/`  | A single follow-up                                                               |

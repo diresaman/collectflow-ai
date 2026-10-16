@@ -21,9 +21,11 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     new RegExp(`^follow-ups/${UUID}$`),
     new RegExp(`^follow-ups/${UUID}/delivery-attempts$`),
     /^integrations\/gmail\/status$/,
+    /^automation-runs\/\d+$/,
   ],
   POST: [
     /^sync$/,
+    /^automation\/run$/,
     new RegExp(`^invoices/${UUID}/analyze$`),
     new RegExp(`^follow-ups/${UUID}/(approve|reject|send)$`),
   ],
@@ -33,6 +35,8 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
 // POST covers sync (Google Sheets), AI generation (Gemini) and Gmail delivery, all bounded
 // upstream. If the proxy times out on a send, the browser treats the outcome as unknown.
 const TIMEOUT_MS: Record<Method, number> = { GET: 20_000, POST: 45_000, PATCH: 10_000 };
+// An automation run syncs the sheet and drafts up to AUTOMATION_MAX_DRAFTS_PER_RUN reminders.
+const AUTOMATION_RUN_TIMEOUT_MS = 15 * 60_000;
 
 const MAX_BODY_BYTES = 20_000;
 
@@ -75,7 +79,9 @@ async function proxy(request: NextRequest, context: RouteContext, method: Method
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/${route}/`, {
+    // Query strings are forwarded for reads only (e.g. ?kind=SYNC).
+    const search = method === "GET" ? request.nextUrl.search : "";
+    upstream = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/${route}/${search}`, {
       method,
       headers: {
         Accept: "application/json",
@@ -84,7 +90,7 @@ async function proxy(request: NextRequest, context: RouteContext, method: Method
       },
       body: body || undefined,
       cache: "no-store",
-      signal: AbortSignal.timeout(TIMEOUT_MS[method]),
+      signal: AbortSignal.timeout(route === "automation/run" ? AUTOMATION_RUN_TIMEOUT_MS : TIMEOUT_MS[method]),
     });
   } catch {
     return errorResponse(502, "Backend API is unreachable.");

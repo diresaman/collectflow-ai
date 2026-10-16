@@ -28,3 +28,6 @@ out/
 # Google service account keys and other local secrets
 /backend/credentials/
 *service-account*.json
+
+# Local logs (e.g. cron output)
+/backend/logs/
