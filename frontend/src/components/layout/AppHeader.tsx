@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { ApiStatus } from "@/components/ApiStatus";
 
+import { Logo } from "./Logo";
+
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/automation", label: "Automation" },
@@ -13,7 +15,7 @@ export function AppHeader({ active }: { active: "/" | "/automation" }) {
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">CF</span>
+            <Logo />
             <span className="hidden text-base font-semibold text-slate-900 sm:inline">CollectFlow AI</span>
           </Link>
           <nav className="flex gap-1" aria-label="Main">

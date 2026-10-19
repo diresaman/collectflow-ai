@@ -1,3 +1,5 @@
+<img src="frontend/src/app/icon.svg" alt="" width="56">
+
 # CollectFlow AI
 
 An AI-powered accounts receivable follow-up assistant for small service businesses.
