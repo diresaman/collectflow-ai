@@ -451,26 +451,54 @@ names or emails.
 
 ### Scheduling with cron (Linux)
 
-The command loads `backend/.env` itself (via its absolute path), so cron only needs absolute
-paths. Example: weekdays at 08:00 with a log file (adjust `/home/dires/projects/collectflow-ai`
-to your checkout):
+Unattended runs use the user crontab and the wrapper
+[`backend/scripts/scheduled_automation.sh`](backend/scripts/scheduled_automation.sh). The
+wrapper `cd`s into `backend/`, runs `.venv/bin/python manage.py run_automation` (trigger
+`SCHEDULED`) and appends the output to `backend/logs/automation.log`, between
+`=== <timestamp> … started` and `=== <timestamp> finished, exit=<code>` lines. It adds no
+logic: scheduled runs go through the same orchestrator, lease, cooldown policy and audit
+records as **Run Automation**, and **never send email**. Drafts wait in the approval queue.
+
+**Enable** (daily at 08:00 in the machine's time zone; adjust the path to your checkout):
 
 ```bash
-mkdir -p /home/dires/projects/collectflow-ai/backend/logs
-crontab -e
+chmod +x backend/scripts/scheduled_automation.sh
+( crontab -l 2>/dev/null; \
+  echo '# collectflow-ai: daily proactive automation (drafts only, never sends email)'; \
+  echo '0 8 * * * /home/dires/projects/collectflow-ai/backend/scripts/scheduled_automation.sh' \
+) | crontab -
+crontab -l | grep -A1 collectflow-ai      # confirm
 ```
 
-```cron
-# CollectFlow AI: draft reminders for overdue invoices (never sends email)
-0 8 * * 1-5 cd /home/dires/projects/collectflow-ai/backend && /home/dires/projects/collectflow-ai/backend/.venv/bin/python /home/dires/projects/collectflow-ai/backend/manage.py run_automation >> /home/dires/projects/collectflow-ai/backend/logs/automation.log 2>&1
+**Check:** `tail -n 30 backend/logs/automation.log`, the dashboard's automation panel, or the
+`/automation` workspace (scheduled runs show as "scheduled run"). Exit codes: `0`
+completed/partial, `1` failed (e.g. sync error), `2` another run held the lease (nothing done).
+
+**Disable** (removes only the CollectFlow lines; other crontab entries are kept):
+
+```bash
+crontab -l | grep -v -e 'collectflow-ai' -e 'scheduled_automation.sh' | crontab -
 ```
 
-- Environment: `backend/.env` is read automatically. To use a different file, export the
-  variables in the cron line (e.g. `GEMINI_MODEL=... /path/to/python ...`).
-- Test exactly what cron will run, with cron's minimal environment:
-  `env -i HOME=$HOME /bin/sh -c '<the command above, without >> …>'`.
-- Check with `crontab -l` and `tail -f backend/logs/automation.log`. Nothing is scheduled
-  until you add the crontab entry. The command only exists so cron can call it.
+To pause without deleting, comment the line out with `crontab -e`.
+
+Notes:
+
+- `backend/.env` is loaded automatically, and variables set in the cron line take precedence
+  (e.g. `SQLITE_PATH=… /path/to/scheduled_automation.sh`). Cron needs no other environment.
+- To try exactly what cron runs, in cron's minimal environment:
+  `env -i HOME=$HOME /bin/sh -c '/path/to/backend/scripts/scheduled_automation.sh'; echo $?`
+- Cron fires in the **system** time zone, while "overdue" uses `DJANGO_TIME_ZONE`. Pick an hour
+  at which both agree on the date (08:00 Africa/Addis_Ababa = 05:00 UTC).
+- Cron does not catch up: if the machine is off or asleep at 08:00, that day's run is skipped
+  and the next one drafts whatever is eligible then. The backend server doesn't need to be
+  running; the command talks to the database and the Google APIs directly.
+- Each run calls Gemini for at most `AUTOMATION_MAX_DRAFTS_PER_RUN` invoices. Invoices already
+  holding a draft, approval or recent reminder are skipped, so a daily schedule does not pile up
+  duplicate drafts.
+
+Verification evidence for an unattended, cron-triggered run is in
+[docs/SCHEDULED_AUTOMATION.md](docs/SCHEDULED_AUTOMATION.md).
 
 ### Concurrency and duplicate protection
 
