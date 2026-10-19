@@ -15,9 +15,41 @@ from django.utils import timezone
 
 from apps.invoices.models import AutomationRun
 
-from .models import AutomationLease
+from .models import AutomationLease, WorkflowStep
 
 LEASE_NAME = "automation"
+ABANDONED_SUMMARY = "Abandoned: the run stopped renewing its lease (process interrupted)."
+
+
+def _fail_runs_started_before(moment: dt.datetime) -> None:
+    """Marks RUNNING automation runs (and their unfinished steps) as abandoned."""
+    run_ids = list(
+        AutomationRun.objects.filter(
+            kind=AutomationRun.Kind.AUTOMATION, status=AutomationRun.Status.RUNNING, started_at__lt=moment
+        ).values_list("pk", flat=True)
+    )
+    if not run_ids:
+        return
+    AutomationRun.objects.filter(pk__in=run_ids, status=AutomationRun.Status.RUNNING).update(
+        status=AutomationRun.Status.FAILED, completed_at=moment, error_summary=ABANDONED_SUMMARY
+    )
+    steps = WorkflowStep.objects.filter(run_id__in=run_ids)
+    steps.filter(status=WorkflowStep.Status.RUNNING).update(status=WorkflowStep.Status.FAILED, completed_at=moment)
+    steps.filter(status=WorkflowStep.Status.PENDING).update(status=WorkflowStep.Status.SKIPPED)
+
+
+def fail_abandoned_runs() -> None:
+    """
+    Read-side recovery: if no live lease exists, no run can be making progress, so any run still
+    RUNNING was interrupted (e.g. the server was stopped mid-run). Without this the workflow would
+    show "processing" until the next run took over the lease.
+    """
+    now = timezone.now()
+    lease = AutomationLease.objects.filter(name=LEASE_NAME).first()
+    if lease is not None and lease.owner and lease.expires_at is not None and lease.expires_at >= now:
+        return
+    # Only runs that started before the lease was seen free; a run starting now holds a new lease.
+    _fail_runs_started_before(now)
 
 
 class LeaseUnavailable(Exception):
@@ -42,7 +74,6 @@ class Lease:
         except IntegrityError:
             pass  # created concurrently by another process
 
-        previous = AutomationLease.objects.get(name=LEASE_NAME)
         owner = uuid.uuid4().hex
         now = timezone.now()
         acquired = AutomationLease.objects.filter(
@@ -52,13 +83,9 @@ class Lease:
             current = AutomationLease.objects.get(name=LEASE_NAME)
             raise LeaseUnavailable(current.run_id, current.expires_at)
 
-        # Took over an expired lease: its run stopped making progress (e.g. the process died).
-        if previous.owner and previous.run_id:
-            AutomationRun.objects.filter(pk=previous.run_id, status=AutomationRun.Status.RUNNING).update(
-                status=AutomationRun.Status.FAILED,
-                completed_at=now,
-                error_summary="Abandoned: the run stopped renewing its lease (process interrupted).",
-            )
+        # We hold the lease and have not created our run yet, so any RUNNING run stopped making
+        # progress (e.g. the process died), whether its lease expired or was released.
+        _fail_runs_started_before(now)
         return cls(owner)
 
     def attach_run(self, run: AutomationRun) -> None:

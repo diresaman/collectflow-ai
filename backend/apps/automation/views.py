@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from apps.invoices.models import AutomationRun
 
 from . import workflow
+from .lease import fail_abandoned_runs
 from .models import AutomationRunItem
 from .orchestrator import AutomationAlreadyRunning, AutomationOrchestrator
 from .serializers import AutomationRunDetailSerializer
@@ -44,6 +45,7 @@ class AutomationRunDetailView(APIView):
 # send stay on the existing follow-up endpoints.
 
 def _workflow_run(pk: int) -> AutomationRun | None:
+    fail_abandoned_runs()
     return AutomationRun.objects.filter(pk=pk, kind=AutomationRun.Kind.AUTOMATION).first()
 
 

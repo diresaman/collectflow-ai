@@ -337,9 +337,35 @@ class ResumeAndDuplicateTests(WorkflowTestCase):
         self.act("follow-up-approve", draft)
         FollowUp.objects.filter(pk=draft).update(status=FollowUp.Status.SENDING)
         self.assertEqual(self.client.post(reverse("workflow-finalize", args=[run.pk]), **AUTH).status_code, 409)
+        FollowUp.objects.filter(pk=draft).update(status=FollowUp.Status.APPROVED)
 
-        AutomationRun.objects.filter(pk=run.pk).update(status="RUNNING")
-        self.assertEqual(self.client.post(reverse("workflow-finalize", args=[run.pk]), **AUTH).status_code, 409)
+        lease = Lease.acquire()  # a live run holds the lease while processing
+        try:
+            AutomationRun.objects.filter(pk=run.pk).update(status="RUNNING")
+            self.assertEqual(self.client.post(reverse("workflow-finalize", args=[run.pk]), **AUTH).status_code, 409)
+            run.refresh_from_db()
+            self.assertEqual(run.status, "RUNNING")
+        finally:
+            lease.release()
+
+    def test_interrupted_run_is_recovered_on_read(self) -> None:
+        # The server stopped mid-run: the run and a step stay RUNNING and nobody holds the lease.
+        run = self.start(overdue_row("INV-1"))
+        AutomationRun.objects.filter(pk=run.pk).update(status="RUNNING", completed_at=None, finalized_at=None)
+        run.workflow_steps.filter(key="GENERATING_DRAFTS").update(status="RUNNING", completed_at=None)
+        run.workflow_steps.filter(key="FINALIZING").update(status="PENDING")
+
+        data = self.client.get(reverse("workflow-current"), **AUTH).json()["workflow"]
+
+        self.assertEqual(data["id"], run.pk)
+        self.assertNotEqual(data["state"], "PROCESSING")
+        self.assertEqual(data["run"]["status"], "FAILED")
+        self.assertIn("Abandoned", data["run"]["error_summary"])
+        self.assertEqual(steps(data)["GENERATING_DRAFTS"], "FAILED")
+        self.assertEqual(steps(data)["FINALIZING"], "SKIPPED")
+        # Drafts generated before the interruption stay reviewable, and the workflow can be closed.
+        self.assertEqual(len(data["pending_actions"]["approvals"]), 1)
+        self.assertTrue(data["can_finalize"])
 
     def test_partial_generation_failure(self) -> None:
         gemini = RoutingGemini(fail_for={"INV-2": GeminiUnavailable("Gemini did not respond in time. Try again.")})

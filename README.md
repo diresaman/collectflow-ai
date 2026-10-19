@@ -4,10 +4,105 @@
 
 An AI-powered accounts receivable follow-up assistant for small service businesses.
 
-> **Current status — Milestone 05.5 (interactive automation workflow):** the `/automation`
-> workspace runs the whole loop in one place: sync → AI drafts → human review → per-reminder
-> Gmail confirmation → summary. Progress is persisted, so a refresh resumes where you left off.
-> Nothing is emailed without an explicit confirmation of that specific reminder.
+CollectFlow AI reads your invoices from a Google Sheet, finds the overdue ones, drafts a payment
+reminder for each with Gemini, and sends each reminder through Gmail only after a person has
+approved it and confirmed that specific send.
+
+> **Status:** feature-complete MVP (Milestones 01–05.5), final QA in
+> [docs/FINAL_QA_REPORT.md](docs/FINAL_QA_REPORT.md). Built for local, single-operator use.
+
+> **Google Sheets is the source of truth for invoice payment status.** CollectFlow never writes
+> to the sheet and never marks an invoice paid by itself. To record a payment, set the row's
+> `status` to `PAID` in the sheet and sync. An invoice whose row disappears from the sheet is no
+> longer eligible for reminders (reason `not_in_sheet`).
+
+## Problem
+
+Small service businesses lose cash flow to invoices that slip past their due date. Chasing them
+is repetitive, awkward and easy to postpone. Fully automatic dunning tools fix that, but they
+send email without a human looking at it, which is risky when the invoice data lives in a
+hand-edited spreadsheet.
+
+CollectFlow automates the tedious parts (spotting overdue invoices, picking the right tone,
+writing the email) and keeps a person in control of every message that leaves the building.
+
+## Features
+
+- **Google Sheets sync:** read-only, all-or-nothing batches with row-level validation errors.
+- **Overdue detection:** deterministic eligibility rules and a tone policy based on days
+  overdue (friendly / professional / firm). These rules are never delegated to the AI.
+- **Gemini drafts:** structured JSON output with the tone pinned by the backend. The output is
+  validated (lengths, tone, no links), and spreadsheet data is treated as untrusted.
+- **Human approval:** drafts can be edited, approved, rejected or regenerated. Approving never
+  sends anything.
+- **Confirmed Gmail delivery:** one reminder at a time with a confirmation dialog, duplicate-send
+  protection, no automatic retries, and an explicit "delivery unknown" state with manual
+  reconciliation.
+- **Proactive automation:** `run_automation` (cron) or **Run Automation** (UI) syncs, evaluates
+  and drafts, with a cooldown policy and a single-run lease. It never sends email.
+- **Interactive workspace (`/automation`):** persisted step-by-step progress that survives a
+  browser refresh, plus review, send confirmation and a final summary.
+- **Audit trail:** sync runs, automation runs with per-invoice reason codes, generation attempts
+  and delivery attempts (Gmail message IDs, sanitized errors).
+
+## Architecture
+
+```
+ Browser ──▶ Next.js (localhost:3000)
+              ├── pages: /  (dashboard)   /automation  (workspace)
+              └── /api/backend/*  server-side proxy: route allowlist, same-origin check,
+                                  adds Authorization: Bearer <operator token>
+                     │
+                     ▼
+            Django REST API (localhost:8000)  ── every endpoint except /api/health/ requires the token
+              ├── apps/invoices    sync service ──▶ Google Sheets API (service account, read-only)
+              ├── apps/followups   generation   ──▶ Gemini API (google-genai)
+              │                    approval workflow, delivery ──▶ Gmail API (OAuth, gmail.send only)
+              ├── apps/automation  orchestrator, policy, lease, workflow view
+              └── SQLite           invoices, follow-ups, runs, attempts, lease
+
+ cron ──▶ manage.py run_automation  (same orchestrator; never sends email)
+```
+
+- **Automated phases** (sync → evaluate → draft) run in `AutomationOrchestrator` under a
+  database lease and persist each step as a `WorkflowStep`.
+- **Human phases** (approve → confirm send → delivery) are *derived* from follow-up and
+  delivery-attempt rows on every read. Nothing waits in memory, so a refresh or a restart
+  resumes from the database.
+- **Follow-up states:** `DRAFT → APPROVED → SENDING → SENT | FAILED | DELIVERY_UNKNOWN`, plus
+  `REJECTED`. Transitions are conditional updates, and partial unique constraints allow one
+  active reminder per invoice and one in-flight send per reminder.
+
+## Technology stack
+
+| Layer | Technology |
+| --- | --- |
+| Backend | Python 3.10+, Django 5.2, Django REST Framework 3.15+, django-cors-headers, SQLite |
+| Integrations | `google-api-python-client` (Sheets v4, Gmail v1), `google-auth`, `google-auth-oauthlib`, `google-genai` (Gemini) |
+| Frontend | Next.js 16 (App Router, Turbopack), React 19, TypeScript 5, Tailwind CSS 4, ESLint 9 |
+| Scheduling | cron (or any scheduler) calling `manage.py run_automation` |
+
+## Quick start (local)
+
+```bash
+# 1. Backend
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # set DJANGO_DEBUG=true and COLLECTFLOW_OPERATOR_TOKEN (see below)
+python manage.py migrate
+python manage.py runserver      # http://localhost:8000 (binds to 127.0.0.1)
+
+# 2. Frontend (second terminal)
+cd frontend
+npm install
+cp .env.example .env.local      # COLLECTFLOW_OPERATOR_TOKEN must equal the backend value
+npm run dev                     # http://localhost:3000 (binds to localhost only)
+```
+
+Then configure the integrations: [Google Sheets](#google-sheets-setup), [Gemini](#ai-follow-ups-gemini)
+and [Gmail](#gmail-delivery). Generate the operator token with
+`python -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
 ## Repository layout
 
@@ -27,8 +122,8 @@ collectflow-ai/
 │   │   ├── eligibility.py      Deterministic eligibility and tone rules
 │   │   ├── prompts.py          Gemini instructions, minimal context, output schema
 │   │   ├── services.py         Generation service, edit/approve/reject workflow
-│   │   └── views.py            REST endpoints
 │   │   ├── delivery.py         Gmail delivery service and manual reconciliation
+│   │   └── views.py            REST endpoints
 │   ├── apps/automation/        Proactive automation
 │   │   ├── policy.py           Deterministic eligibility / cooldown policy
 │   │   ├── lease.py            Database-backed run lease (one run at a time)
@@ -116,7 +211,9 @@ Check it: `curl http://localhost:8000/api/health/` → `{"status": "ok", "servic
    ```
 
 **Sync rules:** invoices are matched by `invoice_id`. New ones are created, changed ones are
-updated, and invoices missing from the sheet are kept. Empty rows are skipped. If **any**
+updated, and invoices missing from the sheet are kept for history. However, they are no longer
+eligible for reminders: drafting, approval and sending all refuse an invoice that was not in the
+latest successful sync (`not_in_sheet`). Empty rows are skipped. If **any**
 nonempty row is invalid (or two rows share an `invoice_id`), the whole batch is rejected, no
 invoices change, and the errors are reported with sheet row numbers. Every attempt is
 recorded as an automation run.
@@ -131,9 +228,9 @@ recorded as an automation run.
 
 ### Business rules (deterministic, never decided by the AI)
 
-An invoice is **eligible** for a reminder only if it is `UNPAID`, its due date is **before
-today** (due today is not overdue), its email is valid and its amount is positive. "Today"
-follows `DJANGO_TIME_ZONE`.
+An invoice is **eligible** for a reminder only if it was present in the latest successful
+sync, it is `UNPAID`, its due date is **before today** (due today is not overdue), its email is
+valid and its amount is positive. "Today" follows `DJANGO_TIME_ZONE`.
 
 | Days overdue | Tone           |
 | ------------ | -------------- |
@@ -332,7 +429,7 @@ An invoice gets a new draft only if none of these apply; the first match is the 
 | `stale_draft` / `stale_approved` | An active draft/approval exists but the invoice changed since generation. It is surfaced for review, never replaced or sent. |
 | `draft_awaiting_review` / `approved_awaiting_send` | An active draft or approved reminder already exists. |
 | `delivery_unresolved` | A delivery is `SENDING` or `DELIVERY_UNKNOWN` (reconcile it first). |
-| `not_unpaid` / `not_overdue` / `invalid_recipient` / `invalid_amount` | Invoice rules shared with manual generation (unpaid, due **before** today, valid email, amount > 0). |
+| `not_in_sheet` / `not_unpaid` / `not_overdue` / `invalid_recipient` / `invalid_amount` | Invoice rules shared with manual generation (in the latest sync, unpaid, due **before** today, valid email, amount > 0). |
 | `delivery_failed` | The most recent reminder's delivery `FAILED`; operator attention needed (draft a new one manually). |
 | `cooldown` | A reminder was confirmed `SENT` less than `FOLLOWUP_COOLDOWN_DAYS` (default 7) ago. |
 | `recently_rejected` | The operator rejected the most recent draft within the cooldown period. |
@@ -385,6 +482,10 @@ crontab -e
   only take over after `AUTOMATION_LEASE_SECONDS` without a heartbeat, i.e. when the owner has
   crashed or stalled. The abandoned run is then marked `FAILED`, and if the stalled owner resumes,
   its renewal fails and it stops.
+- **Interrupted runs:** if the server stops mid-run (e.g. Ctrl+C on `runserver`), the next
+  workflow read after the lease expires (≤ `AUTOMATION_LEASE_SECONDS`) marks the run `FAILED`
+  ("Abandoned"). Its unfinished steps become `FAILED`/`SKIPPED`, so the workspace stops showing
+  "Processing". Drafts generated before the interruption remain reviewable.
 - **No duplicate drafts:** besides the policy check, generation re-checks under a lock and the
   database's partial unique constraint allows only one active reminder per invoice. Repeated runs
   report `draft_awaiting_review` instead of creating duplicates.
@@ -485,6 +586,10 @@ cp .env.example .env.local    # set COLLECTFLOW_OPERATOR_TOKEN to the backend va
 npm run dev                   # http://localhost:3000
 ```
 
+`npm run dev` and `npm run start` bind to `localhost` only. The `/api/backend` proxy attaches
+the operator token for anyone who can reach the Next.js server, so don't expose it on a network
+(e.g. `-H 0.0.0.0`) without adding real user authentication first.
+
 ### Frontend environment variables
 
 | Variable                     | Example                 | Exposed to browser | Purpose                                     |
@@ -505,7 +610,7 @@ If you run the frontend on a port other than 3000, add that origin to
 ```bash
 # Backend (from backend/, with the virtualenv active)
 python manage.py check
-python manage.py migrate
+python manage.py makemigrations --check --dry-run   # models and committed migrations agree
 python manage.py test
 
 # Frontend (from frontend/)
@@ -515,6 +620,24 @@ npm run build
 ```
 
 Tests mock the Google Sheets, Gemini and Gmail APIs; they never make network calls or send email.
+The automation tests replace `GmailClient.send` with a function that fails the test if called,
+and a route-wide test asserts that every `/api/` endpoint except the health check returns `401`
+without a valid operator token.
+
+**Manual end-to-end check** (uses your real integrations; only allowlisted recipients can be
+emailed while `DJANGO_DEBUG=true`):
+
+1. Put a few rows in the sheet, at least one `UNPAID` and past due, with a `client_email` that
+   is in `GMAIL_ALLOWED_RECIPIENTS`.
+2. Open `/automation` and click **Run Automation**. Watch the steps progress, then refresh the
+   page mid-run or at the review step: the same state comes back.
+3. Edit and approve one draft and reject another. Nothing is sent.
+4. Under **Confirm Gmail sends**, click **Send Email** and confirm. Check the recipient inbox and
+   the sender's Sent folder.
+5. Click **Finish**. Mark the invoice `PAID` in the sheet, run again, and see it skipped as
+   `not_unpaid`.
+6. `python manage.py run_automation --dry-run` shows the same policy decisions from the command
+   line.
 
 ## API
 
@@ -536,9 +659,35 @@ All endpoints except `/api/health/` require `Authorization: Bearer <COLLECTFLOW_
 | GET    | `/api/follow-ups/{id}/`  | A single follow-up                                                               |
 | PATCH  | `/api/follow-ups/{id}/`  | Edit `subject` / `body` of a draft. `400` invalid content; `409` not a draft      |
 | POST   | `/api/follow-ups/{id}/approve/` | `DRAFT → APPROVED` (no email is sent). `409` wrong status or stale invoice |
-| POST   | `/api/follow-ups/{id}/reject/`  | `DRAFT → REJECTED`. `409` wrong status                                     |
+| POST   | `/api/follow-ups/{id}/reject/`  | `DRAFT → REJECTED`, or withdraw an unsent approval (`APPROVED → REJECTED`). `409` wrong status |
 | POST   | `/api/follow-ups/{id}/send/`    | Send an approved reminder via Gmail. `200` sent · `202` delivery unknown (reconcile, do not retry) · `502` Gmail refused · `409` wrong state/stale/duplicate · `503` Gmail not ready |
 | GET    | `/api/follow-ups/{id}/delivery-attempts/` | Delivery attempts, newest first                                  |
 | GET    | `/api/integrations/gmail/status/` | Whether Gmail is configured, authorized and matches the sender           |
 
 Errors return `{"detail": "...", "code": "..."}`; `401` means a missing or invalid operator token.
+
+## Known limitations
+
+Consolidated from the sections above. See also [docs/FINAL_QA_REPORT.md](docs/FINAL_QA_REPORT.md).
+
+- **Local, single-operator MVP.** There are no user accounts. A shared operator token protects
+  Django, and the Next.js proxy adds it for any caller that can reach the frontend, so the
+  frontend must stay on `localhost`. A multi-user deployment needs real authentication,
+  PostgreSQL and HTTPS.
+- **Synchronous work in requests.** Sync, Gemini drafting, Gmail sends and manual automation
+  runs execute inside HTTP requests (bounded by timeouts). There is no task queue.
+- **SQLite.** Correctness relies on conditional updates and unique constraints, not row locks.
+  Use PostgreSQL for multiple workers.
+- **Invoices removed from the sheet** stay in the local database and in dashboard totals. They
+  are only blocked from reminders (`not_in_sheet`).
+- **AI content rules.** Links (`http(s)://`, `www.`), length, single-line subject and tone are
+  enforced in code. Everything else (no invented fees, deadlines or payment claims, no bare
+  domains such as `pay.example.com`) relies on the model's instructions plus mandatory human
+  review before approval.
+- **Gmail.** Plain text only, one sender account, no reply tracking. "Sent" means Gmail accepted
+  the message, not that it was delivered. Unknown outcomes are reconciled by CLI only. While the
+  OAuth consent screen is in *Testing*, refresh tokens expire after 7 days.
+- **Interrupted runs** are shown as processing until their lease expires (up to
+  `AUTOMATION_LEASE_SECONDS`, default 10 minutes).
+- English-only drafts with a generic "Accounts Receivable Team" sign-off. No pagination on the
+  invoice and follow-up lists.

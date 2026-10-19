@@ -6,14 +6,31 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
 
-from apps.invoices.models import Invoice
+from apps.invoices.models import AutomationRun, Invoice
 
 from .models import Tone
+
+
+def missing_from_sheet(invoice: Invoice) -> bool:
+    """
+    True if the latest successful sync did not include this invoice (its row was deleted or moved
+    out of the synced range). Google Sheets is the source of truth for payment status, so a row
+    that disappeared must not keep being treated as unpaid.
+    """
+    latest_sync = (
+        AutomationRun.objects.filter(kind=AutomationRun.Kind.SYNC, status=AutomationRun.Status.SUCCEEDED)
+        .values_list("started_at", flat=True)
+        .first()
+    )
+    # Every invoice a successful sync saw gets last_synced_at at or after that run started.
+    return latest_sync is not None and invoice.last_synced_at < latest_sync
 
 
 def ineligibility(invoice: Invoice) -> list[tuple[str, str]]:
     """(reason_code, message) pairs explaining why the invoice cannot get a reminder."""
     reasons: list[tuple[str, str]] = []
+    if missing_from_sheet(invoice):
+        reasons.append(("not_in_sheet", "Invoice was not in the latest Google Sheets sync."))
     if invoice.status != Invoice.Status.UNPAID:
         reasons.append(("not_unpaid", "Invoice is not unpaid."))
     if invoice.due_date >= timezone.localdate():

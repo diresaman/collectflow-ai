@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { ApiError } from "@/lib/api/client";
 import {
@@ -36,6 +36,8 @@ export function DraftEditor({
   onChanged: (followUp: FollowUp) => void;
   onRegenerate: () => void;
 }) {
+  // Unique per editor: the automation workspace shows several drafts at once.
+  const fieldId = useId();
   const [subject, setSubject] = useState(followUp.subject);
   const [body, setBody] = useState(followUp.body);
   const [busy, setBusy] = useState<Action | null>(null);
@@ -66,11 +68,11 @@ export function DraftEditor({
   return (
     <div className="space-y-4">
       <div>
-        <label htmlFor="follow-up-subject" className="text-sm font-medium text-slate-700">
+        <label htmlFor={`${fieldId}-subject`} className="text-sm font-medium text-slate-700">
           Subject
         </label>
         <input
-          id="follow-up-subject"
+          id={`${fieldId}-subject`}
           value={subject}
           onChange={(event) => setSubject(event.target.value)}
           maxLength={SUBJECT_MAX_LENGTH}
@@ -81,7 +83,7 @@ export function DraftEditor({
 
       <div>
         <div className="flex items-baseline justify-between">
-          <label htmlFor="follow-up-body" className="text-sm font-medium text-slate-700">
+          <label htmlFor={`${fieldId}-body`} className="text-sm font-medium text-slate-700">
             Message
           </label>
           <span className="text-xs tabular-nums text-slate-400">
@@ -89,7 +91,7 @@ export function DraftEditor({
           </span>
         </div>
         <textarea
-          id="follow-up-body"
+          id={`${fieldId}-body`}
           value={body}
           onChange={(event) => setBody(event.target.value)}
           rows={12}

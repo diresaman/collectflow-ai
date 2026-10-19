@@ -173,6 +173,38 @@ class PolicyTests(TestCase):
 
         self.assertEqual(items(run(sheet(overdue_row("INV-R")))), {"INV-R": ("SKIPPED", "recently_rejected")})
 
+    def test_invoice_removed_from_sheet_gets_no_reminder(self) -> None:
+        # Google Sheets is the source of truth: a deleted row must not stay "unpaid" locally.
+        seed(overdue_row("INV-GONE"), overdue_row("INV-KEPT"))
+        gemini = RoutingGemini()
+
+        result = run(sheet(overdue_row("INV-KEPT")), gemini)
+
+        self.assertEqual(items(result)["INV-GONE"], ("SKIPPED", "not_in_sheet"))
+        self.assertEqual(items(result)["INV-KEPT"], ("GENERATED", ""))
+        self.assertEqual(gemini.calls, ["INV-KEPT"])
+
+    def test_removed_invoice_blocks_approval_and_sending_of_existing_reminders(self) -> None:
+        from apps.followups import services
+        from apps.followups.delivery import FollowUpDeliveryService
+        from apps.followups.tests.helpers import FakeGmail
+
+        seed(overdue_row("INV-D"), overdue_row("INV-A"))
+        draft = follow_up_for("INV-D", FollowUp.Status.DRAFT)
+        approved = follow_up_for("INV-A", FollowUp.Status.APPROVED)
+        seed(overdue_row("INV-OTHER"))  # both rows were deleted from the sheet
+
+        with self.assertRaises(services.StaleInvoice):
+            services.approve(draft.pk)
+        gmail = FakeGmail()
+        with self.settings(DEBUG=False, GMAIL_ALLOWED_RECIPIENTS=[]), self.assertRaises(services.StaleInvoice):
+            FollowUpDeliveryService(gmail=gmail).send(approved.pk)  # type: ignore[arg-type]
+
+        self.assertEqual(gmail.sent, [])
+        draft.refresh_from_db()
+        approved.refresh_from_db()
+        self.assertEqual((draft.status, approved.status), (FollowUp.Status.DRAFT, FollowUp.Status.APPROVED))
+
 
 class FailureHandlingTests(TestCase):
     def test_sync_failure_stops_before_evaluation(self) -> None:

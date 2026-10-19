@@ -27,6 +27,7 @@ from apps.followups.services import FollowUpError
 from apps.invoices.models import AutomationRun
 from apps.invoices.serializers import AutomationRunSerializer
 
+from .lease import fail_abandoned_runs
 from .models import AutomationRunItem, WorkflowStep
 
 STEP_ORDER = [
@@ -272,6 +273,7 @@ def build(run: AutomationRun) -> dict[str, Any]:
 
 def current_run() -> AutomationRun | None:
     """The workflow to show: a processing run, else the latest open one, else the latest."""
+    fail_abandoned_runs()
     runs = AutomationRun.objects.filter(kind=AutomationRun.Kind.AUTOMATION)
     return (
         runs.filter(status=AutomationRun.Status.RUNNING).first()

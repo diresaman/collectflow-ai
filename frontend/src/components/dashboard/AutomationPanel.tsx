@@ -32,6 +32,7 @@ const OUTCOME_STYLE: Record<AutomationItemOutcome, { label: string; style: strin
 
 /** Human labels for the backend's machine-readable reason codes. */
 const REASONS: Record<string, string> = {
+  not_in_sheet: "No longer in Google Sheet",
   not_unpaid: "Paid",
   not_overdue: "Not overdue yet",
   invalid_recipient: "Invalid email",

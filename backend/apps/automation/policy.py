@@ -7,7 +7,7 @@ Evaluation order (first match wins):
        DRAFT                                 -> draft_awaiting_review
        APPROVED                              -> approved_awaiting_send
        SENDING / DELIVERY_UNKNOWN            -> delivery_unresolved
-  2. Invoice rules (shared with manual generation): not_unpaid, not_overdue,
+  2. Invoice rules (shared with manual generation): not_in_sheet, not_unpaid, not_overdue,
      invalid_recipient, invalid_amount.
   3. Most recent follow-up FAILED            -> delivery_failed (operator attention)
   4. Last SENT within the cooldown           -> cooldown
