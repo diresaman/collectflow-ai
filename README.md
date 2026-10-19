@@ -493,12 +493,16 @@ Notes:
 - Cron does not catch up: if the machine is off or asleep at 08:00, that day's run is skipped
   and the next one drafts whatever is eligible then. The backend server doesn't need to be
   running; the command talks to the database and the Google APIs directly.
+- On Gemini's free tier (about 20 requests/day per model, reset at midnight Pacific time), a run
+  before the reset shares the previous day's quota. Its drafts fail with `ai_unavailable` and
+  are retried on the next run. Schedule after the reset (e.g. 11:30 EAT) to give it the full
+  allowance. See [docs/SCHEDULING.md](docs/SCHEDULING.md#8-known-limitations-of-local-scheduling).
 - Each run calls Gemini for at most `AUTOMATION_MAX_DRAFTS_PER_RUN` invoices. Invoices already
   holding a draft, approval or recent reminder are skipped, so a daily schedule does not pile up
   duplicate drafts.
 
 Verification evidence for an unattended, cron-triggered run is in
-[docs/SCHEDULED_AUTOMATION.md](docs/SCHEDULED_AUTOMATION.md).
+[docs/SCHEDULING.md](docs/SCHEDULING.md).
 
 ### Concurrency and duplicate protection
 
