@@ -6,6 +6,7 @@ All environment-specific values are read from environment variables. A local
 """
 
 import os
+import tempfile
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -54,6 +55,8 @@ INSTALLED_APPS = [
     "corsheaders",
     # Local
     "apps.core",
+    "apps.accounts",
+    "apps.timeline",
     "apps.invoices",
     "apps.followups",
     "apps.automation",
@@ -94,13 +97,49 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # ------------------------------------------------------------------------------
 
+# SQLite in WAL mode so the web process, the worker and cron can read while one writes.
+# IMMEDIATE transactions take the write lock up front (no lock-upgrade deadlocks), and
+# `timeout` is the busy timeout: a writer waits this long for the lock instead of failing.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / os.environ.get("SQLITE_PATH", "db.sqlite3"),
+        "OPTIONS": {
+            "transaction_mode": "IMMEDIATE",
+            "timeout": 10,
+            "init_command": "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
+        },
+        # Tests use a real file (not shared-cache memory) so concurrency tests see the same WAL
+        # locking and busy timeout as production.
+        "TEST": {"NAME": os.environ.get("SQLITE_TEST_PATH") or str(Path(tempfile.gettempdir()) / "collectflow-test.sqlite3")},
     }
 }
 
+
+# Users, passwords and sessions
+# ------------------------------------------------------------------------------
+
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+]
+
+# The browser only talks to the Next.js proxy (same origin), which forwards these cookies.
+SESSION_COOKIE_AGE = int(os.environ.get("SESSION_COOKIE_AGE", str(12 * 60 * 60)))
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Strict"
+CSRF_COOKIE_SAMESITE = "Strict"
+# The frontend reads the CSRF cookie and echoes it in X-CSRFToken.
+CSRF_COOKIE_HTTPONLY = False
+# Local development runs over plain HTTP; anything else must use HTTPS.
+SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = env_bool("SECURE_COOKIES", default=not DEBUG)
+
+# Failed logins allowed per username within the window before further attempts get 429.
+LOGIN_MAX_FAILURES = int(os.environ.get("LOGIN_MAX_FAILURES", "5"))
+LOGIN_FAILURE_WINDOW_SECONDS = int(os.environ.get("LOGIN_FAILURE_WINDOW_SECONDS", str(15 * 60)))
+
+# Django admin is off unless explicitly enabled.
+ENABLE_ADMIN = env_bool("ENABLE_ADMIN", default=False)
 
 # Password validation
 # ------------------------------------------------------------------------------
@@ -138,9 +177,11 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"]
     + (["rest_framework.renderers.BrowsableAPIRenderer"] if DEBUG else []),
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
-    # Business endpoints require the operator token; public views opt out explicitly.
-    "DEFAULT_AUTHENTICATION_CLASSES": ["apps.core.authentication.OperatorTokenAuthentication"],
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    # Business endpoints require a session (with CSRF on writes) and at least the OPERATOR
+    # role; public views opt out explicitly and stricter views declare a higher role.
+    "DEFAULT_AUTHENTICATION_CLASSES": ["apps.accounts.authentication.SessionAuthentication"],
+    "DEFAULT_PERMISSION_CLASSES": ["apps.accounts.permissions.IsOperator"],
+    "EXCEPTION_HANDLER": "apps.core.exceptions.exception_handler",
 }
 
 
@@ -148,13 +189,6 @@ REST_FRAMEWORK = {
 # ------------------------------------------------------------------------------
 
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", default="http://localhost:3000")
-
-
-# Local operator access
-# ------------------------------------------------------------------------------
-
-# Shared secret for the local MVP. The Next.js server proxy sends it; browsers never see it.
-OPERATOR_TOKEN = os.environ.get("COLLECTFLOW_OPERATOR_TOKEN", "")
 
 
 # Google Sheets
@@ -203,3 +237,16 @@ FOLLOWUP_COOLDOWN_DAYS = int(os.environ.get("FOLLOWUP_COOLDOWN_DAYS", "7"))
 AUTOMATION_MAX_DRAFTS_PER_RUN = int(os.environ.get("AUTOMATION_MAX_DRAFTS_PER_RUN", "10"))
 # Lease duration; renewed after every step. Must exceed the slowest single step (~2 minutes).
 AUTOMATION_LEASE_SECONDS = int(os.environ.get("AUTOMATION_LEASE_SECONDS", "600"))
+
+
+# Background worker (outbox jobs)
+# ------------------------------------------------------------------------------
+
+# Seconds between queue polls when the worker is idle.
+WORKER_POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "1"))
+# A RUNNING job whose worker has not finished it within this time is considered abandoned.
+JOB_LOCK_TIMEOUT_SECONDS = int(os.environ.get("JOB_LOCK_TIMEOUT_SECONDS", "900"))
+# Default attempts for retryable jobs (delivery jobs always use 1).
+JOB_MAX_ATTEMPTS = int(os.environ.get("JOB_MAX_ATTEMPTS", "3"))
+# First retry delay; doubles on every further attempt.
+JOB_RETRY_BASE_SECONDS = int(os.environ.get("JOB_RETRY_BASE_SECONDS", "30"))

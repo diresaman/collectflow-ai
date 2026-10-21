@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -60,6 +61,14 @@ class FollowUp(models.Model):
     # Invoice facts the draft was written from; approval is refused if they change.
     invoice_snapshot = models.JSONField()
     ai_model = models.CharField(max_length=100, blank=True)
+    prompt_version = models.CharField(max_length=40, blank=True)
+    # The four-eyes rule compares the approver with the last editor (generation by the AI is not an edit).
+    last_edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
     generated_at = models.DateTimeField(default=timezone.now)
     approved_at = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
@@ -102,6 +111,7 @@ class GenerationAttempt(models.Model):
     error_code = models.CharField(max_length=50, blank=True)
     error_message = models.CharField(max_length=500, blank=True)
     ai_model = models.CharField(max_length=100, blank=True)
+    prompt_version = models.CharField(max_length=40, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -121,6 +131,10 @@ class DeliveryAttempt(models.Model):
     follow_up = models.ForeignKey(FollowUp, on_delete=models.PROTECT, related_name="delivery_attempts")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.SENDING)
     recipient_email = models.EmailField()
+    # The user who confirmed the send.
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     gmail_message_id = models.CharField(max_length=100, blank=True)

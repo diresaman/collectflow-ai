@@ -1,7 +1,10 @@
 const DEFAULT_TIMEOUT_MS = 5000;
 
-/** Same-origin Next.js route that forwards business requests to Django with the operator token. */
+/** Same-origin Next.js route that forwards business requests (and the session cookie) to Django. */
 const BACKEND_PROXY_PREFIX = "/api/backend";
+
+/** Requests that must not trigger the "session expired" redirect. */
+const AUTH_PATHS = ["/auth/", "/me/"];
 
 export class ApiError extends Error {
   readonly status: number | null;
@@ -34,6 +37,19 @@ type RequestOptions = {
 
 type Validator<T> = (data: unknown) => data is T;
 
+/** Django's CSRF cookie; it must be echoed in X-CSRFToken on every write. */
+export function csrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.split("; ").find((part) => part.startsWith("csrftoken="));
+  return match ? decodeURIComponent(match.slice("csrftoken=".length)) : null;
+}
+
+function redirectToLogin(): void {
+  if (typeof window === "undefined" || window.location.pathname === "/login") return;
+  const next = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.replace(`/login?next=${next}`);
+}
+
 function errorMessage(status: number, body: unknown): string {
   if (typeof body === "object" && body !== null) {
     const detail = (body as Record<string, unknown>).detail;
@@ -51,14 +67,18 @@ async function request<T>(
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (method !== "GET") {
+    const token = csrfToken();
+    if (token) headers["X-CSRFToken"] = token;
+  }
+
   let response: Response;
   try {
     response = await fetch(url, {
       method,
-      headers:
-        body === undefined
-          ? { Accept: "application/json" }
-          : { Accept: "application/json", "Content-Type": "application/json" },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       cache: "no-store",
       signal: combinedSignal,
@@ -80,6 +100,10 @@ async function request<T>(
   }
 
   if (!response.ok) {
+    const isBackend = url.startsWith(BACKEND_PROXY_PREFIX);
+    if (response.status === 401 && isBackend && !AUTH_PATHS.some((path) => url.includes(path))) {
+      redirectToLogin(); // the session expired or was ended elsewhere
+    }
     throw new ApiError(errorMessage(response.status, data), response.status, data);
   }
 

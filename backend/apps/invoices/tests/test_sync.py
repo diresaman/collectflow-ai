@@ -2,10 +2,11 @@ from decimal import Decimal
 from unittest import mock
 
 from django.db import connection
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 
 from apps.invoices.models import AutomationRun, Invoice
 from apps.invoices.sync import sync_invoices
+from apps.timeline.testing import TimelineTransactionTestCase
 
 from .factories import HEADER, FakeSheetsClient, make_invoice, row
 
@@ -119,7 +120,7 @@ class SyncTests(TestCase):
         self.assertIn("GOOGLE_SHEETS_SPREADSHEET_ID", run.error_summary)
 
 
-class SyncTransactionTests(TransactionTestCase):
+class SyncTransactionTests(TimelineTransactionTestCase):
     def test_google_request_runs_outside_a_transaction(self) -> None:
         observed: list[bool] = []
 

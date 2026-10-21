@@ -1,4 +1,5 @@
 import { ApiError, backendGet, backendPatch, backendPost } from "./client";
+import { isQueued, jobError, waitForJob } from "./jobs";
 
 export type Tone = "FRIENDLY" | "PROFESSIONAL" | "FIRM";
 
@@ -28,6 +29,10 @@ export type FollowUp = {
   reasoning: string;
   recommended_action: string;
   status: FollowUpStatus;
+  prompt_version: string;
+  /** Usernames; null when the AI draft was never edited / not approved yet. */
+  last_edited_by: string | null;
+  approved_by: string | null;
   generated_at: string;
   approved_at: string | null;
   sent_at: string | null;
@@ -58,6 +63,9 @@ export function isFollowUp(value: unknown): value is FollowUp {
     typeof v.invoice_snapshot === "object" &&
     v.invoice_snapshot !== null &&
     nullableStr("approved_at") &&
+    typeof v.prompt_version === "string" &&
+    nullableStr("last_edited_by") &&
+    nullableStr("approved_by") &&
     nullableStr("sent_at") &&
     TONES.includes(v.tone as string) &&
     STATUSES.includes(v.status as string)
@@ -66,18 +74,24 @@ export function isFollowUp(value: unknown): value is FollowUp {
 
 const isFollowUpList = (value: unknown): value is FollowUp[] => Array.isArray(value) && value.every(isFollowUp);
 
-/** Gemini can take a while; the backend gives up after 30s. */
-const GENERATION_TIMEOUT_MS = 45_000;
+/** Gemini can take a while (the worker gives up after ~30 s, plus queueing). */
+const GENERATION_WAIT_MS = 90_000;
 
 export function getFollowUps(signal?: AbortSignal): Promise<FollowUp[]> {
   return backendGet("/follow-ups/", isFollowUpList, { signal });
 }
 
-export function analyzeInvoice(invoiceId: string, regenerate = false): Promise<FollowUp> {
-  return backendPost(`/invoices/${invoiceId}/analyze/`, isFollowUp, {
-    body: { regenerate },
-    timeoutMs: GENERATION_TIMEOUT_MS,
-  });
+export function getFollowUp(id: string, signal?: AbortSignal): Promise<FollowUp> {
+  return backendGet(`/follow-ups/${id}/`, isFollowUp, { signal });
+}
+
+/** Queues AI generation and waits for the draft. Domain errors keep their HTTP status (409, 502, 503). */
+export async function analyzeInvoice(invoiceId: string, regenerate = false): Promise<FollowUp> {
+  const queued = await backendPost(`/invoices/${invoiceId}/analyze/`, isQueued, { body: { regenerate } });
+  const job = await waitForJob(queued.job_id, { timeoutMs: GENERATION_WAIT_MS });
+  const followUpId = job.result.follow_up_id;
+  if (job.status !== "SUCCEEDED" || typeof followUpId !== "string") throw jobError(job, 502);
+  return getFollowUp(followUpId);
 }
 
 export function updateFollowUp(id: string, changes: { subject?: string; body?: string }): Promise<FollowUp> {
@@ -100,6 +114,7 @@ export type DeliveryAttempt = {
   id: string;
   status: DeliveryAttemptStatus;
   recipient_email: string;
+  requested_by: string | null;
   started_at: string;
   completed_at: string | null;
   gmail_message_id: string;
@@ -134,6 +149,7 @@ function isDeliveryAttempt(value: unknown): value is DeliveryAttempt {
       (key) => typeof v[key] === "string",
     ) &&
     (v.completed_at === null || typeof v.completed_at === "string") &&
+    (v.requested_by === null || typeof v.requested_by === "string") &&
     ["SENDING", "SENT", "FAILED", "DELIVERY_UNKNOWN"].includes(v.status as string)
   );
 }
@@ -141,16 +157,12 @@ function isDeliveryAttempt(value: unknown): value is DeliveryAttempt {
 const isDeliveryAttemptList = (value: unknown): value is DeliveryAttempt[] =>
   Array.isArray(value) && value.every(isDeliveryAttempt);
 
-function isSendResult(value: unknown): value is SendResult {
-  if (typeof value !== "object" || value === null) return false;
+type SendQueued = { job_id: string; follow_up: FollowUp; delivery_attempt: DeliveryAttempt };
+
+function isSendQueued(value: unknown): value is SendQueued {
+  if (!isQueued(value)) return false;
   const v = value as Record<string, unknown>;
-  return (
-    ["sent", "delivery_failed", "delivery_unknown"].includes(v.code as string) &&
-    typeof v.detail === "string" &&
-    typeof v.requires_reconciliation === "boolean" &&
-    isFollowUp(v.follow_up) &&
-    isDeliveryAttempt(v.delivery_attempt)
-  );
+  return isFollowUp(v.follow_up) && isDeliveryAttempt(v.delivery_attempt);
 }
 
 function isGmailStatus(value: unknown): value is GmailStatus {
@@ -167,8 +179,19 @@ function isGmailStatus(value: unknown): value is GmailStatus {
   );
 }
 
-/** Gmail readiness check plus send; the backend bounds both well below this. */
-const SEND_TIMEOUT_MS = 50_000;
+/** The worker checks Gmail readiness and sends (bounded at ~35 s), plus queueing. */
+const SEND_WAIT_MS = 60_000;
+
+const OUTCOMES: Partial<Record<FollowUpStatus, Pick<SendResult, "code" | "detail">>> = {
+  SENT: { code: "sent", detail: "Gmail accepted the email." },
+  FAILED: { code: "delivery_failed", detail: "Gmail did not accept the email. It was not sent." },
+  DELIVERY_UNKNOWN: {
+    code: "delivery_unknown",
+    detail:
+      "It is unknown whether Gmail accepted the email. Do not resend. Check the sender's Gmail Sent folder, " +
+      "then reconcile with: python manage.py reconcile_delivery",
+  },
+};
 
 export function getDeliveryAttempts(followUpId: string, signal?: AbortSignal): Promise<DeliveryAttempt[]> {
   return backendGet(`/follow-ups/${followUpId}/delivery-attempts/`, isDeliveryAttemptList, { signal });
@@ -179,15 +202,31 @@ export function getGmailStatus(signal?: AbortSignal): Promise<GmailStatus> {
 }
 
 /**
- * Submits an approved follow-up to Gmail. Resolves with the recorded outcome for sent,
- * failed and unknown deliveries (HTTP 200 / 502 / 202). Rejects for errors raised before
- * anything was submitted (409, 503, ...). Callers must never retry automatically.
+ * Confirms the send: the backend reserves the reminder and queues one delivery job, then this
+ * waits for the worker's outcome. Resolves with the recorded outcome (sent, failed, unknown).
+ * Rejects with a 4xx/503 ApiError when nothing was submitted (refused at request time, or the
+ * worker found Gmail not ready / the invoice changed), and with status null when the outcome is
+ * not known yet. Callers must never retry automatically.
  */
 export async function sendFollowUp(followUpId: string): Promise<SendResult> {
-  try {
-    return await backendPost(`/follow-ups/${followUpId}/send/`, isSendResult, { timeoutMs: SEND_TIMEOUT_MS });
-  } catch (error) {
-    if (error instanceof ApiError && isSendResult(error.body)) return error.body;
-    throw error;
+  const queued = await backendPost(`/follow-ups/${followUpId}/send/`, isSendQueued);
+  const job = await waitForJob(queued.job_id, { timeoutMs: SEND_WAIT_MS });
+  if (job.status === "FAILED") {
+    if (job.error_code === "abandoned") {
+      throw new ApiError("The worker stopped during delivery; the outcome is unknown. Do not resend.", null);
+    }
+    // Released before anything reached Gmail: the reminder is APPROVED again.
+    throw jobError(job, job.error_code === "gmail_not_ready" ? 503 : 409);
   }
+  const [followUp, attempts] = await Promise.all([getFollowUp(followUpId), getDeliveryAttempts(followUpId)]);
+  const attempt = attempts.find((item) => item.id === queued.delivery_attempt.id) ?? queued.delivery_attempt;
+  const outcome = OUTCOMES[followUp.status] ?? OUTCOMES.DELIVERY_UNKNOWN!;
+  const detail = attempt.error_summary && outcome.code !== "sent" ? `${outcome.detail} (${attempt.error_summary})` : outcome.detail;
+  return {
+    ...outcome,
+    detail,
+    requires_reconciliation: outcome.code === "delivery_unknown",
+    follow_up: followUp,
+    delivery_attempt: attempt,
+  };
 }

@@ -12,6 +12,7 @@ import {
   type FollowUp,
   type GmailStatus,
 } from "@/lib/api/followups";
+import { isWorkerDown, WORKER_DOWN_MESSAGE } from "@/lib/api/jobs";
 import { formatDateTime } from "@/lib/format";
 
 import { FollowUpStatusBadge } from "./FollowUpBadges";
@@ -241,6 +242,11 @@ export function DeliveryPanel({
     } catch (error) {
       if (error instanceof ApiError && error.status !== null && DEFINITELY_NOT_SENT.has(error.status)) {
         setSendError({ kind: "not_sent", message: error.message });
+      } else if (isWorkerDown(error)) {
+        setSendError({
+          kind: "uncertain",
+          message: `${WORKER_DOWN_MESSAGE}. The reminder is reserved and will be sent once the worker runs; do not send it again.`,
+        });
       } else {
         // Network failure or timeout: the request may still have reached Gmail. Never retry.
         setSendError({

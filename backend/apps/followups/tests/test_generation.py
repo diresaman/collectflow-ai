@@ -2,7 +2,7 @@ import json
 from decimal import Decimal
 
 from django.db import IntegrityError, connection
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 
 from apps.followups.models import FollowUp, GenerationAttempt
 from apps.followups.services import (
@@ -14,6 +14,7 @@ from apps.followups.services import (
     StaleInvoice,
 )
 from apps.invoices.models import Invoice
+from apps.timeline.testing import TimelineTransactionTestCase
 from integrations.gemini import GeminiResponseError, GeminiUnavailable
 
 from .helpers import FakeGemini, ai_output, make_follow_up, overdue_invoice
@@ -190,7 +191,7 @@ class ConcurrencyTests(TestCase):
         self.assertEqual(FollowUp.objects.count(), 0)
 
 
-class TransactionBoundaryTests(TransactionTestCase):
+class TransactionBoundaryTests(TimelineTransactionTestCase):
     def test_gemini_is_called_outside_a_transaction(self) -> None:
         invoice = overdue_invoice()
         observed: list[bool] = []

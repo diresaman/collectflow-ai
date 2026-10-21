@@ -5,9 +5,11 @@ from unittest import mock
 
 from django.core.management import call_command
 from django.db import IntegrityError, connection
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from apps.accounts.testing import SessionApiTestCase, run_jobs
+from apps.automation.models import OutboxJob
 from apps.followups.delivery import (
     DuplicateDelivery,
     FollowUpDeliveryService,
@@ -17,12 +19,13 @@ from apps.followups.delivery import (
 from apps.followups.models import DeliveryAttempt, FollowUp
 from apps.followups.services import FollowUpGenerationService, InvalidContent, InvalidState, StaleInvoice
 from apps.invoices.models import Invoice
+from apps.timeline.models import TimelineEvent
+from apps.timeline.testing import TimelineTransactionTestCase
 from integrations.gmail import GmailDeliveryUnknown, GmailRejected
 
 from .helpers import FakeGemini, FakeGmail, ai_output, make_follow_up, overdue_invoice
 
-TOKEN = "test-operator-token"
-AUTH = {"HTTP_AUTHORIZATION": f"Bearer {TOKEN}"}
+AUTH: dict[str, str] = {}
 
 # Tests must not depend on the developer's backend/.env (e.g. a real recipient allowlist).
 isolated_delivery_settings = override_settings(DEBUG=False, GMAIL_ALLOWED_RECIPIENTS=[])
@@ -137,10 +140,13 @@ class DuplicateProtectionTests(TestCase):
     def test_concurrent_reservation_loses_cleanly(self) -> None:
         follow_up = approved_follow_up()
 
-        def other_request_reserves_first() -> None:
-            FollowUp.objects.filter(pk=follow_up.pk).update(status=FollowUp.Status.SENDING)
+        class RacingGmail(FakeGmail):
+            def check_configured(self):  # type: ignore[no-untyped-def]
+                # Another request reserves the send between our validation and our reservation.
+                FollowUp.objects.filter(pk=follow_up.pk).update(status=FollowUp.Status.SENDING)
+                return super().check_configured()
 
-        gmail = FakeGmail(on_check=other_request_reserves_first)
+        gmail = RacingGmail()
 
         with self.assertRaises(DuplicateDelivery):
             send(follow_up, gmail)
@@ -166,17 +172,31 @@ class DuplicateProtectionTests(TestCase):
 
 @isolated_delivery_settings
 class FailureClassificationTests(TestCase):
-    def test_gmail_not_ready_is_reported_before_reservation(self) -> None:
+    def test_gmail_not_configured_is_reported_before_reservation(self) -> None:
         follow_up = approved_follow_up()
-        gmail = FakeGmail(ready=False, detail="Gmail authorization was revoked or expired.")
+        gmail = FakeGmail(configured=False)
 
         with self.assertRaises(GmailUnavailable) as ctx:
             send(follow_up, gmail)
 
         self.assertEqual(ctx.exception.status_code, 503)
         follow_up.refresh_from_db()
-        self.assertEqual(follow_up.status, FollowUp.Status.APPROVED)  # still sendable later
+        self.assertEqual(follow_up.status, FollowUp.Status.APPROVED)
         self.assertFalse(DeliveryAttempt.objects.exists())
+
+    def test_gmail_not_ready_at_delivery_releases_the_reservation(self) -> None:
+        follow_up = approved_follow_up()
+        gmail = FakeGmail(ready=False, detail="Gmail authorization was revoked or expired.")
+
+        with self.assertRaises(GmailUnavailable) as ctx, self.assertLogs("apps.followups.delivery"):
+            send(follow_up, gmail)
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        follow_up.refresh_from_db()
+        self.assertEqual(follow_up.status, FollowUp.Status.APPROVED)  # nothing was submitted; still sendable later
+        attempt = DeliveryAttempt.objects.get()
+        self.assertEqual((attempt.status, attempt.error_code), ("FAILED", "gmail_not_ready"))
+        self.assertTrue(attempt.error_summary.startswith("Not sent:"))
         self.assertEqual(gmail.sent, [])
 
     def test_gmail_auth_rejection_during_send_is_failed(self) -> None:
@@ -225,7 +245,7 @@ class FailureClassificationTests(TestCase):
 
 
 @isolated_delivery_settings
-class TransactionBoundaryTests(TransactionTestCase):
+class TransactionBoundaryTests(TimelineTransactionTestCase):
     def test_gmail_is_called_outside_a_transaction(self) -> None:
         follow_up = approved_follow_up()
         observed: list[bool] = []
@@ -282,52 +302,104 @@ def patch_gmail(gmail: FakeGmail):  # type: ignore[no-untyped-def]
     return mock.patch("apps.followups.delivery.GmailClient.from_settings", return_value=gmail)
 
 
-@override_settings(OPERATOR_TOKEN=TOKEN, DEBUG=False, GMAIL_ALLOWED_RECIPIENTS=[])
-class DeliveryApiTests(TestCase):
+@override_settings(DEBUG=False, GMAIL_ALLOWED_RECIPIENTS=[])
+class DeliveryApiTests(SessionApiTestCase):
     def post_send(self, follow_up_id: object, gmail: FakeGmail):  # type: ignore[no-untyped-def]
+        """POST /send/ (queues delivery), then let the worker run it with the fake Gmail."""
         with patch_gmail(gmail):
-            return self.client.post(reverse("follow-up-send", args=[follow_up_id]), **AUTH)
+            response = self.client.post(reverse("follow-up-send", args=[follow_up_id]), **AUTH)
+            run_jobs()
+        return response
 
-    def test_sent_returns_200_with_message_id(self) -> None:
+    def follow_up_after(self, response) -> dict:  # type: ignore[no-untyped-def,type-arg]
+        return self.client.get(reverse("follow-up-detail", args=[response.json()["follow_up"]["id"]]), **AUTH).json()
+
+    def test_send_is_queued_and_gmail_is_not_called_in_the_request(self) -> None:
+        follow_up = approved_follow_up()
+        gmail = FakeGmail()
+        with patch_gmail(gmail):
+            response = self.client.post(reverse("follow-up-send", args=[follow_up.pk]), **AUTH)
+
+        self.assertEqual(response.status_code, 202)
+        body = response.json()
+        self.assertEqual((body["code"], body["follow_up"]["status"]), ("queued", "SENDING"))
+        self.assertEqual(body["delivery_attempt"]["requested_by"], self.user.username)
+        self.assertEqual(gmail.sent, [])
+        job = OutboxJob.objects.get(pk=body["job_id"])
+        self.assertEqual((job.kind, job.max_attempts), ("followups.deliver", 1))
+
+    def test_sent_records_message_id(self) -> None:
         follow_up = approved_follow_up()
 
         response = self.post_send(follow_up.pk, FakeGmail())
 
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["code"], "sent")
-        self.assertEqual(body["follow_up"]["status"], "SENT")
-        self.assertEqual(body["follow_up"]["recipient_email"], "billing@fictional.test")
-        self.assertEqual(body["delivery_attempt"]["gmail_message_id"], "msg-123")
-        self.assertFalse(body["requires_reconciliation"])
+        self.assertEqual(response.status_code, 202)
+        detail = self.follow_up_after(response)
+        self.assertEqual(detail["status"], "SENT")
+        self.assertEqual(detail["recipient_email"], "billing@fictional.test")
+        attempts = self.client.get(reverse("follow-up-delivery-attempts", args=[follow_up.pk]), **AUTH).json()
+        self.assertEqual(attempts[0]["gmail_message_id"], "msg-123")
+        job = self.client.get(reverse("job-detail", args=[response.json()["job_id"]]), **AUTH).json()
+        self.assertEqual((job["status"], job["result"]["status"]), ("SUCCEEDED", "SENT"))
+        sent = TimelineEvent.objects.get(type="FOLLOW_UP_SENT")
+        self.assertEqual((sent.actor, sent.payload["gmail_message_id"]), (self.user, "msg-123"))
 
-    def test_unknown_returns_202_requiring_reconciliation(self) -> None:
+    def test_unknown_outcome_requires_reconciliation(self) -> None:
         follow_up = approved_follow_up()
         with self.assertLogs("apps.followups.delivery"):
             response = self.post_send(follow_up.pk, FakeGmail(error=GmailDeliveryUnknown("Timed out.")))
 
-        self.assertEqual(response.status_code, 202)
-        self.assertEqual(response.json()["code"], "delivery_unknown")
-        self.assertTrue(response.json()["requires_reconciliation"])
-        self.assertIn("Do not resend", response.json()["detail"])
+        self.assertEqual(self.follow_up_after(response)["status"], "DELIVERY_UNKNOWN")
+        self.assertEqual(OutboxJob.objects.get().attempts, 1)
+        self.assertEqual(self.post_send(follow_up.pk, FakeGmail()).json()["code"], "duplicate_delivery")
 
-    def test_failed_returns_502(self) -> None:
+    def test_failed_delivery_is_recorded(self) -> None:
         follow_up = approved_follow_up()
         with self.assertLogs("apps.followups.delivery"):
             response = self.post_send(follow_up.pk, FakeGmail(error=GmailRejected("Rejected (HTTP 400).")))
-        self.assertEqual(response.status_code, 502)
-        self.assertEqual(response.json()["code"], "delivery_failed")
+        self.assertEqual(self.follow_up_after(response)["status"], "FAILED")
+        self.assertTrue(TimelineEvent.objects.filter(type="DELIVERY_FAILED").exists())
+
+    def test_gmail_not_ready_in_the_worker_releases_the_reservation(self) -> None:
+        follow_up = approved_follow_up()
+        gmail = FakeGmail(ready=False, detail="Not authorized.")
+        with self.assertLogs("apps.followups.delivery"):
+            response = self.post_send(follow_up.pk, gmail)
+
+        self.assertEqual(gmail.sent, [])
+        self.assertEqual(self.follow_up_after(response)["status"], "APPROVED")
+        attempt = DeliveryAttempt.objects.get()
+        self.assertEqual((attempt.status, attempt.error_code), ("FAILED", "gmail_not_ready"))
+        job = OutboxJob.objects.get()
+        self.assertEqual((job.status, job.last_error_code), ("FAILED", "gmail_not_ready"))
+        self.assertTrue(TimelineEvent.objects.filter(type="SEND_CANCELLED").exists())
+
+    def test_invoice_paid_while_queued_is_not_sent(self) -> None:
+        follow_up = approved_follow_up()
+        gmail = FakeGmail()
+        with patch_gmail(gmail):
+            self.client.post(reverse("follow-up-send", args=[follow_up.pk]), **AUTH)
+            Invoice.objects.filter(pk=follow_up.invoice_id).update(status=Invoice.Status.PAID)
+            with self.assertLogs("apps.followups.delivery"):
+                run_jobs()
+
+        self.assertEqual(gmail.sent, [])
+        follow_up.refresh_from_db()
+        self.assertEqual(follow_up.status, FollowUp.Status.APPROVED)
+        self.assertEqual(DeliveryAttempt.objects.get().error_code, "stale_invoice")
 
     def test_error_status_codes(self) -> None:
         draft = make_follow_up(overdue_invoice(external_id="DRAFT-1"))
         approved = approved_follow_up()
         self.assertEqual(self.post_send(draft.pk, FakeGmail()).status_code, 409)
         self.assertEqual(self.post_send(uuid.uuid4(), FakeGmail()).status_code, 404)
-        self.assertEqual(self.post_send(approved.pk, FakeGmail(ready=False, detail="Not authorized.")).status_code, 503)
+        not_configured = self.post_send(approved.pk, FakeGmail(configured=False))
+        self.assertEqual((not_configured.status_code, not_configured.json()["code"]), (503, "gmail_not_ready"))
         self.post_send(approved.pk, FakeGmail())
         duplicate = self.post_send(approved.pk, FakeGmail())
         self.assertEqual(duplicate.status_code, 409)
         self.assertEqual(duplicate.json()["code"], "duplicate_delivery")
+        self.assertEqual(DeliveryAttempt.objects.count(), 1)
 
     def test_delivery_attempts_are_listed(self) -> None:
         follow_up = approved_follow_up()
@@ -345,7 +417,8 @@ class DeliveryApiTests(TestCase):
         self.assertTrue(response.json()["ready"])
         self.assertNotIn("token", response.content.decode().lower())
 
-    def test_endpoints_require_token(self) -> None:
+    def test_endpoints_require_a_session(self) -> None:
+        self.client.logout()
         follow_up = approved_follow_up()
         gmail = FakeGmail()
         requests = [
@@ -357,9 +430,6 @@ class DeliveryApiTests(TestCase):
             for method, url in requests:
                 with self.subTest(url=url):
                     self.assertEqual(getattr(self.client, method)(url).status_code, 401)
-                    self.assertEqual(
-                        getattr(self.client, method)(url, HTTP_AUTHORIZATION="Bearer wrong").status_code, 401
-                    )
         self.assertEqual(gmail.sent, [])
         follow_up.refresh_from_db()
         self.assertEqual(follow_up.status, FollowUp.Status.APPROVED)

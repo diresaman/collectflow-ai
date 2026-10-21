@@ -1,4 +1,5 @@
 import { ApiError, backendGet, backendPost } from "./client";
+import { isQueued, waitForJob } from "./jobs";
 
 export type AutomationRunStatus = "RUNNING" | "COMPLETED" | "PARTIAL" | "FAILED";
 export type AutomationItemOutcome = "GENERATED" | "SKIPPED" | "FAILED";
@@ -71,7 +72,7 @@ function isDetail(value: unknown): value is AutomationRunDetail {
 const isSummaryList = (value: unknown): value is AutomationRunSummary[] => Array.isArray(value) && value.every(isSummary);
 
 /** A full run can take minutes (sync plus up to N Gemini drafts). */
-const RUN_TIMEOUT_MS = 15 * 60_000;
+const RUN_WAIT_MS = 15 * 60_000;
 
 export async function getLatestAutomationRun(signal?: AbortSignal): Promise<AutomationRunDetail | null> {
   const runs = await backendGet("/automation-runs/?kind=AUTOMATION", isSummaryList, { signal });
@@ -80,14 +81,19 @@ export async function getLatestAutomationRun(signal?: AbortSignal): Promise<Auto
 }
 
 /**
- * Runs the automation (sync + AI drafts; never sends email). Resolves with the finished run,
- * including a FAILED one (HTTP 502). Rejects with ApiError status 409 if another run is active.
+ * Queues an automation run (sync + AI drafts; never sends email) and waits for the worker.
+ * Resolves with the finished run, including a FAILED one. Rejects with ApiError status 409 if
+ * another run is active.
  */
 export async function runAutomation(): Promise<AutomationRunDetail> {
-  try {
-    return await backendPost("/automation/run/", isDetail, { timeoutMs: RUN_TIMEOUT_MS });
-  } catch (error) {
-    if (error instanceof ApiError && isDetail(error.body)) return error.body;
-    throw error;
+  const queued = await backendPost("/automation/run/", isQueued);
+  const job = await waitForJob(queued.job_id, { timeoutMs: RUN_WAIT_MS });
+  const runId = job.result.run_id;
+  if (job.status !== "SUCCEEDED" || typeof runId !== "number") {
+    if (job.error_code === "automation_running") {
+      throw new ApiError("Another automation run is in progress.", 409, job.result);
+    }
+    throw new ApiError(`The automation run could not start (${job.error_code}).`, 500, job.result);
   }
+  return backendGet(`/automation-runs/${runId}/`, isDetail);
 }

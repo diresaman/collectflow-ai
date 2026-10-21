@@ -7,7 +7,7 @@ from django.core import mail
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.automation.lease import LEASE_NAME, Lease
@@ -16,6 +16,7 @@ from apps.automation.orchestrator import AutomationAlreadyRunning, AutomationOrc
 from apps.followups.models import FollowUp
 from apps.invoices.models import AutomationRun, Invoice
 from apps.invoices.tests.factories import FakeSheetsClient, row
+from apps.timeline.testing import TimelineTransactionTestCase
 from integrations.gemini import GeminiResponseError, GeminiUnavailable
 
 from .helpers import RoutingGemini, follow_up_for, iso, overdue_row, sheet
@@ -379,7 +380,7 @@ class CommandTests(TestCase):
         self.assertEqual(ctx.exception.returncode, 1)
 
 
-class TransactionBoundaryTests(TransactionTestCase):
+class TransactionBoundaryTests(TimelineTransactionTestCase):
     def test_external_calls_happen_outside_transactions(self) -> None:
         observed: list[tuple[str, bool]] = []
 

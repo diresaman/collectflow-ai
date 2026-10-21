@@ -9,22 +9,27 @@ so none is held during Google Sheets or Gemini calls.
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from apps.followups.models import FollowUp
 from apps.followups.services import ActiveFollowUpExists, FollowUpError, FollowUpGenerationService, NotEligible
 from apps.invoices.models import AutomationRun, Invoice
 from apps.invoices.sheets_client import GoogleSheetsClient
-from apps.invoices.sync import sync_invoices
+from apps.invoices.sync import default_actor, sync_invoices
 from integrations.gemini import GeminiClient
 
-from .lease import Lease, LeaseUnavailable
-from .models import AutomationRunItem, WorkflowStep
+from . import outbox
+from .lease import LEASE_NAME, Lease, LeaseUnavailable
+from .models import AutomationLease, AutomationRunItem, OutboxJob, WorkflowStep
 from .policy import Decision, evaluate
 
 logger = logging.getLogger(__name__)
+
+RUN_JOB_KIND = "automation.run"
 
 
 class AutomationAlreadyRunning(Exception):
@@ -35,6 +40,25 @@ class AutomationAlreadyRunning(Exception):
 
 class LeaseLost(Exception):
     pass
+
+
+def request_run(*, actor: Any) -> OutboxJob:
+    """Queues a manual run for the worker. Refused while a run is queued or holds the lease."""
+    with transaction.atomic():
+        lease = AutomationLease.objects.filter(name=LEASE_NAME).first()
+        if lease is not None and lease.owner and lease.expires_at and lease.expires_at >= timezone.now():
+            raise AutomationAlreadyRunning(lease.run_id)
+        if outbox.has_active(RUN_JOB_KIND):
+            raise AutomationAlreadyRunning(None)
+        return outbox.enqueue(RUN_JOB_KIND, {"trigger": AutomationRun.Trigger.MANUAL}, max_attempts=1, created_by=actor)
+
+
+def handle_run_job(job: OutboxJob) -> dict[str, Any]:
+    try:
+        run = AutomationOrchestrator().run(trigger=job.payload.get("trigger", AutomationRun.Trigger.MANUAL))
+    except AutomationAlreadyRunning as exc:
+        raise outbox.JobFailed("automation_running", {"code": "automation_running", "run_id": exc.run_id}) from None
+    return {"run_id": run.pk, "status": run.status}
 
 
 @dataclass(frozen=True)
@@ -147,7 +171,7 @@ class AutomationOrchestrator:
             for done, invoice in enumerate(eligible, start=1):
                 # Generation enforces eligibility and uniqueness again at the service/database level.
                 try:
-                    follow_up = generator.generate(invoice.pk)
+                    follow_up = generator.generate(invoice.pk, actor=default_actor(run.trigger))
                 except (NotEligible, ActiveFollowUpExists) as exc:
                     self._record(run, invoice, AutomationRunItem.Outcome.SKIPPED, exc.code, exc.message)
                 except FollowUpError as exc:

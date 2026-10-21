@@ -8,25 +8,20 @@ from rest_framework.views import APIView
 from .models import AutomationRun, Invoice
 from .serializers import AutomationRunSerializer, InvoiceSerializer
 from .sheet_parser import EXPECTED_HEADERS
-from .sync import sync_invoices
+from .sync import start_sync
 
 RECENT_RUNS_LIMIT = 20
 
 
 class SyncView(APIView):
-    """Runs a synchronous Google Sheets sync and returns the resulting AutomationRun."""
+    """Records a sync run and queues it for the worker: 202 with the run and job IDs."""
 
     def post(self, request: Request) -> Response:
-        run = sync_invoices(trigger=AutomationRun.Trigger.MANUAL)
-        data = AutomationRunSerializer(run).data
-
-        if run.status == AutomationRun.Status.SUCCEEDED:
-            return Response(data, status=status.HTTP_200_OK)
-        if run.errors:
-            # The sheet was read but contained invalid rows; nothing was applied.
-            return Response(data, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-        # Retrieval from Google (or saving) failed.
-        return Response(data, status=status.HTTP_502_BAD_GATEWAY)
+        run, job = start_sync(actor=request.user)
+        return Response(
+            {"run_id": run.pk, "job_id": str(job.pk), "run": AutomationRunSerializer(run).data},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class InvoiceListView(generics.ListAPIView):

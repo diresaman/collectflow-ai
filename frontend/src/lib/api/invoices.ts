@@ -1,4 +1,5 @@
-import { ApiError, backendGet, backendPost } from "./client";
+import { backendGet, backendPost } from "./client";
+import { waitForJob } from "./jobs";
 
 export type InvoiceStatus = "UNPAID" | "PAID";
 
@@ -130,8 +131,12 @@ function isAutomationRun(value: unknown): value is AutomationRun {
 
 // Requests -------------------------------------------------------------------
 
-/** Syncing waits on the Google Sheets API, so allow longer than the default timeout. */
-const SYNC_TIMEOUT_MS = 45_000;
+/** The worker fetches the sheet with a 30 s timeout; allow for queueing on top. */
+const SYNC_WAIT_MS = 60_000;
+
+type SyncQueued = { run_id: number; job_id: string };
+const isSyncQueued = (value: unknown): value is SyncQueued =>
+  isRecord(value) && isNumber(value.run_id) && isString(value.job_id);
 
 export function getInvoices(signal?: AbortSignal): Promise<Invoice[]> {
   return backendGet("/invoices/", isArrayOf(isInvoice), { signal });
@@ -147,15 +152,12 @@ export function getAutomationRuns(signal?: AbortSignal): Promise<AutomationRun[]
 }
 
 /**
- * Triggers a sync. Resolves with the run whether it succeeded or failed validation /
- * retrieval (the backend responds 422 / 502 with the run); rejects only when no run
- * was recorded (e.g. network or authorization errors).
+ * Queues a sync and waits for the worker to finish it. Resolves with the run whether it
+ * succeeded or failed validation / retrieval; rejects when nothing finished (network,
+ * authorization, or no worker running).
  */
 export async function syncInvoices(): Promise<AutomationRun> {
-  try {
-    return await backendPost("/sync/", isAutomationRun, { timeoutMs: SYNC_TIMEOUT_MS });
-  } catch (error) {
-    if (error instanceof ApiError && isAutomationRun(error.body)) return error.body;
-    throw error;
-  }
+  const queued = await backendPost("/sync/", isSyncQueued);
+  await waitForJob(queued.job_id, { timeoutMs: SYNC_WAIT_MS });
+  return backendGet(`/automation-runs/${queued.run_id}/`, isAutomationRun);
 }

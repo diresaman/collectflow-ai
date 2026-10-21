@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ApiStatus } from "@/components/ApiStatus";
+import { UserMenu } from "@/components/auth/UserMenu";
 
 import { Logo } from "./Logo";
 
@@ -33,7 +34,12 @@ export function AppHeader({ active }: { active: "/" | "/automation" }) {
             ))}
           </nav>
         </div>
-        <ApiStatus />
+        <div className="flex items-center gap-3">
+          <div className="hidden md:block">
+            <ApiStatus />
+          </div>
+          <UserMenu />
+        </div>
       </div>
     </header>
   );

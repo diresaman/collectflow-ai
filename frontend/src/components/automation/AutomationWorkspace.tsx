@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { runAutomation } from "@/lib/api/automation";
 import { ApiError } from "@/lib/api/client";
 import { analyzeInvoice } from "@/lib/api/followups";
+import { isWorkerDown, WORKER_DOWN_MESSAGE } from "@/lib/api/jobs";
 import { finalizeWorkflow, getCurrentWorkflow, leaveUnsent, type Workflow, type WorkflowState } from "@/lib/api/workflows";
 import { formatDateTime } from "@/lib/format";
 
@@ -75,6 +76,8 @@ export function AutomationWorkspace() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setNotice("An automation run is already in progress; showing it below.");
+      } else if (isWorkerDown(err)) {
+        setNotice(WORKER_DOWN_MESSAGE);
       } else if (err instanceof ApiError && err.status !== null && err.status < 500) {
         setError(err.message);
       } else {

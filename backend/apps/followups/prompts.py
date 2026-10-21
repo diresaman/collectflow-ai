@@ -5,6 +5,9 @@ from typing import Any
 
 from apps.invoices.models import Invoice
 
+# Bump whenever the instructions, context or schema change; stored on every draft and attempt.
+PROMPT_VERSION = "draft-v1"
+
 SYSTEM_INSTRUCTION = """\
 You draft payment reminder emails for a small service business's accounts receivable team.
 

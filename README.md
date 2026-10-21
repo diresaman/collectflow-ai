@@ -49,20 +49,28 @@ writing the email) and keeps a person in control of every message that leaves th
 
 ```
  Browser ──▶ Next.js (localhost:3000)
-              ├── pages: /  (dashboard)   /automation  (workspace)
+              ├── pages: /login   /  (dashboard)   /automation  (workspace)
               └── /api/backend/*  server-side proxy: route allowlist, same-origin check,
-                                  adds Authorization: Bearer <operator token>
+                                  forwards only the session + CSRF cookies and X-CSRFToken
                      │
                      ▼
-            Django REST API (localhost:8000)  ── every endpoint except /api/health/ requires the token
-              ├── apps/invoices    sync service ──▶ Google Sheets API (service account, read-only)
-              ├── apps/followups   generation   ──▶ Gemini API (google-genai)
-              │                    approval workflow, delivery ──▶ Gmail API (OAuth, gmail.send only)
-              ├── apps/automation  orchestrator, policy, lease, workflow view
-              └── SQLite           invoices, follow-ups, runs, attempts, lease
-
+            Django REST API (localhost:8000)  ── session login; every endpoint except health/login
+              │                                  needs a role (OPERATOR < APPROVER < ADMIN) and CSRF on writes
+              ├── apps/accounts    users, roles, login rate limiting
+              ├── apps/timeline    append-only TimelineEvent (SQLite triggers block UPDATE/DELETE)
+              ├── apps/invoices    Client, Invoice, sync service
+              ├── apps/followups   drafts, approval workflow, delivery (the only Gmail send path)
+              ├── apps/automation  outbox jobs + worker, orchestrator, policy, lease, workflow view
+              └── SQLite (WAL)     state, timeline and the job queue
+                     ▲
+ manage.py run_worker ┘  claims OutboxJobs ──▶ Google Sheets (read-only) · Gemini · Gmail send
  cron ──▶ manage.py run_automation  (same orchestrator; never sends email)
 ```
+
+- **No provider calls in web requests.** Sync, AI drafting, Gmail delivery and manual
+  automation runs are written as an `OutboxJob` in the same transaction as the state change
+  and answered with `202` and a job ID. The `run_worker` process claims jobs with a conditional
+  `UPDATE` (SQLite-safe) and the frontend polls `GET /api/jobs/{id}/` every 1.5 s.
 
 - **Automated phases** (sync → evaluate → draft) run in `AutomationOrchestrator` under a
   database lease and persist each step as a `WorkflowStep`.
@@ -77,9 +85,10 @@ writing the email) and keeps a person in control of every message that leaves th
 
 | Layer | Technology |
 | --- | --- |
-| Backend | Python 3.10+, Django 5.2, Django REST Framework 3.15+, django-cors-headers, SQLite |
+| Backend | Python 3.12, Django 5.2, Django REST Framework 3.15+, django-cors-headers, argon2-cffi, SQLite (WAL) |
 | Integrations | `google-api-python-client` (Sheets v4, Gmail v1), `google-auth`, `google-auth-oauthlib`, `google-genai` (Gemini) |
 | Frontend | Next.js 16 (App Router, Turbopack), React 19, TypeScript 5, Tailwind CSS 4, ESLint 9 |
+| Jobs | SQLite-backed transactional outbox and a single `run_worker` process (no Redis) |
 | Scheduling | cron (or any scheduler) calling `manage.py run_automation` |
 
 ## Quick start (local)
@@ -87,22 +96,27 @@ writing the email) and keeps a person in control of every message that leaves th
 ```bash
 # 1. Backend
 cd backend
-python3 -m venv .venv && source .venv/bin/activate
+uv venv --python 3.12 .venv && source .venv/bin/activate   # or: python3.12 -m venv .venv
 pip install -r requirements.txt
-cp .env.example .env            # set DJANGO_DEBUG=true and COLLECTFLOW_OPERATOR_TOKEN (see below)
+cp .env.example .env            # set DJANGO_DEBUG=true (see below)
 python manage.py migrate
+python manage.py create_user ana --role APPROVER    # prompts for a password
 python manage.py runserver      # http://localhost:8000 (binds to 127.0.0.1)
 
-# 2. Frontend (second terminal)
+# 2. Worker (second terminal): runs sync, AI drafting and Gmail delivery jobs
+cd backend && source .venv/bin/activate
+python manage.py run_worker
+
+# 3. Frontend (third terminal)
 cd frontend
 npm install
-cp .env.example .env.local      # COLLECTFLOW_OPERATOR_TOKEN must equal the backend value
-npm run dev                     # http://localhost:3000 (binds to localhost only)
+cp .env.example .env.local
+npm run dev                     # http://localhost:3000 (binds to localhost only), sign in at /login
 ```
 
 Then configure the integrations: [Google Sheets](#google-sheets-setup), [Gemini](#ai-follow-ups-gemini)
-and [Gmail](#gmail-delivery). Generate the operator token with
-`python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+and [Gmail](#gmail-delivery). Without the worker, requests are accepted and queued, and the UI
+says the worker is not running.
 
 ## Repository layout
 
@@ -110,9 +124,11 @@ and [Gmail](#gmail-delivery). Generate the operator token with
 collectflow-ai/
 ├── backend/                    Django + Django REST Framework API
 │   ├── config/                 Project configuration (settings, root URLs, WSGI/ASGI)
-│   ├── apps/core/              Health check and operator-token authentication
+│   ├── apps/core/              Health check, API error format
+│   ├── apps/accounts/          Users, roles (Profile), session login, create_user command
+│   ├── apps/timeline/          Append-only TimelineEvent and its writer
 │   ├── apps/invoices/          Invoice domain
-│   │   ├── models.py           Invoice, AutomationRun
+│   │   ├── models.py           Client, Invoice, AutomationRun
 │   │   ├── sheets_client.py    Google Sheets API adapter (read-only)
 │   │   ├── sheet_parser.py     Header/row validation → invoice records
 │   │   ├── sync.py             Synchronization service
@@ -128,8 +144,9 @@ collectflow-ai/
 │   │   ├── policy.py           Deterministic eligibility / cooldown policy
 │   │   ├── lease.py            Database-backed run lease (one run at a time)
 │   │   ├── orchestrator.py     AutomationOrchestrator (sync → evaluate → draft)
+│   │   ├── outbox.py           Job enqueue/claim/retry; handlers registered by each app
 │   │   ├── workflow.py         Interactive workflow state (derived from persisted data)
-│   │   └── models.py           AutomationRunItem, AutomationLease, WorkflowStep
+│   │   └── models.py           AutomationRunItem, AutomationLease, WorkflowStep, OutboxJob
 │   ├── integrations/gemini.py  Gemini API adapter (google-genai)
 │   ├── integrations/gmail.py   Gmail send-only adapter (OAuth 2.0 user credentials)
 │   ├── credentials/            Service account key (gitignored; create locally)
@@ -144,7 +161,7 @@ collectflow-ai/
 
 ## Prerequisites
 
-- Python 3.10+ (3.11+ recommended; Google's client libraries warn on 3.10)
+- Python 3.12
 - Node.js 20.9+ and npm
 - A Google Cloud service account with the Google Sheets API enabled
 
@@ -152,15 +169,64 @@ collectflow-ai/
 
 ```bash
 cd backend
-python3 -m venv .venv
+uv venv --python 3.12 .venv   # or: python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env          # then fill in the values (see below)
 python manage.py migrate
+python manage.py create_user <username> --role OPERATOR|APPROVER|ADMIN
 python manage.py runserver    # http://localhost:8000
+python manage.py run_worker   # separate terminal; Ctrl+C finishes the current job, then stops
 ```
 
 Check it: `curl http://localhost:8000/api/health/` → `{"status": "ok", "service": "collectflow-api"}`
+
+### Users, roles and sessions
+
+- **Roles:** `OPERATOR` < `APPROVER` < `ADMIN`; each includes the ones before it. A user with
+  no role cannot sign in. Superusers count as `ADMIN`. Create or change users with
+  `python manage.py create_user <name> --role <ROLE>` (`--password-env VAR` for scripts,
+  `--keep-password` to change only the role).
+- **Login:** `POST /api/auth/login/` after `GET /api/auth/csrf/`. Passwords are hashed with
+  Argon2. Five failed attempts for a username within 15 minutes return `429` until the window
+  passes. Sessions last 12 hours; cookies are `HttpOnly` (session) and `SameSite=Strict`.
+- **CSRF:** every write needs the `X-CSRFToken` header (the frontend copies it from the
+  `csrftoken` cookie). The proxy also rejects cross-origin writes.
+- **Errors:** `401 not_authenticated` (sign in), `403` (role or CSRF), body `{code, detail, fields?}`.
+- **Admin:** `/admin/` is off unless `ENABLE_ADMIN=true`.
+
+### Background worker and jobs
+
+`python manage.py run_worker` processes queued `OutboxJob`s one at a time (`--once` runs what
+is due and exits). Jobs: `invoices.sync`, `followups.generate`, `followups.deliver` and
+`automation.run`.
+
+- Each job is written in the same transaction as the change that needs it, with a unique
+  idempotency key. Claiming is a conditional `UPDATE … WHERE status='PENDING'`, so two workers
+  never run the same job.
+- Delivery jobs have `max_attempts=1`: Gmail is never retried. Other jobs retry unexpected
+  errors with exponential backoff (`JOB_RETRY_BASE_SECONDS`, doubling) up to `JOB_MAX_ATTEMPTS`.
+- A job left `RUNNING` longer than `JOB_LOCK_TIMEOUT_SECONDS` (worker crashed) is re-queued if
+  it may retry, or failed as `abandoned`. An abandoned delivery leaves the reminder `SENDING`
+  for `reconcile_delivery`; it is never resent automatically.
+- The worker writes a heartbeat every 10 s; `GET /api/jobs/{id}/` reports `worker_alive`.
+
+### Timeline
+
+`TimelineEvent` is an append-only history per invoice and client: sync imports and field
+changes (so `UNPAID → PAID` is a dated fact), removal from / return to the sheet, drafts,
+edits, approvals, withdrawals, send requests and outcomes, and reconciliations. Each event
+records the acting user, or `SYSTEM` / `SCHEDULER`. SQLite triggers reject `UPDATE` and
+`DELETE` on the table. Read it with `GET /api/timeline/?invoice=<id>&client=<id>` (paginated).
+
+### SQLite
+
+The database runs in WAL mode with `IMMEDIATE` transactions and a 10 s busy timeout, so the
+web server, the worker and cron can work at the same time. Tests run against a file database
+(`SQLITE_TEST_PATH`, default in the system temp directory) so the concurrency tests see real
+locking. The design document specifies PostgreSQL; staying on SQLite is a deliberate choice for
+this single-machine MVP, and every race is decided by conditional updates and unique
+constraints that behave the same on both.
 
 ### Backend environment variables
 
@@ -172,7 +238,11 @@ Check it: `curl http://localhost:8000/api/health/` → `{"status": "ok", "servic
 | `CORS_ALLOWED_ORIGINS`           | `http://localhost:3000`  | Comma-separated frontend origins allowed by CORS.              |
 | `SQLITE_PATH`                    | `db.sqlite3`             | SQLite file, relative to `backend/`.                           |
 | `DJANGO_TIME_ZONE`               | `UTC`                    | Defines "today" for overdue calculations.                      |
-| `COLLECTFLOW_OPERATOR_TOKEN`     | — (required)             | Shared secret for business endpoints. Empty = all rejected.    |
+| `SECURE_COOKIES`                 | `true` unless debug      | `Secure` flag on session/CSRF cookies (needs HTTPS).           |
+| `SESSION_COOKIE_AGE`             | `43200`                  | Session lifetime in seconds (12 h).                            |
+| `LOGIN_MAX_FAILURES`             | `5`                      | Failed logins per username per window before `429`.           |
+| `LOGIN_FAILURE_WINDOW_SECONDS`   | `900`                    | Login rate-limit window (15 min).                              |
+| `ENABLE_ADMIN`                   | `false`                  | Mount Django admin at `/admin/`.                               |
 | `GOOGLE_SHEETS_SPREADSHEET_ID`   | — (required for sync)    | ID from the sheet URL: `/spreadsheets/d/<ID>/edit`.            |
 | `GOOGLE_SHEETS_RANGE`            | `Sheet1!A1:G`            | A1 range that includes the header row.                         |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — (required for sync)    | Path to the service account JSON key (relative to `backend/`). |
@@ -185,6 +255,10 @@ Check it: `curl http://localhost:8000/api/health/` → `{"status": "ok", "servic
 | `FOLLOWUP_COOLDOWN_DAYS`         | `7`                      | Days after a SENT (or rejected) reminder before a new draft.   |
 | `AUTOMATION_MAX_DRAFTS_PER_RUN`  | `10`                     | Maximum Gemini drafts generated per automation run.            |
 | `AUTOMATION_LEASE_SECONDS`       | `600`                    | Run lease length; renewed after each step.                     |
+| `WORKER_POLL_SECONDS`            | `1`                      | Worker idle poll interval.                                     |
+| `JOB_LOCK_TIMEOUT_SECONDS`       | `900`                    | A RUNNING job older than this is treated as abandoned.        |
+| `JOB_MAX_ATTEMPTS`               | `3`                      | Attempts for retryable jobs (delivery always 1).               |
+| `JOB_RETRY_BASE_SECONDS`         | `30`                     | First retry delay; doubles each attempt.                       |
 
 ## Google Sheets setup
 
@@ -241,7 +315,10 @@ valid and its amount is positive. "Today" follows `DJANGO_TIME_ZONE`.
 ### Generation workflow
 
 1. **Analyze with AI** (`POST /api/invoices/{id}/analyze/`) checks eligibility and refuses if the
-   invoice already has an active (draft or approved) reminder.
+   invoice already has an active (draft or approved) reminder or a generation is already queued.
+   Otherwise it queues a `followups.generate` job and returns `202 {job_id}`; the worker calls
+   Gemini, and the job result holds the new `follow_up_id` or the error (`code`, `detail`,
+   `http_status`). Generation jobs are not re-run automatically.
 2. The backend picks the tone and sends Gemini only the minimum facts: client name, invoice
    number, amount, currency, due date and days overdue. The client email is not sent. Invoice data is
    wrapped in an `<invoice_data>` block that the instructions mark as untrusted data.
@@ -252,7 +329,8 @@ valid and its amount is positive. "Today" follows `DJANGO_TIME_ZONE`.
 4. No database transaction is open during the Gemini call (30s timeout). The draft is saved in a
    transaction that re-checks the invoice and active reminders, and a partial unique constraint
    guarantees at most one active reminder per invoice.
-5. Every attempt is recorded in `GenerationAttempt` (outcome and a safe error message only).
+5. Every attempt is recorded in `GenerationAttempt` (outcome, a safe error message and the
+   `prompt_version`), and on the timeline.
 
 The instructions forbid inventing payment links, bank details, penalties or deadlines,
 threatening the customer, claiming a payment was verified, or claiming any action was taken.
@@ -337,28 +415,33 @@ Use a **dedicated test Gmail account** as the sender.
 
 1. **Send Email** is shown only for `APPROVED` reminders. The panel shows From, To (the address
    captured in the approved snapshot), Subject and Body, and asks for confirmation.
-2. `POST /api/follow-ups/{id}/send/` re-validates everything before touching Gmail:
+2. `POST /api/follow-ups/{id}/send/` validates without calling Google:
    - the follow-up is `APPROVED`;
    - the invoice is still unpaid and overdue, and its snapshot fields are unchanged;
    - the recipient is valid and allowed;
    - subject and body are within the limits and contain no links;
-   - Gmail is authorized for the configured sender.
-3. **Reservation:** a single conditional `UPDATE … SET status='SENDING' WHERE status='APPROVED'`
-   plus a `DeliveryAttempt` row, committed before Gmail is called. Only one request can win the
-   update, on any database, and a partial unique index allows only one `SENDING` attempt per
-   reminder.
-4. Gmail `users.messages.send` is called with no transaction open and **no retries**. The
+   - Gmail is configured (sender set, token file present).
+3. **Reservation:** in one transaction, a conditional `UPDATE … SET status='SENDING' WHERE
+   status='APPROVED'`, a `DeliveryAttempt` row (with the confirming user), a timeline event and
+   one `followups.deliver` job (`max_attempts=1`). Only one request can win the update, and a
+   partial unique index allows only one `SENDING` attempt per reminder. The response is `202`
+   with the job and attempt IDs.
+4. **Worker:** re-checks the invoice, recipient and content (they may have changed while
+   queued) and runs the full Gmail readiness check. If any check fails, nothing was submitted:
+   the attempt becomes `FAILED` (`Not sent: …`) and the reminder returns to `APPROVED`.
+5. Gmail `users.messages.send` is called once, with no transaction open and **no retries**. The
    exact approved subject and body are sent as a plain-text MIME message, base64url-encoded.
-5. The result is recorded with conditional updates.
+6. The result is recorded with conditional updates and a timeline event.
 
-| Outcome | Follow-up / attempt | HTTP | Meaning |
+| Outcome | Follow-up / attempt | Job | Meaning |
 | --- | --- | --- | --- |
-| Gmail returned a message ID | `SENT` (+ message/thread ID, `sent_at`) | `200` `code: sent` | Gmail accepted the email. |
-| Gmail answered 4xx, or the connection could not be opened | `FAILED` | `502` `code: delivery_failed` | Reliable evidence it was **not** sent. |
-| Timeout, dropped connection, 5xx, response without ID, crash | `DELIVERY_UNKNOWN` | `202` `code: delivery_unknown`, `requires_reconciliation: true` | It **may** have been sent. Do not resend. |
-| Not ready / ineligible / duplicate / invalid, before reservation | unchanged | `503` / `409` / `400` | Nothing was submitted. |
+| Gmail returned a message ID | `SENT` (+ message/thread ID, `sent_at`) | `SUCCEEDED` | Gmail accepted the email. |
+| Gmail answered 4xx, or the connection could not be opened | `FAILED` | `SUCCEEDED` | Reliable evidence it was **not** sent. |
+| Timeout, dropped connection, 5xx, response without ID, crash | `DELIVERY_UNKNOWN` | `SUCCEEDED` | It **may** have been sent. Do not resend. |
+| Gmail not ready / invoice changed while queued | `APPROVED` again / attempt `FAILED` | `FAILED` (`gmail_not_ready`, `stale_invoice`) | Nothing was submitted. |
+| Ineligible / duplicate / invalid / not configured, at request time | unchanged | none | `409` / `400` / `503`; nothing was submitted. |
 
-`202` is used for unknown outcomes on purpose: a `5xx` would invite clients to retry.
+The frontend polls the job, then reads the follow-up and its attempts to show the outcome.
 
 ### Duplicate-send protection
 
@@ -441,8 +524,9 @@ names or emails.
 
 ### Running it
 
-- **Dashboard:** **Run Automation** (`POST /api/automation/run/`, trigger `MANUAL`). The panel
-  polls while a run is active and shows counts and per-invoice results.
+- **Dashboard:** **Run Automation** (`POST /api/automation/run/`, trigger `MANUAL`) queues an
+  `automation.run` job (`202`, or `409` while a run is queued or holds the lease); the worker
+  runs it. The panel polls while a run is active and shows counts and per-invoice results.
 - **Command line:** `python manage.py run_automation` (trigger `SCHEDULED`). It prints a summary
   with counts and reason codes. Exit codes: `0` completed/partial, `1` fatal failure, `2` another
   run in progress.
@@ -614,13 +698,13 @@ and a short, sanitized detail. The overall state is `PROCESSING` → `WAITING_FO
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local    # set COLLECTFLOW_OPERATOR_TOKEN to the backend value
-npm run dev                   # http://localhost:3000
+cp .env.example .env.local
+npm run dev                   # http://localhost:3000 → redirects to /login
 ```
 
-`npm run dev` and `npm run start` bind to `localhost` only. The `/api/backend` proxy attaches
-the operator token for anyone who can reach the Next.js server, so don't expose it on a network
-(e.g. `-H 0.0.0.0`) without adding real user authentication first.
+`npm run dev` and `npm run start` bind to `localhost` only. Every page requires a signed-in
+user; an expired session sends the browser back to `/login?next=…`. Before exposing the app on
+a network, serve it over HTTPS (session cookies are `Secure` outside debug mode).
 
 ### Frontend environment variables
 
@@ -628,11 +712,11 @@ the operator token for anyone who can reach the Next.js server, so don't expose 
 | ---------------------------- | ----------------------- | ------------------ | ------------------------------------------- |
 | `NEXT_PUBLIC_API_BASE_URL`   | `http://localhost:8000` | Yes                | Django URL for the public health check.     |
 | `API_BASE_URL`               | `http://localhost:8000` | No                 | Django URL used by the server-side proxy.   |
-| `COLLECTFLOW_OPERATOR_TOKEN` | same as backend         | No                 | Sent by the proxy to Django.                |
 
 `NEXT_PUBLIC_*` variables are embedded in the browser bundle at build time, so never put
 secrets in them. Business data requests go from the browser to the same-origin route
-`/api/backend/...`, which adds the operator token on the server and forwards them to Django.
+`/api/backend/...`, which forwards only the `sessionid` and `csrftoken` cookies and the
+`X-CSRFToken` header to Django and relays the cookies Django sets. The proxy holds no secret.
 
 If you run the frontend on a port other than 3000, add that origin to
 `CORS_ALLOWED_ORIGINS` in `backend/.env` (needed for the health check).
@@ -653,12 +737,15 @@ npm run build
 
 Tests mock the Google Sheets, Gemini and Gmail APIs; they never make network calls or send email.
 The automation tests replace `GmailClient.send` with a function that fails the test if called,
-and a route-wide test asserts that every `/api/` endpoint except the health check returns `401`
-without a valid operator token.
+a route-wide test asserts that every `/api/` endpoint except health and login returns `401`
+without a session and `403` for a user without a role, and threaded tests against a real SQLite
+file show that parallel workers claim each job once and parallel send requests call Gmail at
+most once.
 
 **Manual end-to-end check** (uses your real integrations; only allowlisted recipients can be
 emailed while `DJANGO_DEBUG=true`):
 
+0. Start `runserver`, `run_worker` and the frontend, then sign in at `/login`.
 1. Put a few rows in the sheet, at least one `UNPAID` and past due, with a `client_email` that
    is in `GMAIL_ALLOWED_RECIPIENTS`.
 2. Open `/automation` and click **Run Automation**. Watch the steps progress, then refresh the
@@ -673,43 +760,51 @@ emailed while `DJANGO_DEBUG=true`):
 
 ## API
 
-All endpoints except `/api/health/` require `Authorization: Bearer <COLLECTFLOW_OPERATOR_TOKEN>`.
+All endpoints except health, CSRF and login/logout require a session from `/api/auth/login/`
+and at least the `OPERATOR` role; writes also need `X-CSRFToken`. Endpoints that call a
+provider queue a job and return `202`; poll `GET /api/jobs/{id}/`.
 
 | Method | Path                     | Response                                                                    |
 | ------ | ------------------------ | --------------------------------------------------------------------------- |
 | GET    | `/api/health/`           | `200 {"status": "ok", "service": "collectflow-api"}` (public)               |
-| POST   | `/api/sync/`             | Automation run: `200` succeeded, `422` invalid rows, `502` Google/DB failure |
+| GET    | `/api/auth/csrf/`        | Sets the `csrftoken` cookie (public)                                        |
+| POST   | `/api/auth/login/`       | `{"username", "password"}` → current user. `400 invalid_credentials` · `403 no_role` / `csrf_failed` · `429 too_many_attempts` |
+| POST   | `/api/auth/logout/`      | Ends the session                                                            |
+| GET    | `/api/me/`               | Current user: `username`, `display_name`, `email`, `role`                   |
+| GET    | `/api/jobs/{id}/`        | Job `status` (`PENDING`/`RUNNING`/`SUCCEEDED`/`FAILED`), `result`, `error_code`, `worker_alive` |
+| GET    | `/api/timeline/`         | Append-only events, newest first, paginated. Filters: `?invoice=<id>`, `?client=<id>` |
+| POST   | `/api/sync/`             | `202 {run_id, job_id, run}`; the worker syncs. Read the run for `SUCCEEDED` / `FAILED` with row errors |
 | GET    | `/api/invoices/`         | List of invoices, including `is_overdue` and `days_overdue`                  |
 | GET    | `/api/invoices/{id}/`    | A single invoice (UUID)                                                      |
 | GET    | `/api/dashboard/`        | Counts, plus outstanding and overdue amounts grouped by currency             |
 | GET    | `/api/automation-runs/`  | The 20 most recent runs, newest first. Filter: `?kind=SYNC` or `?kind=AUTOMATION` |
 | GET    | `/api/automation-runs/{id}/` | One run; automation runs include per-invoice `items`                      |
-| POST   | `/api/automation/run/`   | Run the automation (sync + drafts, never sends). `200` completed/partial · `502` failed (body has the run) · `409 automation_running` |
+| POST   | `/api/automation/run/`   | Queue an automation run (sync + drafts, never sends). `202 {job_id}`; the job result has `run_id` · `409 automation_running` |
 | GET/POST | `/api/automation/workflows/…` | Interactive workflow endpoints (see "Interactive automation workspace") |
-| POST   | `/api/invoices/{id}/analyze/` | Generate an AI draft. Body: `{"regenerate": false}`. `201` draft; `409` not eligible / active reminder exists / invoice changed; `502` invalid AI output; `503` Gemini unavailable |
+| POST   | `/api/invoices/{id}/analyze/` | Queue an AI draft. Body: `{"regenerate": false}`. `202 {job_id}`; `409` not eligible / active reminder exists / `generation_in_progress`. The job result has `follow_up_id`, or `code` + `http_status` (`502` invalid AI output, `503` Gemini unavailable, `409` invoice changed) |
 | GET    | `/api/follow-ups/`       | Follow-ups, newest first. Filters: `?invoice=<id>`, `?status=DRAFT`              |
 | GET    | `/api/follow-ups/{id}/`  | A single follow-up                                                               |
 | PATCH  | `/api/follow-ups/{id}/`  | Edit `subject` / `body` of a draft. `400` invalid content; `409` not a draft      |
 | POST   | `/api/follow-ups/{id}/approve/` | `DRAFT → APPROVED` (no email is sent). `409` wrong status or stale invoice |
 | POST   | `/api/follow-ups/{id}/reject/`  | `DRAFT → REJECTED`, or withdraw an unsent approval (`APPROVED → REJECTED`). `409` wrong status |
-| POST   | `/api/follow-ups/{id}/send/`    | Send an approved reminder via Gmail. `200` sent · `202` delivery unknown (reconcile, do not retry) · `502` Gmail refused · `409` wrong state/stale/duplicate · `503` Gmail not ready |
+| POST   | `/api/follow-ups/{id}/send/`    | Reserve and queue delivery. `202 {job_id, follow_up, delivery_attempt}` · `409` wrong state/stale/duplicate · `400` invalid content · `503` Gmail not configured. The outcome lands on the follow-up and attempt (see Delivery flow) |
 | GET    | `/api/follow-ups/{id}/delivery-attempts/` | Delivery attempts, newest first                                  |
 | GET    | `/api/integrations/gmail/status/` | Whether Gmail is configured, authorized and matches the sender           |
 
-Errors return `{"detail": "...", "code": "..."}`; `401` means a missing or invalid operator token.
+Errors return `{"code": "...", "detail": "...", "fields"?: {...}}`; `401` means no session, `403` a
+missing role or CSRF token.
 
 ## Known limitations
 
 Consolidated from the sections above. See also [docs/FINAL_QA_REPORT.md](docs/FINAL_QA_REPORT.md).
 
-- **Local, single-operator MVP.** There are no user accounts. A shared operator token protects
-  Django, and the Next.js proxy adds it for any caller that can reach the frontend, so the
-  frontend must stay on `localhost`. A multi-user deployment needs real authentication,
-  PostgreSQL and HTTPS.
-- **Synchronous work in requests.** Sync, Gemini drafting, Gmail sends and manual automation
-  runs execute inside HTTP requests (bounded by timeouts). There is no task queue.
+- **Local deployment.** Users, roles and sessions are in place, but the app is meant for one
+  machine on `localhost`. Exposing it needs HTTPS (cookies are `Secure` outside debug) and a
+  production secret store.
+- **One worker.** Jobs run one at a time in a single `run_worker` process. Without it, requests
+  are accepted and queued, and the UI says the worker is not running.
 - **SQLite.** Correctness relies on conditional updates and unique constraints, not row locks.
-  Use PostgreSQL for multiple workers.
+  WAL mode lets the web server, worker and cron work in parallel, but writes are serialized.
 - **Invoices removed from the sheet** stay in the local database and in dashboard totals. They
   are only blocked from reminders (`not_in_sheet`).
 - **AI content rules.** Links (`http(s)://`, `www.`), length, single-line subject and tone are

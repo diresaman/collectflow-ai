@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
 
-from apps.invoices.models import AutomationRun, Invoice
+from apps.invoices.models import Invoice
 
 from .models import Tone
 
@@ -17,13 +17,7 @@ def missing_from_sheet(invoice: Invoice) -> bool:
     out of the synced range). Google Sheets is the source of truth for payment status, so a row
     that disappeared must not keep being treated as unpaid.
     """
-    latest_sync = (
-        AutomationRun.objects.filter(kind=AutomationRun.Kind.SYNC, status=AutomationRun.Status.SUCCEEDED)
-        .values_list("started_at", flat=True)
-        .first()
-    )
-    # Every invoice a successful sync saw gets last_synced_at at or after that run started.
-    return latest_sync is not None and invoice.last_synced_at < latest_sync
+    return not invoice.in_sheet
 
 
 def ineligibility(invoice: Invoice) -> list[tuple[str, str]]:

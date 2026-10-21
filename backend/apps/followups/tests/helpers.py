@@ -81,6 +81,7 @@ class FakeGmail:
         self,
         *,
         ready: bool = True,
+        configured: bool = True,
         detail: str = "Gmail is ready to send.",
         result: Any = None,
         error: Exception | None = None,
@@ -89,11 +90,17 @@ class FakeGmail:
         from integrations.gmail import DeliveryResult
 
         self.ready = ready
+        self.configured = configured
         self.detail = detail
         self.result = result or DeliveryResult(message_id="msg-123", thread_id="thread-456")
         self.error = error
         self.on_check = on_check
         self.sent: list[dict[str, str]] = []
+
+    def check_configured(self):  # type: ignore[no-untyped-def]
+        from integrations.gmail import GmailStatus
+
+        return GmailStatus(True, self.configured, "sender@example.test", None, "Gmail is configured.")
 
     def check_ready(self):  # type: ignore[no-untyped-def]
         from integrations.gmail import GmailStatus

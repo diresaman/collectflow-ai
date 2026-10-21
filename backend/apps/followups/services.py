@@ -14,7 +14,10 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from apps.automation import outbox
 from apps.invoices.models import Invoice
+from apps.timeline import services as timeline
+from apps.timeline.models import EventType
 from integrations.gemini import GeminiClient, GeminiError, GeminiResponseError
 
 from . import prompts
@@ -22,6 +25,8 @@ from .eligibility import changed_snapshot_fields, ineligibility_reasons, invoice
 from .models import FollowUp, GenerationAttempt
 
 logger = logging.getLogger(__name__)
+
+GENERATE_JOB_KIND = "followups.generate"
 
 SUBJECT_MAX_LENGTH = 150
 BODY_MIN_LENGTH = 20
@@ -65,6 +70,10 @@ class InvalidState(FollowUpError):
 class InvalidContent(FollowUpError):
     status_code = 400
     code = "invalid_content"
+
+
+class GenerationInProgress(FollowUpError):
+    code = "generation_in_progress"
 
 
 class AIUnavailable(FollowUpError):
@@ -138,30 +147,66 @@ def validate_ai_output(data: dict[str, Any], expected_tone: str) -> DraftContent
 # Generation -------------------------------------------------------------------
 
 
+def check_can_generate(invoice: Invoice, *, regenerate: bool) -> FollowUp | None:
+    """Raises if no draft may be generated now; returns the draft an explicit regeneration replaces."""
+    reasons = ineligibility_reasons(invoice)
+    if reasons:
+        raise NotEligible(" ".join(reasons))
+
+    existing = FollowUp.objects.filter(invoice=invoice, status__in=FollowUp.ACTIVE_STATUSES).first()
+    if existing is not None:
+        if existing.status != FollowUp.Status.DRAFT:
+            label = existing.get_status_display().lower()
+            raise ActiveFollowUpExists(
+                f"This invoice already has a reminder that is {label}; it cannot be regenerated.",
+                follow_up_id=str(existing.pk),
+            )
+        if not regenerate:
+            raise ActiveFollowUpExists(
+                "This invoice already has a draft. Regenerate explicitly to replace it.",
+                follow_up_id=str(existing.pk),
+            )
+    return existing
+
+
+def request_generation(invoice_id: uuid.UUID, *, regenerate: bool, actor: Any) -> Any:
+    """Checks the request now (cheap, no AI call) and queues generation for the worker."""
+    invoice = Invoice.objects.get(pk=invoice_id)  # DoesNotExist -> 404 in the view
+    check_can_generate(invoice, regenerate=regenerate)
+    with transaction.atomic():
+        if outbox.has_active(GENERATE_JOB_KIND, invoice_id=str(invoice.pk)):
+            raise GenerationInProgress("A draft is already being generated for this invoice.")
+        return outbox.enqueue(
+            GENERATE_JOB_KIND,
+            {"invoice_id": str(invoice.pk), "regenerate": regenerate},
+            max_attempts=1,  # Gemini errors are retried inside the client; a failure is reported, not re-run
+            created_by=actor,
+        )
+
+
+def handle_generate_job(job: Any) -> dict[str, Any]:
+    payload = job.payload
+    try:
+        follow_up = FollowUpGenerationService().generate(
+            uuid.UUID(payload["invoice_id"]), regenerate=bool(payload.get("regenerate")), actor=job.created_by
+        )
+    except Invoice.DoesNotExist:
+        raise outbox.JobFailed("not_found", {"code": "not_found", "detail": "Invoice not found.", "http_status": 404})
+    except FollowUpError as error:
+        raise outbox.JobFailed(
+            error.code,
+            {"code": error.code, "detail": error.message, "http_status": error.status_code, **error.extra},
+        ) from None
+    return {"follow_up_id": str(follow_up.pk)}
+
+
 class FollowUpGenerationService:
     def __init__(self, gemini: GeminiClient | None = None) -> None:
         self._gemini = gemini
 
-    def generate(self, invoice_id: uuid.UUID, *, regenerate: bool = False) -> FollowUp:
-        invoice = Invoice.objects.get(pk=invoice_id)  # DoesNotExist -> 404 in the view
-
-        reasons = ineligibility_reasons(invoice)
-        if reasons:
-            raise NotEligible(" ".join(reasons))
-
-        existing = FollowUp.objects.filter(invoice=invoice, status__in=FollowUp.ACTIVE_STATUSES).first()
-        if existing is not None:
-            if existing.status != FollowUp.Status.DRAFT:
-                label = existing.get_status_display().lower()
-                raise ActiveFollowUpExists(
-                    f"This invoice already has a reminder that is {label}; it cannot be regenerated.",
-                    follow_up_id=str(existing.pk),
-                )
-            if not regenerate:
-                raise ActiveFollowUpExists(
-                    "This invoice already has a draft. Regenerate explicitly to replace it.",
-                    follow_up_id=str(existing.pk),
-                )
+    def generate(self, invoice_id: uuid.UUID, *, regenerate: bool = False, actor: Any = None) -> FollowUp:
+        invoice = Invoice.objects.select_related("client").get(pk=invoice_id)  # DoesNotExist -> 404 in the view
+        existing = check_can_generate(invoice, regenerate=regenerate)
 
         days_overdue = invoice.days_overdue
         tone = tone_for_days_overdue(days_overdue)
@@ -182,20 +227,24 @@ class FollowUpGenerationService:
             error: FollowUpError = (
                 AIBadResponse(str(exc)) if isinstance(exc, GeminiResponseError) else AIUnavailable(str(exc))
             )
-            self._record_failure(invoice, error, model_name)
+            self._record_failure(invoice, error, model_name, actor)
             raise error from None
         except AIBadResponse as exc:
-            self._record_failure(invoice, exc, model_name)
+            self._record_failure(invoice, exc, model_name, actor)
             raise
 
         try:
-            follow_up = self._persist(invoice, snapshot, tone, content, model_name, existing)
+            follow_up = self._persist(invoice, snapshot, tone, content, model_name, existing, actor)
         except FollowUpError as exc:
-            self._record_failure(invoice, exc, model_name)
+            self._record_failure(invoice, exc, model_name, actor)
             raise
 
         GenerationAttempt.objects.create(
-            invoice=invoice, follow_up=follow_up, outcome=GenerationAttempt.Outcome.SUCCEEDED, ai_model=model_name
+            invoice=invoice,
+            follow_up=follow_up,
+            outcome=GenerationAttempt.Outcome.SUCCEEDED,
+            ai_model=model_name,
+            prompt_version=prompts.PROMPT_VERSION,
         )
         return follow_up
 
@@ -207,6 +256,7 @@ class FollowUpGenerationService:
         content: DraftContent,
         model_name: str,
         replacing: FollowUp | None,
+        actor: Any,
     ) -> FollowUp:
         try:
             with transaction.atomic():
@@ -229,7 +279,7 @@ class FollowUpGenerationService:
                     previous.transition_to(FollowUp.Status.REJECTED)
                     previous.save(update_fields=["status", "updated_at"])
 
-                return FollowUp.objects.create(
+                follow_up = FollowUp.objects.create(
                     invoice=current,
                     subject=content.subject,
                     body=content.body,
@@ -238,21 +288,36 @@ class FollowUpGenerationService:
                     recommended_action=content.recommended_action,
                     invoice_snapshot=snapshot,
                     ai_model=model_name,
+                    prompt_version=prompts.PROMPT_VERSION,
                 )
+                timeline.record(
+                    EventType.DRAFT_GENERATED,
+                    actor=actor,
+                    invoice=current,
+                    follow_up_id=str(follow_up.pk),
+                    tone=tone,
+                    ai_model=model_name,
+                    prompt_version=prompts.PROMPT_VERSION,
+                    replaced_follow_up_id=str(replacing.pk) if replacing else None,
+                )
+                return follow_up
         except IntegrityError:
             # The partial unique constraint caught a concurrent active follow-up.
             raise ActiveFollowUpExists("Another reminder was created for this invoice at the same time.") from None
 
     @staticmethod
-    def _record_failure(invoice: Invoice, error: FollowUpError, model_name: str) -> None:
+    def _record_failure(invoice: Invoice, error: FollowUpError, model_name: str, actor: Any) -> None:
         logger.warning("Follow-up generation failed: %s", error.code)
-        GenerationAttempt.objects.create(
-            invoice=invoice,
-            outcome=GenerationAttempt.Outcome.FAILED,
-            error_code=error.code,
-            error_message=error.message[:500],
-            ai_model=model_name,
-        )
+        with transaction.atomic():
+            GenerationAttempt.objects.create(
+                invoice=invoice,
+                outcome=GenerationAttempt.Outcome.FAILED,
+                error_code=error.code,
+                error_message=error.message[:500],
+                ai_model=model_name,
+                prompt_version=prompts.PROMPT_VERSION,
+            )
+            timeline.record(EventType.DRAFT_GENERATION_FAILED, actor=actor, invoice=invoice, error_code=error.code)
 
 
 # Review workflow --------------------------------------------------------------
@@ -262,7 +327,7 @@ def _locked(follow_up_id: uuid.UUID) -> FollowUp:
     return FollowUp.objects.select_for_update().select_related("invoice").get(pk=follow_up_id)
 
 
-def update_draft(follow_up_id: uuid.UUID, changes: dict[str, Any]) -> FollowUp:
+def update_draft(follow_up_id: uuid.UUID, changes: dict[str, Any], *, actor: Any = None) -> FollowUp:
     allowed = {"subject", "body"}
     unknown = set(changes) - allowed
     if unknown:
@@ -283,13 +348,27 @@ def update_draft(follow_up_id: uuid.UUID, changes: dict[str, Any]) -> FollowUp:
         follow_up = _locked(follow_up_id)
         if follow_up.status != FollowUp.Status.DRAFT:
             raise InvalidState(f"Only drafts can be edited; this follow-up is {follow_up.status}.")
+        edited = [name for name, value in validated.items() if getattr(follow_up, name) != value]
         for name, value in validated.items():
             setattr(follow_up, name, value)
-        follow_up.save(update_fields=[*validated, "updated_at"])
+        update_fields = [*validated, "updated_at"]
+        if edited and _is_user(actor):
+            follow_up.last_edited_by = actor
+            update_fields.append("last_edited_by")
+        follow_up.save(update_fields=update_fields)
+        if edited:
+            timeline.record(
+                EventType.DRAFT_EDITED, actor=actor, invoice=follow_up.invoice,
+                follow_up_id=str(follow_up.pk), fields=edited,
+            )
     return follow_up
 
 
-def approve(follow_up_id: uuid.UUID) -> FollowUp:
+def _is_user(actor: Any) -> bool:
+    return bool(getattr(actor, "is_authenticated", False))
+
+
+def approve(follow_up_id: uuid.UUID, *, actor: Any = None) -> FollowUp:
     """DRAFT -> APPROVED. Does not send anything; delivery is a separate, later step."""
     with transaction.atomic():
         follow_up = _locked(follow_up_id)
@@ -308,17 +387,25 @@ def approve(follow_up_id: uuid.UUID) -> FollowUp:
                 changed_fields=changed,
             )
 
-        _conditional_transition(follow_up, FollowUp.Status.APPROVED, approved_at=timezone.now())
+        _conditional_transition(
+            follow_up, FollowUp.Status.APPROVED,
+            approved_at=timezone.now(), approved_by=actor if _is_user(actor) else None,
+        )
+        timeline.record(
+            EventType.FOLLOW_UP_APPROVED, actor=actor, invoice=invoice, follow_up_id=str(follow_up.pk), tone=follow_up.tone
+        )
     return follow_up
 
 
-def reject(follow_up_id: uuid.UUID) -> FollowUp:
+def reject(follow_up_id: uuid.UUID, *, actor: Any = None) -> FollowUp:
     """DRAFT -> REJECTED, or APPROVED -> REJECTED (withdraw an approval that was never sent)."""
     with transaction.atomic():
         follow_up = _locked(follow_up_id)
         if not follow_up.can_transition_to(FollowUp.Status.REJECTED):
             raise InvalidState(f"Cannot reject a follow-up that is {follow_up.status}.")
+        event = EventType.APPROVAL_WITHDRAWN if follow_up.status == FollowUp.Status.APPROVED else EventType.FOLLOW_UP_REJECTED
         _conditional_transition(follow_up, FollowUp.Status.REJECTED)
+        timeline.record(event, actor=actor, invoice=follow_up.invoice, follow_up_id=str(follow_up.pk))
     return follow_up
 
 

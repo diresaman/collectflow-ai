@@ -167,6 +167,19 @@ class GmailClient:
             raise GmailNotReady("Google returned an unexpected token verification response.") from None
         return str(info.get("email", "")).lower(), set(str(info.get("scope", "")).split())
 
+    def check_configured(self) -> GmailStatus:
+        """Local-only check (no network): sender configured and an authorized token file present.
+        Used at request time; the worker runs the full `check_ready` before sending."""
+        configured = bool(self.sender_email and self.token_file)
+        if not self.sender_email:
+            return GmailStatus(configured, False, self.sender_email, None, "GMAIL_SENDER_EMAIL is not configured.")
+        if self.token_file is None or not self.token_file.is_file():
+            return GmailStatus(
+                configured, False, self.sender_email, None,
+                "Gmail is not authorized yet. Run: python manage.py authorize_gmail",
+            )
+        return GmailStatus(configured, True, self.sender_email, None, "Gmail is configured.")
+
     def check_ready(self) -> GmailStatus:
         """Verifies configuration, authorization, scope and sender identity. Never sends."""
         configured = bool(self.sender_email and self.token_file)

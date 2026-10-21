@@ -1,9 +1,10 @@
 from unittest import mock
 
 from django.core import mail
-from django.test import TestCase, override_settings
+from django.test import override_settings
 from django.urls import reverse
 
+from apps.accounts.testing import SessionApiTestCase, run_jobs
 from apps.automation.lease import Lease
 from apps.automation.orchestrator import AutomationOrchestrator
 from apps.automation.workflow import build
@@ -17,16 +18,15 @@ from integrations.gmail import GmailDeliveryUnknown, GmailRejected
 
 from .helpers import RoutingGemini, iso, overdue_row, sheet
 
-TOKEN = "test-operator-token"
-AUTH = {"HTTP_AUTHORIZATION": f"Bearer {TOKEN}"}
+AUTH: dict[str, str] = {}
 
 
 def steps(data: dict) -> dict[str, str]:  # type: ignore[type-arg]
     return {step["key"]: step["status"] for step in data["steps"]}
 
 
-@override_settings(OPERATOR_TOKEN=TOKEN, DEBUG=False, GMAIL_ALLOWED_RECIPIENTS=[], AUTOMATION_MAX_DRAFTS_PER_RUN=10)
-class WorkflowTestCase(TestCase):
+@override_settings(DEBUG=False, GMAIL_ALLOWED_RECIPIENTS=[], AUTOMATION_MAX_DRAFTS_PER_RUN=10)
+class WorkflowTestCase(SessionApiTestCase):
     def start(self, *rows: list, gemini: RoutingGemini | None = None) -> AutomationRun:  # type: ignore[type-arg]
         with mock.patch("integrations.gmail.GmailClient.send", side_effect=AssertionError("no Gmail")):
             return AutomationOrchestrator(sheets_client=sheet(*rows), gemini=gemini or RoutingGemini()).run(trigger="MANUAL")  # type: ignore[arg-type]
@@ -43,8 +43,11 @@ class WorkflowTestCase(TestCase):
         return self.client.post(reverse(name, args=[follow_up_id]), **AUTH)
 
     def send(self, follow_up_id: str, gmail: FakeGmail):  # type: ignore[no-untyped-def]
+        """Confirms the send (queues delivery), then lets the worker deliver it."""
         with mock.patch("apps.followups.delivery.GmailClient.from_settings", return_value=gmail):
-            return self.client.post(reverse("follow-up-send", args=[follow_up_id]), **AUTH)
+            response = self.client.post(reverse("follow-up-send", args=[follow_up_id]), **AUTH)
+            run_jobs()
+        return response
 
 
 class ProgressTests(WorkflowTestCase):
@@ -92,7 +95,7 @@ class ProgressTests(WorkflowTestCase):
         self.assertEqual(steps(data)["WAITING_FOR_APPROVAL"], "COMPLETED")
         self.assertEqual(steps(data)["WAITING_FOR_SEND_CONFIRMATION"], "RUNNING")
 
-        self.assertEqual(self.send(first, FakeGmail()).status_code, 200)
+        self.assertEqual(self.send(first, FakeGmail()).status_code, 202)
         data = self.workflow(run)
         self.assertEqual(data["state"], "READY_TO_FINALIZE")
         self.assertEqual(steps(data)["SENDING"], "COMPLETED")
@@ -163,6 +166,7 @@ class ApprovalCheckpointTests(WorkflowTestCase):
             self.client.post(
                 reverse("invoice-analyze", args=[invoice_id]), {"regenerate": True}, content_type="application/json", **AUTH
             )
+            run_jobs()
 
         approvals = self.follow_up_ids(self.workflow(run), "approvals")
         self.assertEqual(len(approvals), 1)
@@ -199,11 +203,11 @@ class SendConfirmationTests(WorkflowTestCase):
         run, (follow_up,) = self.approved("INV-1")
         gmail = FakeGmail()
 
-        original = FollowUpDeliveryService.send
-        with mock.patch.object(FollowUpDeliveryService, "send", autospec=True, side_effect=original) as service:
+        original = FollowUpDeliveryService.deliver
+        with mock.patch.object(FollowUpDeliveryService, "deliver", autospec=True, side_effect=original) as service:
             response = self.send(follow_up, gmail)
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         service.assert_called_once()
         self.assertEqual(gmail.sent[0]["recipient"], "ap-inv-1@fictional.test")
         data = self.workflow(run)
@@ -399,7 +403,8 @@ class ResumeAndDuplicateTests(WorkflowTestCase):
         sync = AutomationRun.objects.create(trigger="MANUAL")  # a SYNC run is not a workflow
         self.assertEqual(self.client.get(reverse("workflow-detail", args=[sync.pk]), **AUTH).status_code, 404)
 
-    def test_workflow_endpoints_require_token(self) -> None:
+    def test_workflow_endpoints_require_a_session(self) -> None:
+        self.client.logout()
         run = self.start(overdue_row("INV-1"))
         item = run.items.get()
         for method, url in [
@@ -412,6 +417,5 @@ class ResumeAndDuplicateTests(WorkflowTestCase):
         ]:
             with self.subTest(url=url):
                 self.assertEqual(getattr(self.client, method)(url).status_code, 401)
-                self.assertEqual(getattr(self.client, method)(url, HTTP_AUTHORIZATION="Bearer x").status_code, 401)
         run.refresh_from_db()
         self.assertIsNone(run.finalized_at)

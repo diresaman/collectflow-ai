@@ -1,9 +1,10 @@
 /**
  * Server-side proxy for Django business endpoints.
  *
- * The browser calls /api/backend/<path>; this handler forwards the request to Django
- * with the operator token from server-only environment variables, so the token never
- * reaches the browser bundle. Only the endpoints listed below can be reached.
+ * The browser calls /api/backend/<path> on this origin; this handler forwards the request to
+ * Django with only the session and CSRF cookies plus the X-CSRFToken header, and relays the
+ * cookies Django sets (login, logout, CSRF rotation). Credentials are checked by Django; the
+ * proxy holds no secret. Only the endpoints listed below can be reached.
  */
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -13,6 +14,8 @@ const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 
 const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
   GET: [
+    /^auth\/csrf$/,
+    /^me$/,
     /^invoices$/,
     new RegExp(`^invoices/${UUID}$`),
     /^dashboard$/,
@@ -24,8 +27,11 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     /^automation-runs\/\d+$/,
     /^automation\/workflows\/current$/,
     /^automation\/workflows\/\d+(\/steps|\/pending-actions)?$/,
+    new RegExp(`^jobs/${UUID}$`),
+    /^timeline$/,
   ],
   POST: [
+    /^auth\/(login|logout)$/,
     /^sync$/,
     /^automation\/run$/,
     /^automation\/workflows\/\d+\/finalize$/,
@@ -36,13 +42,14 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
   PATCH: [new RegExp(`^follow-ups/${UUID}$`)],
 };
 
-// POST covers sync (Google Sheets), AI generation (Gemini) and Gmail delivery, all bounded
-// upstream. If the proxy times out on a send, the browser treats the outcome as unknown.
-const TIMEOUT_MS: Record<Method, number> = { GET: 20_000, POST: 45_000, PATCH: 10_000 };
-// An automation run syncs the sheet and drafts up to AUTOMATION_MAX_DRAFTS_PER_RUN reminders.
-const AUTOMATION_RUN_TIMEOUT_MS = 15 * 60_000;
+// Provider calls run in the backend worker, so every request here is short. The Gmail status
+// check is the slowest (token refresh plus identity lookup).
+const TIMEOUT_MS: Record<Method, number> = { GET: 20_000, POST: 15_000, PATCH: 10_000 };
 
 const MAX_BODY_BYTES = 20_000;
+
+// The only cookies Django needs; anything else the browser holds for this origin stays here.
+const FORWARDED_COOKIES = new Set(["sessionid", "csrftoken"]);
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 
@@ -57,6 +64,14 @@ function isSameOrigin(request: NextRequest): boolean {
   return origin === request.nextUrl.origin;
 }
 
+function forwardedCookieHeader(request: NextRequest): string {
+  return request.cookies
+    .getAll()
+    .filter((cookie) => FORWARDED_COOKIES.has(cookie.name))
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .join("; ");
+}
+
 async function proxy(request: NextRequest, context: RouteContext, method: Method): Promise<NextResponse> {
   const { path } = await context.params;
   const route = path.join("/");
@@ -65,14 +80,14 @@ async function proxy(request: NextRequest, context: RouteContext, method: Method
     return errorResponse(404, "Not found.");
   }
   // State-changing requests must come from this app, not another site in the same browser.
+  // Django additionally requires the CSRF token on every write.
   if (method !== "GET" && !isSameOrigin(request)) {
     return errorResponse(403, "Cross-origin requests are not allowed.");
   }
 
   const baseUrl = process.env.API_BASE_URL;
-  const token = process.env.COLLECTFLOW_OPERATOR_TOKEN;
-  if (!baseUrl || !token) {
-    return errorResponse(500, "Proxy is not configured: set API_BASE_URL and COLLECTFLOW_OPERATOR_TOKEN.");
+  if (!baseUrl) {
+    return errorResponse(500, "Proxy is not configured: set API_BASE_URL.");
   }
 
   let body: string | undefined;
@@ -81,30 +96,39 @@ async function proxy(request: NextRequest, context: RouteContext, method: Method
     if (body.length > MAX_BODY_BYTES) return errorResponse(413, "Request body is too large.");
   }
 
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (body) headers["Content-Type"] = "application/json";
+  const cookie = forwardedCookieHeader(request);
+  if (cookie) headers.Cookie = cookie;
+  const csrfToken = request.headers.get("x-csrftoken");
+  if (csrfToken) headers["X-CSRFToken"] = csrfToken;
+
   let upstream: Response;
   try {
     // Query strings are forwarded for reads only (e.g. ?kind=SYNC).
     const search = method === "GET" ? request.nextUrl.search : "";
     upstream = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/${route}/${search}`, {
       method,
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${token}`,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
+      headers,
       body: body || undefined,
       cache: "no-store",
-      signal: AbortSignal.timeout(route === "automation/run" ? AUTOMATION_RUN_TIMEOUT_MS : TIMEOUT_MS[method]),
+      redirect: "manual",
+      signal: AbortSignal.timeout(TIMEOUT_MS[method]),
     });
   } catch {
     return errorResponse(502, "Backend API is unreachable.");
   }
 
   const responseBody = await upstream.text();
-  return new NextResponse(responseBody, {
+  const response = new NextResponse(responseBody, {
     status: upstream.status,
     headers: { "Content-Type": upstream.headers.get("content-type") ?? "application/json" },
   });
+  // Session and CSRF cookies set by Django (no Domain attribute, so they bind to this origin).
+  for (const setCookie of upstream.headers.getSetCookie()) {
+    response.headers.append("Set-Cookie", setCookie);
+  }
+  return response;
 }
 
 export function GET(request: NextRequest, context: RouteContext): Promise<NextResponse> {

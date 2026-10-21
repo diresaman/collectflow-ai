@@ -3,6 +3,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("jobs/<uuid:pk>/", views.JobDetailView.as_view(), name="job-detail"),
     path("automation/run/", views.RunAutomationView.as_view(), name="automation-run"),
     path("automation-runs/<int:pk>/", views.AutomationRunDetailView.as_view(), name="automation-run-detail"),
     path("automation/workflows/current/", views.CurrentWorkflowView.as_view(), name="workflow-current"),

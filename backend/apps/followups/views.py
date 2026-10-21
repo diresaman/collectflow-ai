@@ -1,20 +1,19 @@
 import uuid
 from typing import Any
 
+from django.conf import settings
 from django.db.models import QuerySet
 from rest_framework import generics, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.automation.models import OutboxJob
 from apps.invoices.models import Invoice
-
-from django.conf import settings
-
 from integrations.gmail import GmailClient
 
 from . import services
-from .delivery import FollowUpDeliveryService
+from .delivery import DELIVER_JOB_KIND, FollowUpDeliveryService
 from .models import FollowUp
 from .serializers import DeliveryAttemptSerializer, FollowUpSerializer
 
@@ -28,7 +27,7 @@ def not_found(what: str) -> Response:
 
 
 class AnalyzeInvoiceView(APIView):
-    """Generates an AI reminder draft for an overdue invoice."""
+    """Queues an AI reminder draft for an overdue invoice: 202 with the job ID to poll."""
 
     def post(self, request: Request, pk: uuid.UUID) -> Response:
         regenerate = request.data.get("regenerate", False) if isinstance(request.data, dict) else False
@@ -38,12 +37,12 @@ class AnalyzeInvoiceView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            follow_up = services.FollowUpGenerationService().generate(pk, regenerate=regenerate)
+            job = services.request_generation(pk, regenerate=regenerate, actor=request.user)
         except Invoice.DoesNotExist:
             return not_found("Invoice")
         except services.FollowUpError as error:
             return error_response(error)
-        return Response(FollowUpSerializer(follow_up).data, status=status.HTTP_201_CREATED)
+        return Response({"job_id": str(job.pk)}, status=status.HTTP_202_ACCEPTED)
 
 
 class FollowUpListView(generics.ListAPIView):
@@ -75,7 +74,7 @@ class FollowUpDetailView(APIView):
             return Response(
                 {"detail": "Expected a JSON object.", "code": "invalid_input"}, status=status.HTTP_400_BAD_REQUEST
             )
-        return _run(lambda: services.update_draft(pk, dict(request.data)))
+        return _run(lambda: services.update_draft(pk, dict(request.data), actor=request.user))
 
 
 def _run(action: Any) -> Response:
@@ -90,57 +89,42 @@ def _run(action: Any) -> Response:
 
 class ApproveFollowUpView(APIView):
     def post(self, request: Request, pk: uuid.UUID) -> Response:
-        return _run(lambda: services.approve(pk))
+        return _run(lambda: services.approve(pk, actor=request.user))
 
 
 class RejectFollowUpView(APIView):
     def post(self, request: Request, pk: uuid.UUID) -> Response:
-        return _run(lambda: services.reject(pk))
+        return _run(lambda: services.reject(pk, actor=request.user))
 
 
 # Delivery ---------------------------------------------------------------------
 
-DELIVERY_RESPONSES = {
-    # status: (HTTP status, code, detail)
-    FollowUp.Status.SENT: (status.HTTP_200_OK, "sent", "Gmail accepted the email."),
-    FollowUp.Status.FAILED: (
-        status.HTTP_502_BAD_GATEWAY,
-        "delivery_failed",
-        "Gmail did not accept the email. It was not sent.",
-    ),
-    # 202 rather than 5xx: the outcome is unresolved and must not be retried automatically.
-    FollowUp.Status.DELIVERY_UNKNOWN: (
-        status.HTTP_202_ACCEPTED,
-        "delivery_unknown",
-        "It is unknown whether Gmail accepted the email. Do not resend. Check the sender's Gmail "
-        "Sent folder, then reconcile with: python manage.py reconcile_delivery",
-    ),
-}
-
 
 class SendFollowUpView(APIView):
-    """Submits an APPROVED follow-up to Gmail. Never retries."""
+    """
+    Reserves an APPROVED follow-up (APPROVED -> SENDING) and queues one delivery job, which is
+    never retried. 202 with the attempt and job IDs; refusals (409 / 400 / 503) change nothing.
+    """
 
     def post(self, request: Request, pk: uuid.UUID) -> Response:
         try:
-            outcome = FollowUpDeliveryService().send(pk)
+            attempt = FollowUpDeliveryService().request(pk, actor=request.user)
         except FollowUp.DoesNotExist:
             return not_found("Follow-up")
         except services.FollowUpError as error:
             return error_response(error)
 
-        http_status, code, detail = DELIVERY_RESPONSES[outcome.follow_up.status]
-        if outcome.attempt.error_summary and code != "sent":
-            detail = f"{detail} ({outcome.attempt.error_summary})"
+        follow_up = FollowUp.objects.select_related("invoice").get(pk=pk)
+        job = OutboxJob.objects.get(idempotency_key=f"{DELIVER_JOB_KIND}:{attempt.pk}")
         return Response(
             {
-                "code": code,
-                "detail": detail,
-                "requires_reconciliation": code == "delivery_unknown",
-                "follow_up": FollowUpSerializer(outcome.follow_up).data,
-                "delivery_attempt": DeliveryAttemptSerializer(outcome.attempt).data,
+                "code": "queued",
+                "detail": "Queued for delivery through Gmail. Do not resend while it is in progress.",
+                "job_id": str(job.pk),
+                "follow_up": FollowUpSerializer(follow_up).data,
+                "delivery_attempt": DeliveryAttemptSerializer(attempt).data,
             },
-            status=http_status,
+            status=status.HTTP_202_ACCEPTED,
         )
 
 

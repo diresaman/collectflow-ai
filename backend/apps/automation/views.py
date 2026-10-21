@@ -1,3 +1,5 @@
+import uuid
+
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -5,19 +7,19 @@ from rest_framework.views import APIView
 
 from apps.invoices.models import AutomationRun
 
-from . import workflow
+from . import outbox, workflow
 from .lease import fail_abandoned_runs
-from .models import AutomationRunItem
-from .orchestrator import AutomationAlreadyRunning, AutomationOrchestrator
+from .models import AutomationRunItem, OutboxJob
+from .orchestrator import AutomationAlreadyRunning, request_run
 from .serializers import AutomationRunDetailSerializer
 
 
 class RunAutomationView(APIView):
-    """Runs the shared AutomationOrchestrator synchronously (manual trigger). Never sends email."""
+    """Queues a manual AutomationOrchestrator run for the worker: 202 with the job ID. Never sends email."""
 
     def post(self, request: Request) -> Response:
         try:
-            run = AutomationOrchestrator().run(trigger=AutomationRun.Trigger.MANUAL)
+            job = request_run(actor=request.user)
         except AutomationAlreadyRunning as exc:
             return Response(
                 {
@@ -27,9 +29,30 @@ class RunAutomationView(APIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
-        data = AutomationRunDetailSerializer(run).data
-        http_status = status.HTTP_502_BAD_GATEWAY if run.status == AutomationRun.Status.FAILED else status.HTTP_200_OK
-        return Response(data, status=http_status)
+        return Response({"job_id": str(job.pk)}, status=status.HTTP_202_ACCEPTED)
+
+
+class JobDetailView(APIView):
+    """Status of a background job. The frontend polls this while a job is pending or running."""
+
+    def get(self, request: Request, pk: uuid.UUID) -> Response:
+        job = OutboxJob.objects.filter(pk=pk).first()
+        if job is None:
+            return Response({"detail": "Job not found.", "code": "not_found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {
+                "id": str(job.pk),
+                "kind": job.kind,
+                "status": job.status,
+                "attempts": job.attempts,
+                "max_attempts": job.max_attempts,
+                "result": job.result,
+                "error_code": job.last_error_code,
+                "created_at": job.created_at,
+                "completed_at": job.completed_at,
+                "worker_alive": outbox.worker_alive(),
+            }
+        )
 
 
 class AutomationRunDetailView(APIView):

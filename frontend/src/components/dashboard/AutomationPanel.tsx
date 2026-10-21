@@ -10,6 +10,7 @@ import {
   type AutomationRunDetail,
   type AutomationRunStatus,
 } from "@/lib/api/automation";
+import { isWorkerDown, WORKER_DOWN_MESSAGE } from "@/lib/api/jobs";
 import { formatDateTime } from "@/lib/format";
 
 import type { Loadable } from "./types";
@@ -187,6 +188,8 @@ export function AutomationPanel({
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setNotice("Another automation run is already in progress. Its progress is shown below.");
+      } else if (isWorkerDown(err)) {
+        setNotice(WORKER_DOWN_MESSAGE);
       } else if (err instanceof ApiError && err.status !== null && err.status < 500) {
         setError(err.message);
       } else {
