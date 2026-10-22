@@ -143,16 +143,42 @@ Applied to the development database (`collectflow_dev`), then reversed in depend
 
 ## 8. Deployment and rollback
 
-Not deployed. The owner's stack still runs `7c35fa9`. To deploy (after review):
+**Step 1 deployed on 2026-10-22** (approved; record in section 8.1). The procedure used:
 
 1. Back up: `docker compose exec db pg_dump -U collectflow -Fc collectflow > backups/pre-m10.dump`.
 2. `docker compose up -d --build --no-deps api worker web` (the api service migrates on start).
    `GMAIL_READ_ENABLED` stays off, so nothing reads the mailbox. The Inbox stays empty, and
    Integrations shows Gmail read as *Awaiting authorization*.
 
-Rollback: redeploy `7c35fa9` after reversing the migrations in this order: `timeline 0002`,
+Rollback: redeploy the `pre-m10` images (tagged before the deploy, see 8.1) after reversing the migrations in this order: `timeline 0002`,
 `inbox 0001`, `invoices 0005`, `followups 0004` (verified on the development database). Reversing
 drops replies, holds and classifications, so take a backup first.
+
+### 8.1 Step 1 deployment record (2026-10-22)
+
+| Check | Result |
+| --- | --- |
+| Backup | `backend/backups/collectflow-before-m10-20261022T172940.dump` (custom format, 115 KB, mode 600, SHA-256 in `.sha256`), taken with the worker stopped |
+| Backup verification | Restored into a scratch database: 28/28 tables with identical row counts; content hashes identical for invoices, follow-ups, delivery attempts, enrollments, timeline, users and profiles; timeline triggers present. Scratch database dropped |
+| Rollback readiness | Images tagged `collectflow-{api,worker,web}:pre-m10`; migration reversal order verified on `collectflow_dev` |
+| Migrations | `followups 0005`, `invoices 0006`, `inbox 0002`, `timeline 0003` applied by the api on start. Existing data unchanged: only new empty tables, permission and content-type rows, one tick run, two jobs (tick, purge) and the verification login's session differ from before |
+| Services | api healthy, worker running (heartbeat healthy; scheduled tick COMPLETED with 0 drafts; `inbox.purge` SUCCEEDED), web serving `b509999` + `cdf…` build, db untouched |
+| API via web proxy | Login as `collectflow` (ADMIN); `me`, `replies`, `replies?triage=true`, `replies/summary`, `integrations/status`, `invoices` (with `holds`), `enrollments`, `tasks`, `dashboard`, `follow-ups`, `sequences`: all 200 |
+| Pages | `/`, `/inbox`, `/settings/integrations`, `/sequences`, `/automation`: 200 |
+| Integration health | Sheets, Gmail send, Gemini, worker: healthy. Gmail read and reply polling: awaiting authorization. No secrets, paths or addresses in the response |
+| Gmail reading | `GMAIL_READ_ENABLED` unset (off) in the containers; no `inbox.poll` job has ever been queued; no OAuth scope changed; `authorize_gmail --with-read-access` and `preview_reply_discovery` not run (only `--help`) |
+
+Deviations found and fixed during Step 1:
+
+1. **Proxy allowlist (M10 bug).** The Next.js proxy forwards only allowlisted routes, and the M10
+   endpoints were missing, so `/inbox` and `/settings/integrations` could not load data. Fixed in
+   `b509999` and redeployed (web only).
+2. **Network.** Rebuilding the web image failed several times on a degraded connection (DNS and TLS
+   timeouts to Docker Hub, `npm ci` timeouts). The frontend Dockerfile now keeps npm downloads in a
+   BuildKit cache between builds and retries patiently, so a rebuild rarely needs the network. Until
+   the rebuild succeeded, the earlier M10 web image kept serving; no other service was affected.
+3. **Preview tool added before the deploy** (`15986a7`, section 9.1), so Step 2 needs no further
+   code deployment.
 
 ## 9. Live Gmail verification (not run; needs approval)
 

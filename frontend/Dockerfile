@@ -2,7 +2,11 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# Downloaded packages are kept in a BuildKit cache between builds, and npm retries patiently, so a
+# rebuild survives a slow or lossy connection (and usually needs no download at all).
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline --no-audit --no-fund \
+    --fetch-retries=6 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 COPY . .
 # Inlined into the browser bundle at build time (public health check only; never a secret).
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
