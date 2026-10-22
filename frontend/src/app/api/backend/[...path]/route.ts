@@ -33,6 +33,10 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     new RegExp(`^sequences/${UUID}$`),
     /^enrollments$/,
     /^tasks$/,
+    /^replies$/,
+    /^replies\/summary$/,
+    new RegExp(`^replies/${UUID}$`),
+    /^integrations\/status$/,
   ],
   POST: [
     /^auth\/(login|logout)$/,
@@ -45,6 +49,7 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     /^sequences$/,
     new RegExp(`^enrollments/${UUID}/(pause|resume|review)$`),
     new RegExp(`^tasks/${UUID}/done$`),
+    new RegExp(`^replies/${UUID}/(classify|release-hold|retry-classification)$`),
   ],
   PATCH: [new RegExp(`^follow-ups/${UUID}$`)],
 };
