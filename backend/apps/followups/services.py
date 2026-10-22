@@ -30,7 +30,7 @@ from integrations.gemini import (
 )
 
 from . import prompts
-from .eligibility import changed_snapshot_fields, ineligibility_reasons, invoice_snapshot, tone_for_days_overdue
+from .eligibility import DISPUTED, changed_snapshot_fields, ineligibility, invoice_snapshot, tone_for_days_overdue
 from .models import FollowUp, GenerationAttempt
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,23 @@ class ActiveFollowUpExists(FollowUpError):
 
 class StaleInvoice(FollowUpError):
     code = "stale_invoice"
+
+
+class InvoiceDisputed(FollowUpError):
+    """An open dispute (M11) blocks every chasing path: drafting, approval, send and delivery."""
+
+    code = "invoice_disputed"
+
+
+def refuse_if_ineligible(invoice: Invoice, error: type[FollowUpError], prefix: str = "") -> None:
+    """Raises `error` (or InvoiceDisputed, for an open dispute) if the invoice may not be chased now."""
+    found = ineligibility(invoice)
+    if not found:
+        return
+    message = prefix + " ".join(text for _, text in found)
+    if any(code == DISPUTED for code, _ in found):
+        raise InvoiceDisputed(message)
+    raise error(message)
 
 
 class InvalidState(FollowUpError):
@@ -195,6 +212,8 @@ class DraftPlan:
     step_number: int
     total_email_steps: int
     previous_send_date: dt.date | None
+    # The date a customer promised to pay and did not (M11): the reminder mentions it.
+    broken_promise_date: dt.date | None = None
     manual: bool = False
     on_created: Callable[[FollowUp], None] = lambda follow_up: None
     # Called with the failure's error code (e.g. ai_quota_exhausted) so the sequence can back off.
@@ -245,9 +264,7 @@ def reply_subject(root_subject: str) -> str:
 
 def check_can_generate(invoice: Invoice, *, regenerate: bool) -> FollowUp | None:
     """Raises if no draft may be generated now; returns the draft an explicit regeneration replaces."""
-    reasons = ineligibility_reasons(invoice)
-    if reasons:
-        raise NotEligible(" ".join(reasons))
+    refuse_if_ineligible(invoice, NotEligible)
 
     existing = FollowUp.objects.filter(invoice=invoice, status__in=FollowUp.ACTIVE_STATUSES).first()
     if existing is not None:
@@ -334,7 +351,8 @@ class FollowUpGenerationService:
         step_context: dict[str, Any] = {}
         if plan is not None:
             step_context = {"step_number": plan.step_number, "total_email_steps": plan.total_email_steps,
-                            "previous_send_date": plan.previous_send_date}
+                            "previous_send_date": plan.previous_send_date,
+                            "broken_promise_date": plan.broken_promise_date}
 
         # External call: deliberately outside any transaction.
         try:
@@ -412,9 +430,7 @@ class FollowUpGenerationService:
                     previous.save(update_fields=["status", "updated_at"])
 
                 # Eligibility is re-checked at write time: the invoice may have been paid meanwhile.
-                reasons = ineligibility_reasons(current)
-                if reasons:
-                    raise NotEligible(" ".join(reasons))
+                refuse_if_ineligible(current, NotEligible)
                 thread_parent = plan.thread_reply_to if plan is not None else None
                 subject = reply_subject(thread_parent.follow_up.subject) if thread_parent else content.subject
                 follow_up = FollowUp.objects.create(
@@ -527,9 +543,7 @@ def approve(follow_up_id: uuid.UUID, *, actor: Any = None) -> FollowUp:
             raise InvalidState(f"Cannot approve a follow-up that is {follow_up.status}.")
 
         invoice = Invoice.objects.select_for_update().get(pk=follow_up.invoice_id)
-        reasons = ineligibility_reasons(invoice)
-        if reasons:
-            raise StaleInvoice(f"Invoice is no longer eligible: {' '.join(reasons)}")
+        refuse_if_ineligible(invoice, StaleInvoice, "Invoice is no longer eligible: ")
         changed = changed_snapshot_fields(follow_up.invoice_snapshot, invoice)
         if changed:
             raise StaleInvoice(
@@ -565,6 +579,26 @@ def reject(follow_up_id: uuid.UUID, *, actor: Any = None) -> FollowUp:
         timeline.record(event, actor=actor, invoice=follow_up.invoice, follow_up_id=str(follow_up.pk))
         notify_outcome(follow_up)
     return follow_up
+
+
+def cancel_unsent(invoice_id: Any, *, reason: str, actor: Any) -> list[FollowUp]:
+    """
+    Withdraws the invoice's unsent reminders (DRAFT or APPROVED) because a promise or dispute was
+    recorded (M11). Runs in the caller's transaction. Marked with `cancelled_reason`, so the sequence
+    step stays pending instead of counting as rejected. A reminder already SENDING is not touched: its
+    delivery re-checks eligibility before Gmail is called and is released by the hold.
+    """
+    cancelled = []
+    active = FollowUp.objects.select_for_update(of=("self",)).select_related("invoice__client").filter(
+        invoice_id=invoice_id, status__in=[FollowUp.Status.DRAFT, FollowUp.Status.APPROVED]
+    )
+    for follow_up in active:
+        previous = follow_up.status
+        _conditional_transition(follow_up, FollowUp.Status.REJECTED, cancelled_reason=reason[:20])
+        timeline.record(EventType.FOLLOW_UP_CANCELLED, actor=actor, invoice=follow_up.invoice,
+                        follow_up_id=str(follow_up.pk), previous_status=previous, reason=reason)
+        cancelled.append(follow_up)
+    return cancelled
 
 
 def _conditional_transition(follow_up: FollowUp, new_status: str, **fields: Any) -> None:

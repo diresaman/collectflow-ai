@@ -7,16 +7,28 @@ from django.utils import timezone
 
 
 class Task(models.Model):
-    """Work for a person: CALL tasks from sequence steps (M09) and follow-up work from customer replies (M10)."""
+    """
+    Work for a person: CALL tasks from sequence steps (M09), follow-up work from customer replies (M10)
+    and from disputes, plus manual follow-ups (M11). OPEN -> DONE or CANCELLED; `done_at` stays in step
+    with DONE (the sequence engine reads it for call steps).
+    """
 
     class Kind(models.TextChoices):
         CALL = "CALL", "Call the client"
-        UPDATE_CONTACT = "UPDATE_CONTACT", "Update contact details"
-        SEND_INFO = "SEND_INFO", "Send requested information"
-        RECONCILE = "RECONCILE", "Reconcile a payment claim"
+        SEND_INFO = "SEND_INFO", "Information request"
+        UPDATE_CONTACT = "UPDATE_CONTACT", "Contact update"
+        RECONCILE = "RECONCILE", "Reconciliation"
+        REVIEW_DISPUTE = "REVIEW_DISPUTE", "Dispute review"
+        FOLLOW_UP = "FOLLOW_UP", "Other follow-up"
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        DONE = "DONE", "Done"
+        CANCELLED = "CANCELLED", "Cancelled"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     kind = models.CharField(max_length=20, choices=Kind.choices)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
     title = models.CharField(max_length=200)
     invoice = models.ForeignKey("invoices.Invoice", on_delete=models.PROTECT, null=True, blank=True, related_name="tasks")
     client = models.ForeignKey("invoices.Client", on_delete=models.PROTECT, related_name="tasks")
@@ -27,10 +39,18 @@ class Task(models.Model):
     # The customer reply that created this task (M10); at most one task of each kind per reply.
     reply = models.ForeignKey("inbox.InboundMessage", on_delete=models.PROTECT, null=True, blank=True, related_name="tasks")
     detail = models.CharField(max_length=500, blank=True)
+    # The dispute this task belongs to (M11), e.g. the approver's review.
+    dispute = models.ForeignKey("cases.DisputeCase", on_delete=models.PROTECT, null=True, blank=True, related_name="tasks")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
     assignee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
     due_at = models.DateTimeField(default=timezone.now)
     done_at = models.DateTimeField(null=True, blank=True)
     done_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    completion_note = models.CharField(max_length=500, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    # Set once the overdue check recorded this task as overdue, so it is reported only once.
+    overdue_notified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -43,10 +63,23 @@ class Task(models.Model):
             models.UniqueConstraint(
                 fields=["reply", "kind"], condition=Q(reply__isnull=False), name="one_task_per_reply_kind"
             ),
+            models.UniqueConstraint(
+                fields=["dispute", "kind"], condition=Q(dispute__isnull=False), name="one_task_per_dispute_kind"
+            ),
+            models.CheckConstraint(
+                condition=(Q(status="OPEN", done_at__isnull=True, cancelled_at__isnull=True)
+                           | Q(status="DONE", done_at__isnull=False) | Q(status="CANCELLED", cancelled_at__isnull=False)),
+                name="task_status_matches_timestamps",
+            ),
         ]
+        indexes = [models.Index(fields=["status", "due_at"])]
 
     def __str__(self) -> str:
         return f"{self.kind}: {self.title}"
+
+    @property
+    def is_overdue(self) -> bool:
+        return self.status == self.Status.OPEN and self.due_at < timezone.now()
 
 
 class ReplyLabel(models.TextChoices):

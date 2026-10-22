@@ -25,9 +25,10 @@ export const LABEL_NAMES: Record<ReplyLabel, string> = {
 
 /** What applying each label does, in operator terms (mirrors backend apps/inbox/actions.py). */
 export const LABEL_EFFECTS: Record<ReplyLabel, string> = {
-  PROMISE_TO_PAY: "Keeps chasing on hold until an approver resumes it.",
-  DISPUTE: "Keeps chasing on hold until an approver resumes it.",
-  CLAIMS_PAID: "Keeps chasing on hold and creates a task to check the payment. Never marks the invoice paid.",
+  PROMISE_TO_PAY: "Keeps chasing on hold. Confirm the promise below to start monitoring it.",
+  DISPUTE: "Keeps chasing on hold. Open a dispute case below so an approver can resolve it.",
+  CLAIMS_PAID:
+    "Keeps chasing on hold and creates a reconciliation task. Never marks the invoice paid; an approver resumes chasing.",
   REQUESTS_INFO: "Creates a task to send the information and resumes chasing.",
   OUT_OF_OFFICE: "Postpones the next step until the return date (at most 21 days) and resumes chasing.",
   WRONG_CONTACT: "Keeps chasing on hold and creates a task to update the contact.",
@@ -132,6 +133,9 @@ export type ReplyDetail = ReplyRow & {
   history: HistoryEvent[];
   replied_to: { follow_up_id: string; subject: string; sent_at: string | null; step: number | null } | null;
   gmail_url: string;
+  /** The promise or dispute a person recorded from this reply (M11). */
+  promise: { id: string; status: string; promised_date: string; amount: string; currency: string } | null;
+  dispute: { id: string; status: string; status_display: string; reason_display: string } | null;
 };
 
 export type ReplySummary = { needs_review: number; invoices_on_hold: number };

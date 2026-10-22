@@ -1,30 +1,45 @@
 import uuid
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet
 from rest_framework import generics, status
+from rest_framework.exceptions import ParseError, UnsupportedMediaType
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.followups.services import FollowUpError
-from apps.invoices.models import ChaseHold
+from apps.invoices.models import ChaseHold, Invoice
 
 from . import services, triage
 from .models import InboundMessage, Task
 from .serializers import ReplyDetailSerializer, ReplyListSerializer, TaskSerializer
 
 
-class TaskListView(generics.ListAPIView):
-    """GET /api/tasks/?open=true&invoice=<id>"""
+def _task_queryset() -> QuerySet[Task]:
+    return Task.objects.select_related("invoice", "client", "step", "done_by", "assignee", "created_by", "cancelled_by")
+
+
+class TaskListView(generics.ListCreateAPIView):
+    """
+    GET /api/tasks/?open=true&invoice=<id>&assignee=me|<user id>&status=OPEN|DONE|CANCELLED
+    POST /api/tasks/ {invoice_id, title, due_at?, assignee_id?, detail?}: a manual follow-up task.
+    """
 
     serializer_class = TaskSerializer
 
     def get_queryset(self) -> QuerySet[Task]:
-        queryset = Task.objects.select_related("invoice", "client", "step", "done_by")
+        queryset = _task_queryset()
         params = self.request.query_params
         if params.get("open") == "true":
-            queryset = queryset.filter(done_at__isnull=True)
+            queryset = queryset.filter(status=Task.Status.OPEN)
+        if params.get("status") in Task.Status.values:
+            queryset = queryset.filter(status=params["status"])
+        if params.get("assignee") == "me":
+            queryset = queryset.filter(assignee=self.request.user)
+        elif (params.get("assignee") or "").isdigit():
+            queryset = queryset.filter(assignee_id=int(params["assignee"]))
         if params.get("invoice"):
             try:
                 queryset = queryset.filter(invoice_id=uuid.UUID(params["invoice"]))
@@ -32,14 +47,52 @@ class TaskListView(generics.ListAPIView):
                 return queryset.none()
         return queryset
 
-
-class TaskDoneView(APIView):
-    def post(self, request: Request, pk: uuid.UUID) -> Response:
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = _body(request)
         try:
-            task = services.mark_done(pk, actor=request.user)
+            task = services.create(data.get("invoice_id"), title=data.get("title"), due_at=data.get("due_at"),
+                                   assignee_id=data.get("assignee_id"), detail=data.get("detail", ""),
+                                   actor=request.user)
+        except (Invoice.DoesNotExist, ValidationError, ValueError):
+            return Response({"code": "not_found", "detail": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
+        except FollowUpError as error:
+            return _error(error)
+        return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+
+class _TaskAction(APIView):
+    def respond(self, action: Any) -> Response:
+        try:
+            task = action()
         except Task.DoesNotExist:
             return Response({"code": "not_found", "detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(TaskSerializer(task).data)
+        except FollowUpError as error:
+            return _error(error)
+        return Response(TaskSerializer(_task_queryset().get(pk=task.pk)).data)
+
+
+class TaskDoneView(_TaskAction):
+    """POST {note?}: mark done (idempotent)."""
+
+    def post(self, request: Request, pk: uuid.UUID) -> Response:
+        data = _body(request)
+        return self.respond(lambda: services.mark_done(pk, actor=request.user, note=data.get("note", "")))
+
+
+class TaskCancelView(_TaskAction):
+    """POST {note}: cancel an open task (not a sequence call task)."""
+
+    def post(self, request: Request, pk: uuid.UUID) -> Response:
+        data = _body(request)
+        return self.respond(lambda: services.cancel(pk, actor=request.user, note=data.get("note")))
+
+
+class TaskAssignView(_TaskAction):
+    """POST {assignee_id | null}."""
+
+    def post(self, request: Request, pk: uuid.UUID) -> Response:
+        data = _body(request)
+        return self.respond(lambda: services.assign(pk, assignee_id=data.get("assignee_id"), actor=request.user))
 
 
 # Customer replies (M10) ---------------------------------------------------------------------------
@@ -54,7 +107,12 @@ def _reply_not_found() -> Response:
 
 
 def _body(request: Request) -> dict[str, Any]:
-    return request.data if isinstance(request.data, dict) else {}
+    """The JSON body, or {} when there is none or it is not JSON (e.g. a bare POST to mark a task done)."""
+    try:
+        data = request.data
+    except (ParseError, UnsupportedMediaType):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _replies() -> QuerySet[InboundMessage]:

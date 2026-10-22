@@ -41,7 +41,7 @@ from integrations.gmail import (
     new_message_id,
 )
 
-from .eligibility import changed_snapshot_fields, ineligibility_reasons
+from .eligibility import changed_snapshot_fields
 from .models import DeliveryAttempt, FollowUp
 from .services import (
     URL_PATTERN,
@@ -50,6 +50,7 @@ from .services import (
     InvalidState,
     StaleInvoice,
     notify_outcome,
+    refuse_if_ineligible,
     validate_body,
     validate_subject,
 )
@@ -196,9 +197,7 @@ class FollowUpDeliveryService:
     @staticmethod
     def _validate_invoice(follow_up: FollowUp) -> None:
         invoice = Invoice.objects.get(pk=follow_up.invoice_id)
-        reasons = ineligibility_reasons(invoice)
-        if reasons:
-            raise StaleInvoice(f"Invoice is no longer eligible: {' '.join(reasons)}")
+        refuse_if_ineligible(invoice, StaleInvoice, "Invoice is no longer eligible: ")
         changed = changed_snapshot_fields(follow_up.invoice_snapshot, invoice)
         if changed:
             raise StaleInvoice(
@@ -251,9 +250,7 @@ class FollowUpDeliveryService:
                 # reply stored before this point always prevents the reservation (raising rolls back the
                 # update above). Lock order follow-up -> invoice, as in approve().
                 invoice = Invoice.objects.select_for_update().get(pk=follow_up.invoice_id)
-                reasons = ineligibility_reasons(invoice)
-                if reasons:
-                    raise StaleInvoice(f"Invoice is no longer eligible: {' '.join(reasons)}")
+                refuse_if_ineligible(invoice, StaleInvoice, "Invoice is no longer eligible: ")
                 # Message-ID chosen before the call, so it is known even if the outcome is not.
                 parent = follow_up.thread_reply_to
                 references = " ".join(

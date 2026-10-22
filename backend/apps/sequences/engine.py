@@ -41,13 +41,15 @@ from apps.followups.services import (
 from apps.inbox.models import Task
 from apps.invoices.models import AutomationRun, Invoice
 from apps.timeline import services as timeline
-from apps.timeline.models import ActorType, EventType
+from apps.timeline.models import ActorType, EventType, TimelineEvent
 
 from .models import Channel, Sequence, SequenceEnrollment, SequenceStep
 
 logger = logging.getLogger(__name__)
 
 TICK_JOB_KIND = "sequences.tick"
+# Exit reason when an approver upholds a dispute (M11).
+DISPUTE_UPHELD = "dispute_upheld"
 # Failures worth retrying automatically (after a backoff), and failures a person must look at.
 RETRYABLE_AI_ERRORS = {"ai_unavailable", "ai_quota_exhausted"}
 NEEDS_PERSON_AI_ERRORS = {"ai_bad_response", "ai_not_configured", "unexpected_error"}
@@ -312,9 +314,21 @@ def reconcile(*, actor: Any) -> ReconcileSummary:
 
 
 def _was_never_completed(invoice: Invoice) -> bool:
-    """An invoice that already finished a sequence is not enrolled again (unless it left and came back)."""
+    """
+    An invoice that already finished a sequence is not enrolled again (unless it left and came back).
+    Nor is one that left because an approver upheld a dispute (M11), until the sheet changes the invoice
+    (for example a corrected amount): chasing a disputed amount again would repeat the error.
+    """
     last = SequenceEnrollment.objects.filter(invoice=invoice).order_by("-created_at").first()
-    return last is None or last.status != Status.COMPLETED
+    if last is None:
+        return True
+    if last.status == Status.COMPLETED:
+        return False
+    if last.status == Status.EXITED and last.exit_reason == DISPUTE_UPHELD:
+        return TimelineEvent.objects.filter(
+            invoice=invoice, type=EventType.INVOICE_UPDATED, occurred_at__gt=last.completed_at or last.updated_at
+        ).exists()
+    return True
 
 
 def enroll(invoice: Invoice, *, actor: Any) -> SequenceEnrollment | None:
@@ -414,13 +428,18 @@ PENDING_WAIT = {
 
 
 def step_follow_up(enrollment: SequenceEnrollment, order: int) -> FollowUp | None:
+    """
+    The step's latest reminder. Reminders the system cancelled because of a promise or dispute (M11)
+    are ignored: the step is still pending, and is drafted again when chasing resumes.
+    """
     # Filter by id: the preview evaluates unsaved enrollments.
     linked = (
-        FollowUp.objects.filter(enrollment_id=enrollment.pk, step__order=order).order_by("-generated_at").first()
+        FollowUp.objects.filter(enrollment_id=enrollment.pk, step__order=order, cancelled_reason="")
+        .order_by("-generated_at").first()
     )
     adopted_id = enrollment.history.get("adopted_follow_up_id")
     if adopted_id and order == enrollment.pending_step:
-        adopted = FollowUp.objects.filter(pk=adopted_id).first()
+        adopted = FollowUp.objects.filter(pk=adopted_id, cancelled_reason="").first()
         if adopted is not None and (linked is None or adopted.generated_at > linked.generated_at):
             return adopted
     return linked
@@ -619,10 +638,12 @@ def _start_draft(enrollment: SequenceEnrollment, step: SequenceStep, *, now: dt.
         else:
             queryset.update(drafting_started_at=None)
 
+    broken = enrollment.history.get("broken_promise_date")
     return DraftPlan(
         invoice_id=invoice.pk, enrollment_id=enrollment_id, step=step, tone=step_tone(enrollment, step),
         thread_reply_to=parent, step_number=step.order, total_email_steps=len(email_steps(enrollment.sequence)),
         previous_send_date=timezone.localtime(previous).date() if previous else None,
+        broken_promise_date=dt.date.fromisoformat(broken) if broken else None,
         manual=manual, on_created=on_created, on_failed=on_failed,
     )
 
@@ -632,7 +653,7 @@ def _generate(plan: DraftPlan, *, actor: Any, gemini: Any = None) -> StepResult:
     try:
         follow_up = FollowUpGenerationService(gemini=gemini).generate(invoice.pk, actor=actor, plan=plan)
     except FollowUpError as exc:
-        outcome = "SKIPPED" if isinstance(exc, ActiveFollowUpExists) or exc.code == "not_eligible" else "FAILED"
+        outcome = "SKIPPED" if isinstance(exc, ActiveFollowUpExists) or exc.code in ("not_eligible", "invoice_disputed") else "FAILED"
         return StepResult(invoice, outcome, exc.code, exc.message)
     except Exception:
         logger.exception("Unexpected error drafting sequence step for invoice %s", invoice.pk)
@@ -800,6 +821,27 @@ def postpone(invoice_id: Any, until: dt.datetime, *, actor: Any, reply_id: str =
                         next_action_at=enrollment.next_action_at.isoformat() if enrollment.next_action_at else None,
                         step_in_progress=enrollment.pending_step)
         return {"postponed": True, "until": until.isoformat(), "step_in_progress": enrollment.pending_step}
+
+
+def escalate_after_broken_promise(invoice_id: Any, *, promised_date: dt.date, actor: Any) -> dict[str, Any]:
+    """
+    A promise was broken (M11): the next reminder is one tone firmer (capped at FIRM) and mentions the
+    missed date. Runs in the caller's transaction. Never drafts, approves or sends here: the next tick
+    drafts the step once nothing else holds the invoice; a person approves and sends it.
+    """
+    enrollment = (
+        SequenceEnrollment.objects.select_for_update(of=("self",)).select_related("invoice__client", "sequence")
+        .filter(invoice_id=invoice_id, status__in=SequenceEnrollment.LIVE_STATUSES).first()
+    )
+    if enrollment is None:
+        return {"escalated": False, "reason": "not_enrolled"}
+    enrollment.escalation_level = min(enrollment.escalation_level + 1, len(TONE_LADDER) - 1)
+    enrollment.history = {**enrollment.history, "broken_promise_date": promised_date.isoformat()}
+    enrollment.save(update_fields=["escalation_level", "history", "updated_at"])
+    if enrollment.status == Status.ACTIVE and enrollment.pending_step is None:
+        _schedule_next(enrollment)
+    return {"escalated": True, "escalation_level": enrollment.escalation_level,
+            "pending_step": enrollment.pending_step, "next_action_at": enrollment.next_action_at}
 
 
 def on_follow_up_outcome(follow_up: FollowUp) -> None:

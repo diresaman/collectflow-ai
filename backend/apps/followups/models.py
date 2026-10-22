@@ -78,6 +78,9 @@ class FollowUp(models.Model):
     thread_reply_to = models.ForeignKey(
         "followups.DeliveryAttempt", on_delete=models.PROTECT, null=True, blank=True, related_name="replies"
     )
+    # Set when the system withdrew an unsent reminder because a promise or dispute was recorded (M11).
+    # Unlike a person's rejection, it does not complete the sequence step: the step is drafted again later.
+    cancelled_reason = models.CharField(max_length=20, blank=True)
     generated_at = models.DateTimeField(default=timezone.now)
     approved_at = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)

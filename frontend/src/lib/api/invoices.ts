@@ -31,6 +31,10 @@ export type HoldSummary = {
   reason_display: string;
   /** Promise, dispute or payment claim: only an approver may resume chasing. */
   protected: boolean;
+  /** What owns the hold: a customer reply (M10), a promise or a dispute (M11). */
+  source: "reply" | "promise" | "dispute";
+  /** Who or what ends the hold, in operator terms. */
+  release_rule: string;
   reply_id: string | null;
   detail: string;
   created_at: string;
@@ -53,6 +57,8 @@ export type Invoice = {
   in_sheet: boolean;
   enrollment: EnrollmentSummary | null;
   holds: HoldSummary[];
+  open_promise: { id: string; promised_date: string; amount: string; currency: string } | null;
+  open_dispute: { id: string; reason: string; reason_display: string } | null;
 };
 
 export type CurrencyAmount = {
@@ -138,7 +144,9 @@ export function isEnrollmentSummary(value: unknown): value is EnrollmentSummary 
 export function isHoldSummary(value: unknown): value is HoldSummary {
   return (
     isRecord(value) &&
-    ["id", "reason", "reason_display", "detail", "created_at"].every((key) => isString(value[key])) &&
+    ["id", "reason", "reason_display", "detail", "created_at", "source", "release_rule"].every((key) =>
+      isString(value[key]),
+    ) &&
     typeof value.protected === "boolean" &&
     isNullable(isString)(value.reply_id)
   );
@@ -160,7 +168,9 @@ function isInvoice(value: unknown): value is Invoice {
     isString(value.last_synced_at) &&
     typeof value.in_sheet === "boolean" &&
     isNullable(isEnrollmentSummary)(value.enrollment) &&
-    isArrayOf(isHoldSummary)(value.holds)
+    isArrayOf(isHoldSummary)(value.holds) &&
+    (value.open_promise === null || isRecord(value.open_promise)) &&
+    (value.open_dispute === null || isRecord(value.open_dispute))
   );
 }
 
@@ -223,6 +233,10 @@ const isSyncQueued = (value: unknown): value is SyncQueued =>
 
 export function getInvoices(signal?: AbortSignal): Promise<Invoice[]> {
   return backendGet("/invoices/", isArrayOf(isInvoice), { signal });
+}
+
+export function getInvoice(id: string, signal?: AbortSignal): Promise<Invoice> {
+  return backendGet(`/invoices/${id}/`, isInvoice, { signal });
 }
 
 export function getDashboard(signal?: AbortSignal): Promise<DashboardSummary> {

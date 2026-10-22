@@ -20,6 +20,9 @@ def missing_from_sheet(invoice: Invoice) -> bool:
     return not invoice.in_sheet
 
 
+DISPUTED = "invoice_disputed"
+
+
 def active_holds(invoice: Invoice) -> list[ChaseHold]:
     return list(ChaseHold.objects.filter(invoice_id=invoice.pk, released_at__isnull=True).order_by("created_at"))
 
@@ -39,18 +42,27 @@ def ineligibility(invoice: Invoice) -> list[tuple[str, str]]:
         reasons.append(("invalid_recipient", "Client email address is invalid."))
     if invoice.amount is None or invoice.amount <= Decimal("0"):
         reasons.append(("invalid_amount", "Invoice amount must be positive."))
-    # A customer reply holds all chasing until it is classified or reviewed (M10). Checked wherever
-    # eligibility is: tick, drafting (again under the invoice lock), approval, send request and delivery.
+    # Chase holds (M10 replies, M11 promises and disputes) stop all chasing. Checked wherever eligibility
+    # is: tick, drafting (again under the invoice lock), approval, send reservation and delivery.
     holds = active_holds(invoice)
-    if holds:
-        reasons.append(("on_hold", f"Chasing is on hold: {holds[0].get_reason_display().lower()}. "
-                                   "Review the customer's reply in the inbox."))
+    if any(hold.dispute_id for hold in holds):
+        reasons.append((DISPUTED, "The invoice is disputed. Nothing is drafted, approved or sent until an "
+                                  "approver resolves the dispute."))
+    others = [hold for hold in holds if not hold.dispute_id]
+    if others:
+        what = "a promise to pay is open" if any(h.promise_id for h in others) else \
+            f"{others[0].get_reason_display().lower()}. Review the customer's reply in the inbox"
+        reasons.append(("on_hold", f"Chasing is on hold: {what}."))
     return reasons
 
 
 def ineligibility_reasons(invoice: Invoice) -> list[str]:
     """Returns why the invoice cannot get a reminder; an empty list means eligible."""
     return [message for _, message in ineligibility(invoice)]
+
+
+def is_disputed(invoice: Invoice) -> bool:
+    return ChaseHold.objects.filter(invoice_id=invoice.pk, released_at__isnull=True, dispute_id__isnull=False).exists()
 
 
 def tone_for_days_overdue(days_overdue: int) -> str:

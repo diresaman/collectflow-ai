@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "apps.followups",
     "apps.sequences",
     "apps.inbox",
+    "apps.cases",
     "apps.automation",
 ]
 
@@ -308,3 +309,16 @@ INBOX_CLASSIFY_MAX_ATTEMPTS = int(os.environ.get("INBOX_CLASSIFY_MAX_ATTEMPTS", 
 # without a return date it waits the default.
 OUT_OF_OFFICE_MAX_DAYS = int(os.environ.get("OUT_OF_OFFICE_MAX_DAYS", "21"))
 OUT_OF_OFFICE_DEFAULT_DAYS = int(os.environ.get("OUT_OF_OFFICE_DEFAULT_DAYS", "7"))
+
+
+# Promises, disputes and tasks (M11)
+# ------------------------------------------------------------------------------
+
+# A promise is kept if the sheet shows the invoice PAID by the promised date plus this many days.
+PROMISE_GRACE_DAYS = int(os.environ.get("PROMISE_GRACE_DAYS", "2"))
+# The latest promised date a person may confirm, in days from today (later ones stay in triage).
+PROMISE_MAX_DAYS = int(os.environ.get("PROMISE_MAX_DAYS", "60"))
+# Minutes between scheduled promise and overdue-task checks (enqueued by run_worker).
+CASES_MONITOR_MINUTES = int(os.environ.get("CASES_MONITOR_MINUTES", "60"))
+# Days until a new task from a reply or dispute is due.
+TASK_DUE_DAYS = int(os.environ.get("TASK_DUE_DAYS", "2"))

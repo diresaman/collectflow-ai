@@ -62,8 +62,13 @@ def handle_sync_job(job: Any) -> dict[str, Any]:
         return {"run_id": run.pk, "status": run.status}
     run = execute_sync(run, actor=job.created_by)
     if run.status == AutomationRun.Status.SUCCEEDED:
-        # Reconcile sequence enrollments and advance due steps with the fresh data. Queued by kind
-        # name only: invoices does not depend on the sequences app.
+        # Settle promises against the fresh payment status first (M11), then reconcile sequence
+        # enrollments and advance due steps. Queued by kind name only: invoices does not depend on the
+        # cases or sequences apps.
+        outbox.enqueue(
+            "cases.monitor", {"trigger": AutomationRun.Trigger.MANUAL},
+            idempotency_key=f"cases.monitor:after-sync:{run.pk}", max_attempts=1,
+        )
         outbox.enqueue(
             "sequences.tick", {"trigger": AutomationRun.Trigger.MANUAL},
             idempotency_key=f"sequences.tick:after-sync:{run.pk}", max_attempts=1,

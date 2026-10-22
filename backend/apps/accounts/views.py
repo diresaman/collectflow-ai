@@ -85,3 +85,15 @@ class MeView(APIView):
         if role_of(request.user) is None:  # unreachable behind IsOperator; kept as a guard
             raise exceptions.PermissionDenied()
         return Response(describe(request.user))
+
+
+class UserListView(APIView):
+    """GET /api/users/: active users with a CollectFlow role, for task and dispute assignment (M11)."""
+
+    def get(self, request: Request) -> Response:
+        from django.contrib.auth import get_user_model
+
+        users = get_user_model().objects.filter(is_active=True).select_related("profile").order_by("username")
+        rows = [{"id": u.pk, "username": u.username, "display_name": u.get_full_name() or u.username, "role": role_of(u)}
+                for u in users]
+        return Response([row for row in rows if row["role"]])

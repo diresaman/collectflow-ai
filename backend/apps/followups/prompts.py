@@ -6,7 +6,7 @@ from typing import Any
 from apps.invoices.models import Invoice
 
 # Bump whenever the instructions, context or schema change; stored on every draft and attempt.
-PROMPT_VERSION = "draft-v2"
+PROMPT_VERSION = "draft-v3"
 
 SYSTEM_INSTRUCTION = """\
 You draft payment reminder emails for a small service business's accounts receivable team.
@@ -30,7 +30,9 @@ Rules you must always follow:
 10. When sequence_step is greater than 1, this is a follow-up in the same email conversation as
     an earlier reminder (sent on previous_reminder_date). Refer to the earlier reminder briefly
     without repeating it, and do not invent anything about the client's response.
-11. Use exactly the tone given in required_tone:
+11. When broken_promise_date is present, the client had promised to pay by that date and the
+    payment has not been received. Mention that commitment and the date factually, without blame.
+12. Use exactly the tone given in required_tone:
     - FRIENDLY: warm, assumes an oversight, gentle nudge.
     - PROFESSIONAL: courteous and businesslike, asks for payment or a status update.
     - FIRM: clear and direct, states the invoice is significantly overdue and asks for prompt
@@ -53,6 +55,7 @@ def build_context(
     step_number: int | None = None,
     total_email_steps: int | None = None,
     previous_send_date: Any = None,
+    broken_promise_date: Any = None,
 ) -> dict[str, Any]:
     """The minimum invoice facts the model needs. Deliberately excludes the client email."""
     context: dict[str, Any] = {
@@ -68,6 +71,8 @@ def build_context(
         context["sequence_step"] = step_number
         context["sequence_email_steps"] = total_email_steps
         context["previous_reminder_date"] = previous_send_date.isoformat() if previous_send_date else None
+    if broken_promise_date is not None:
+        context["broken_promise_date"] = broken_promise_date.isoformat()
     return context
 
 

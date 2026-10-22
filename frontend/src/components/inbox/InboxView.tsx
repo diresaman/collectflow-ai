@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useCurrentUser } from "@/components/auth/SessionGate";
 import { Card, ErrorMessage, Skeleton, Spinner } from "@/components/dashboard/ui";
 import { ApiError } from "@/lib/api/client";
+import { DISPUTE_REASONS, getUsers, openDispute, recordPromise, type AppUser } from "@/lib/api/cases";
 import { waitForJob } from "@/lib/api/jobs";
 import {
   EXTRACTED_FIELDS,
@@ -100,7 +101,162 @@ function ReplyList({
   );
 }
 
-function ReplyPanel({ reply, onChanged }: { reply: ReplyDetail; onChanged: (updated: ReplyDetail) => void }) {
+function suggestion(reply: ReplyDetail, key: string): string {
+  const value = reply.extracted[key];
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * Turning a promise or dispute reply into the business record (M11). The AI's extracted values only
+ * prefill the form; the person confirms or corrects them, and the backend validates them again.
+ */
+function ReplyCaseActions({
+  reply,
+  label,
+  users,
+  onChanged,
+}: {
+  reply: ReplyDetail;
+  label: ReplyLabel | "";
+  users: AppUser[];
+  onChanged: () => void;
+}) {
+  const [date, setDate] = useState(suggestion(reply, "promised_date"));
+  const [amount, setAmount] = useState(suggestion(reply, "promised_amount").replace(/[^\d.]/g, ""));
+  const [reason, setReason] = useState("");
+  const [description, setDescription] = useState(suggestion(reply, "dispute_reason"));
+  const [owner, setOwner] = useState<number | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (reply.promise) {
+    return (
+      <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+        <span className="font-semibold">Promise recorded</span> ({reply.promise.status.toLowerCase()}): pay{" "}
+        {reply.promise.amount} {reply.promise.currency} by {reply.promise.promised_date}. Manage it from invoice{" "}
+        {reply.invoice_external_id} on the dashboard.
+      </p>
+    );
+  }
+  if (reply.dispute) {
+    return (
+      <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+        <span className="font-semibold">Dispute {reply.dispute.status_display.toLowerCase()}</span>:{" "}
+        {reply.dispute.reason_display}. Manage it from invoice {reply.invoice_external_id} on the dashboard.
+      </p>
+    );
+  }
+  if (label !== "PROMISE_TO_PAY" && label !== "DISPUTE") return null;
+
+  const submit = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const field = "mt-0.5 block w-full rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900";
+
+  if (label === "PROMISE_TO_PAY") {
+    return (
+      <section className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/50 p-3" aria-label="Confirm the promise">
+        <h3 className="text-sm font-semibold text-slate-900">Confirm the promise</h3>
+        <p className="text-xs text-slate-600">
+          Check the date and amount against the reply (the AI&apos;s values are only suggestions). Recording it pauses
+          chasing until the promise is kept or broken (2-day grace), and withdraws unsent reminders.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="text-xs font-medium text-slate-600">
+            Promised date
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={field} />
+          </label>
+          <label className="text-xs font-medium text-slate-600">
+            Amount (empty = full invoice)
+            <input value={amount} onChange={(e) => setAmount(e.target.value)} className={field} />
+          </label>
+        </div>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" aria-label="Promise note" className={field} />
+        <button
+          type="button"
+          disabled={busy || !date}
+          onClick={() =>
+            void submit(() =>
+              recordPromise({ invoice_id: reply.invoice, reply_id: reply.id, promised_date: date, amount: amount || undefined, note }),
+            )
+          }
+          className="inline-flex items-center gap-2 rounded-md bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
+        >
+          {busy && <Spinner />}
+          Record promise
+        </button>
+        {error && <ErrorMessage message={error} />}
+      </section>
+    );
+  }
+  return (
+    <section className="space-y-2 rounded-lg border border-rose-200 bg-rose-50/50 p-3" aria-label="Open a dispute">
+      <h3 className="text-sm font-semibold text-slate-900">Open a dispute case</h3>
+      <p className="text-xs text-slate-600">
+        Blocks drafting, approval and sending for this invoice until an approver resolves the case.
+      </p>
+      <label className="block text-xs font-medium text-slate-600">
+        Reason
+        <select value={reason} onChange={(e) => setReason(e.target.value)} className={field}>
+          <option value="">Choose…</option>
+          {DISPUTE_REASONS.map(([value, name]) => (
+            <option key={value} value={value}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} aria-label="Description" className={field} />
+      <label className="flex items-center gap-2 text-xs text-slate-600">
+        Owner
+        <select
+          value={owner ?? ""}
+          onChange={(e) => setOwner(e.target.value ? Number(e.target.value) : null)}
+          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+        >
+          <option value="">Unassigned</option>
+          {users.map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.display_name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        disabled={busy || !reason || !description.trim()}
+        onClick={() =>
+          void submit(() => openDispute({ invoice_id: reply.invoice, reply_id: reply.id, reason, description, owner_id: owner }))
+        }
+        className="inline-flex items-center gap-2 rounded-md bg-rose-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+      >
+        {busy && <Spinner />}
+        Open dispute
+      </button>
+      {error && <ErrorMessage message={error} />}
+    </section>
+  );
+}
+
+function ReplyPanel({
+  reply,
+  users,
+  onChanged,
+}: {
+  reply: ReplyDetail;
+  users: AppUser[];
+  onChanged: (updated: ReplyDetail) => void;
+}) {
   const user = useCurrentUser();
   const isApprover = user.role === "APPROVER" || user.role === "ADMIN";
   // The panel is keyed by the reply's revision, so this state starts fresh for each reply and after each change.
@@ -298,6 +454,13 @@ function ReplyPanel({ reply, onChanged }: { reply: ReplyDetail; onChanged: (upda
         {error && <ErrorMessage message={error} />}
       </section>
 
+      <ReplyCaseActions
+        reply={reply}
+        label={label || reply.label}
+        users={users}
+        onChanged={() => void getReply(reply.id).then(onChanged)}
+      />
+
       {reply.tasks.length > 0 && (
         <section aria-label="Tasks">
           <h3 className="text-sm font-semibold text-slate-900">Tasks</h3>
@@ -305,7 +468,7 @@ function ReplyPanel({ reply, onChanged }: { reply: ReplyDetail; onChanged: (upda
             {reply.tasks.map((task) => (
               <li key={task.id}>
                 {task.title}
-                {task.done_at ? " · done" : " · open (Dashboard → Tasks)"}
+                {task.status === "DONE" ? " · done" : task.status === "CANCELLED" ? " · cancelled" : " · open (Dashboard → Tasks)"}
               </li>
             ))}
           </ul>
@@ -343,6 +506,15 @@ export function InboxView() {
   const [detail, setDetail] = useState<ReplyDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [users, setUsers] = useState<AppUser[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getUsers(controller.signal)
+      .then(setUsers)
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -436,6 +608,7 @@ export function InboxView() {
             <ReplyPanel
               key={`${shown.id}:${shown.classifications.length}:${shown.state}:${shown.holds.filter((h) => !h.released_at).length}`}
               reply={shown}
+              users={users}
               onChanged={(updated) => {
                 setDetail(updated);
                 setRefresh((n) => n + 1);

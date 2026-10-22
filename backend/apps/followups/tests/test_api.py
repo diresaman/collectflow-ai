@@ -45,7 +45,7 @@ class AnalyzeEndpointTests(SessionApiTestCase):
         self.assertEqual(job["status"], "SUCCEEDED")
         follow_up = FollowUp.objects.get(pk=job["result"]["follow_up_id"])
         # Never contacted: sequence step 1, friendly, however overdue the invoice is.
-        self.assertEqual((follow_up.status, follow_up.tone, follow_up.prompt_version), ("DRAFT", "FRIENDLY", "draft-v2"))
+        self.assertEqual((follow_up.status, follow_up.tone, follow_up.prompt_version), ("DRAFT", "FRIENDLY", "draft-v3"))
         self.assertEqual((follow_up.step.order, follow_up.enrollment.status), (1, "ACTIVE"))
         event = TimelineEvent.objects.get(type="DRAFT_GENERATED")
         self.assertEqual((event.actor, event.invoice_id, event.payload["follow_up_id"]), (self.user, invoice.pk, str(follow_up.pk)))

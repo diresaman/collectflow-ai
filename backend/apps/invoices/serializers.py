@@ -11,17 +11,41 @@ def active_holds_summary(invoice: Invoice) -> list[dict[str, Any]]:
     if holds is None:
         holds = list(ChaseHold.objects.filter(invoice=invoice, released_at__isnull=True))
     return [{"id": str(h.pk), "reason": h.reason, "reason_display": h.get_reason_display(), "protected": h.protected,
-             "reply_id": str(h.reply_id) if h.reply_id else None, "detail": h.detail, "created_at": h.created_at}
+             "source": h.source, "release_rule": h.release_rule,
+             "reply_id": str(h.reply_id) if h.reply_id else None,
+             "promise_id": str(h.promise_id) if h.promise_id else None,
+             "dispute_id": str(h.dispute_id) if h.dispute_id else None,
+             "detail": h.detail, "created_at": h.created_at}
             for h in sorted(holds, key=lambda h: h.created_at)]
+
+
+def open_case_summary(invoice: Invoice) -> dict[str, Any]:
+    """The invoice's OPEN promise and dispute (M11), read through reverse relations (prefetched in lists)."""
+    promise = next((p for p in invoice.promises.all() if p.status == "OPEN"), None)  # type: ignore[attr-defined]
+    dispute = next((d for d in invoice.disputes.all() if d.status == "OPEN"), None)  # type: ignore[attr-defined]
+    return {
+        "open_promise": {"id": str(promise.pk), "promised_date": promise.promised_date, "amount": str(promise.amount),
+                         "currency": promise.currency} if promise else None,
+        "open_dispute": {"id": str(dispute.pk), "reason": dispute.reason,
+                         "reason_display": dispute.get_reason_display()} if dispute else None,
+    }
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
     is_overdue = serializers.BooleanField(read_only=True)
     enrollment = serializers.SerializerMethodField()
     holds = serializers.SerializerMethodField()
+    open_promise = serializers.SerializerMethodField()
+    open_dispute = serializers.SerializerMethodField()
 
     def get_holds(self, invoice: Invoice) -> list[dict[str, Any]]:
         return active_holds_summary(invoice)
+
+    def get_open_promise(self, invoice: Invoice) -> dict[str, Any] | None:
+        return open_case_summary(invoice)["open_promise"]
+
+    def get_open_dispute(self, invoice: Invoice) -> dict[str, Any] | None:
+        return open_case_summary(invoice)["open_dispute"]
 
     def get_enrollment(self, invoice: Invoice) -> dict[str, Any] | None:
         """The invoice's latest sequence enrollment, summarised (None if never enrolled)."""
@@ -58,6 +82,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "last_synced_at",
             "enrollment",
             "holds",
+            "open_promise",
+            "open_dispute",
         ]
         read_only_fields = fields
 

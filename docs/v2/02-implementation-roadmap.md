@@ -10,9 +10,9 @@ continue the repository's commit history.
 | 01 Foundation and architecture | M08 | Sessions and roles, outbox and worker, timeline, clients | P0 | — | **Done** (`676b43c`) |
 | 01 Foundation: PostgreSQL migration | M08.1 | PostgreSQL 16, Docker Compose, SKIP LOCKED, SQLite → PostgreSQL transfer | P0 | — | **Done**: data cut over and verified 2026-10-22 |
 | 02 Sequences, threading, four-eyes | M09 | Sequence engine, tick, threaded send, approval policy, call tasks | P0 | 7–8 h | **Done** (see `05-m09-implementation-report.md`); live threading verified 2026-10-22 |
-| 03 Reply ingestion and classification | M10 | Gmail read, poll, classify, triage, health page | P0 | 6–7 h | **Done with mocked Gmail** (see `06-m10-implementation-report.md`); live read check awaits the owner's approval of `gmail.readonly` |
-| 04 Promises, disputes, tasks | M11 | Promise lifecycle, dispute lock, all task kinds, daily promise check | P0 | 4–5 h | **Next** (not started) |
-| 05 Closed-loop UI and P0 gate | M12 | Invoice detail, approvals, sequence editor, explicit unavailable states, P0 demo | P0 | 4–5 h | |
+| 03 Reply ingestion and classification | M10 | Gmail read, poll, classify, triage, health page | P0 | 6–7 h | **Done and deployed** (see `06-m10-implementation-report.md`); reading enabled 2026-10-22 and verified with a live reply |
+| 04 Promises, disputes, tasks | M11 | Promise lifecycle, dispute lock, all task kinds, daily promise check | P0 | 4–5 h | **Done** on the development database (see `07-m11-implementation-report.md`); production deployment awaits approval |
+| 05 Closed-loop UI and P0 gate | M12 | Invoice detail, approvals, sequence editor, explicit unavailable states, P0 demo | P0 | 4–5 h | **Next** (not started) |
 | 06 Risk and worklist | M13 | Client metrics, risk score, Today page, `/clients` | P1 | 3–4 h | |
 | 07 Statements, analytics, forecast | M14 | Statement email, aging, DSO, CEI, attribution, forecast | P1 | 4–5 h | |
 | 08 QA, AI evals, CI, delivery | M15 | Eval harness, Hypothesis, import-linter, Playwright, CI, docs | Release | 6–7 h | |
@@ -158,6 +158,9 @@ plan for the next phase is `03-phase-02-implementation-plan.md`.
 - **Exclusions:** promise and dispute actions, the eval harness.
 
 ### Phase 04 — Promises, disputes, tasks (M11)
+
+> **Status:** implemented on the development database (2026-10-22). Differences from this plan are in
+> `07-m11-implementation-report.md` §2; production deployment awaits approval.
 
 - **Objective:** the business workflows that replies trigger.
 - **Backend:**

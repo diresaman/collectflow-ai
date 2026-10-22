@@ -47,7 +47,8 @@ export function TasksPanel({ reloadKey, onOpenInvoice }: { reloadKey: number; on
       <div className="border-b border-slate-200 px-5 py-4">
         <h2 className="text-base font-semibold text-slate-900">Tasks</h2>
         <p className="mt-0.5 text-sm text-slate-500">
-          Follow-ups a person does outside email. Marking a call done completes that sequence step.
+          Follow-ups a person does outside email. Marking a call done completes that sequence step. Assign, add notes
+          or cancel tasks from the invoice.
         </p>
       </div>
       {tasks.kind === "error" && (
@@ -62,7 +63,10 @@ export function TasksPanel({ reloadKey, onOpenInvoice }: { reloadKey: number; on
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-slate-900">{task.title}</p>
                 <p className="text-xs text-slate-500">
-                  {task.step ? `Sequence step ${task.step} · ` : ""}due {formatDate(task.due_at.slice(0, 10))}
+                  {task.kind_display} · {task.invoice_external_id ? `${task.invoice_external_id} · ` : ""}
+                  {task.step ? `sequence step ${task.step} · ` : ""}due {formatDate(task.due_at.slice(0, 10))}
+                  {task.assignee ? ` · ${task.assignee.display_name}` : " · unassigned"}
+                  {task.is_overdue && <span className="ml-1 font-medium text-rose-700">overdue</span>}
                 </p>
                 {task.detail && <p className="text-xs text-slate-600">{task.detail}</p>}
               </div>

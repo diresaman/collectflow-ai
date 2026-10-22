@@ -159,9 +159,10 @@ class WorkerCommandTests(OutboxTestCase):
 
         call_command("run_worker", "--once", stdout=out)
 
-        # The two queued jobs plus the current 15-minute sequence tick slot and the daily reply-text
-        # purge (M10). No reply poll: GMAIL_READ_ENABLED is off.
-        self.assertIn("Ran 4 job(s).", out.getvalue())
+        # The two queued jobs plus the current 15-minute sequence tick slot, the daily reply-text purge
+        # (M10) and the hourly promise and task check (M11). No reply poll: GMAIL_READ_ENABLED is off.
+        self.assertIn("Ran 5 job(s).", out.getvalue())
+        self.assertEqual(OutboxJob.objects.get(kind="cases.monitor").status, "SUCCEEDED")
         self.assertEqual(OutboxJob.objects.get(kind="sequences.tick").status, "SUCCEEDED")
         self.assertEqual(OutboxJob.objects.get(kind="inbox.purge").status, "SUCCEEDED")
         self.assertFalse(OutboxJob.objects.filter(kind="inbox.poll").exists())

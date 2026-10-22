@@ -45,7 +45,7 @@ class GenerationSuccessTests(TestCase):
 
         follow_up = generate(invoice, gemini)
 
-        self.assertEqual((follow_up.tone, follow_up.step.order, follow_up.prompt_version), ("FRIENDLY", 1, "draft-v2"))
+        self.assertEqual((follow_up.tone, follow_up.step.order, follow_up.prompt_version), ("FRIENDLY", 1, "draft-v3"))
         call = gemini.calls[0]
         self.assertEqual(call["response_schema"]["properties"]["tone"]["enum"], ["FRIENDLY"])
         self.assertIn('"days_overdue": 20', call["prompt"])

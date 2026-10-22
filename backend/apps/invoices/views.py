@@ -29,6 +29,8 @@ class SyncView(APIView):
 
 INVOICES = Invoice.objects.prefetch_related(
     "enrollments__sequence__steps",
+    "promises",
+    "disputes",
     Prefetch("chase_holds", queryset=ChaseHold.objects.filter(released_at__isnull=True), to_attr="active_chase_holds"),
 )
 

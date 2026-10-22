@@ -15,11 +15,21 @@ class TaskSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source="client.display_name", read_only=True)
     step = serializers.IntegerField(source="step.order", read_only=True, default=None)
     done_by = serializers.CharField(source="done_by.username", read_only=True, default=None)
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    assignee = serializers.SerializerMethodField()
+    created_by = serializers.CharField(source="created_by.username", read_only=True, default=None)
+    cancelled_by = serializers.CharField(source="cancelled_by.username", read_only=True, default=None)
+    is_overdue = serializers.BooleanField(read_only=True)
+
+    def get_assignee(self, task: Task) -> dict[str, Any] | None:
+        user = task.assignee
+        return {"id": user.pk, "username": user.username, "display_name": user.get_full_name() or user.username} if user else None
 
     class Meta:
         model = Task
-        fields = ["id", "kind", "title", "detail", "invoice", "invoice_external_id", "client", "client_name", "step",
-                  "reply", "due_at", "done_at", "done_by", "created_at"]
+        fields = ["id", "kind", "kind_display", "status", "title", "detail", "invoice", "invoice_external_id", "client",
+                  "client_name", "step", "reply", "dispute", "assignee", "due_at", "is_overdue", "done_at", "done_by",
+                  "completion_note", "cancelled_at", "cancelled_by", "created_by", "created_at"]
         read_only_fields = fields
 
 
@@ -77,6 +87,22 @@ class ReplyDetailSerializer(ReplyListSerializer):
     history = serializers.SerializerMethodField()
     replied_to = serializers.SerializerMethodField()
     gmail_url = serializers.SerializerMethodField()
+    promise = serializers.SerializerMethodField()
+    dispute = serializers.SerializerMethodField()
+
+    def get_promise(self, reply: InboundMessage) -> dict[str, Any] | None:
+        """The promise a person recorded from this reply (M11), if any."""
+        promise = reply.promises.first()  # type: ignore[attr-defined]
+        return {"id": str(promise.pk), "status": promise.status, "promised_date": promise.promised_date,
+                "amount": str(promise.amount), "currency": promise.currency,
+                "invoice_external_id": promise.invoice.external_id} if promise else None
+
+    def get_dispute(self, reply: InboundMessage) -> dict[str, Any] | None:
+        """The dispute a person opened from this reply (M11), if any."""
+        case = reply.disputes.first()  # type: ignore[attr-defined]
+        return {"id": str(case.pk), "status": case.status, "status_display": case.get_status_display(),
+                "reason_display": case.get_reason_display(),
+                "invoice_external_id": case.invoice.external_id} if case else None
 
     def get_holds(self, reply: InboundMessage) -> list[dict[str, Any]]:
         holds = ChaseHold.objects.filter(reply_id=reply.pk).select_related("invoice", "released_by")
@@ -103,5 +129,5 @@ class ReplyDetailSerializer(ReplyListSerializer):
     class Meta(ReplyListSerializer.Meta):
         fields = [*ReplyListSerializer.Meta.fields, "body", "body_truncated", "body_purged_at", "extracted", "rationale",
                   "classify_attempts", "thread_invoice_ids", "resolved_at", "classifications", "holds", "tasks",
-                  "history", "replied_to", "gmail_url"]
+                  "history", "replied_to", "gmail_url", "promise", "dispute"]
         read_only_fields = fields

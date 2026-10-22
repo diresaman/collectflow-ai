@@ -42,21 +42,58 @@ def place(invoices: list[Invoice], *, reply: Any, reason: str, actor: Any, detai
     return holds
 
 
-def active_for_reply(reply: Any) -> list[ChaseHold]:
-    return list(ChaseHold.objects.filter(reply_id=reply.pk, released_at__isnull=True).select_related("invoice"))
+def active_for_reply(reply: Any, invoice: Any = None) -> list[ChaseHold]:
+    holds = ChaseHold.objects.filter(reply_id=reply.pk, released_at__isnull=True).select_related("invoice")
+    if invoice is not None:
+        holds = holds.filter(invoice=invoice)
+    return list(holds)
 
 
-def release(reply: Any, *, actor: Any, note: str = "") -> list[ChaseHold]:
-    """Releases this reply's holds. Chasing resumes once an invoice has no other active hold."""
+def release(reply: Any, *, actor: Any, note: str = "", invoice: Any = None) -> list[ChaseHold]:
+    """
+    Releases this reply's holds (only on `invoice`, when given). Chasing resumes once an invoice has no
+    other active hold: holds owned by other replies, promises or disputes are never touched.
+    """
+    return _release(active_for_reply(reply, invoice), actor=actor, note=note)
+
+
+# Holds owned by a promise or a dispute (M11) -------------------------------------------------------
+
+OWNERS = ("promise", "dispute")
+
+
+def place_owned(invoice: Invoice, *, owner: str, owner_id: Any, reason: str, actor: Any, detail: str = "") -> ChaseHold:
+    """Holds the (locked) invoice for a promise or dispute. Idempotent."""
+    assert owner in OWNERS
+    key = {f"{owner}_id": owner_id}
+    hold = ChaseHold.objects.filter(invoice=invoice, released_at__isnull=True, **key).first()
+    if hold is not None:
+        return hold
+    hold = ChaseHold.objects.create(invoice=invoice, reason=reason, detail=detail[:300], **key)
+    timeline.record(EventType.CHASE_HOLD_PLACED, actor=actor, invoice=invoice, hold_id=str(hold.pk),
+                    reason=reason, **{k: str(v) for k, v in key.items()})
+    return hold
+
+
+def release_owned(*, owner: str, owner_id: Any, actor: Any, note: str = "") -> list[ChaseHold]:
+    """Releases the holds owned by this promise or dispute, and no others."""
+    assert owner in OWNERS
+    holds = ChaseHold.objects.filter(released_at__isnull=True, **{f"{owner}_id": owner_id}).select_related("invoice")
+    return _release(list(holds), actor=actor, note=note)
+
+
+def _release(holds: list[ChaseHold], *, actor: Any, note: str) -> list[ChaseHold]:
     released = []
     now = timezone.now()
-    for hold in active_for_reply(reply):
+    for hold in holds:
         hold.released_at = now
         hold.released_by = actor if getattr(actor, "is_authenticated", False) else None
         hold.release_note = note[:300]
         hold.save(update_fields=["released_at", "released_by", "release_note", "updated_at"])
         remaining = ChaseHold.objects.filter(invoice_id=hold.invoice_id, released_at__isnull=True).count()
+        owner = {"reply_id": hold.reply_id, "promise_id": hold.promise_id, "dispute_id": hold.dispute_id}
         timeline.record(EventType.CHASE_HOLD_RELEASED, actor=actor, invoice=hold.invoice, hold_id=str(hold.pk),
-                        reply_id=str(reply.pk), reason=hold.reason, other_active_holds=remaining)
+                        reason=hold.reason, other_active_holds=remaining,
+                        **{k: str(v) for k, v in owner.items() if v})
         released.append(hold)
     return released

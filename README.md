@@ -311,6 +311,10 @@ records the acting user, or `SYSTEM` / `SCHEDULER`. A database trigger rejects `
 | `INBOX_CLASSIFY_MAX_ATTEMPTS`    | `3`                      | Automatic classification attempts after transient failures.   |
 | `OUT_OF_OFFICE_MAX_DAYS`         | `21`                     | Longest out-of-office postponement.                            |
 | `OUT_OF_OFFICE_DEFAULT_DAYS`     | `7`                      | Postponement when no return date is given.                     |
+| `PROMISE_GRACE_DAYS`             | `2`                      | Days after the promised date a payment still counts as kept.  |
+| `PROMISE_MAX_DAYS`               | `60`                     | Latest promised date a person may confirm, from today.         |
+| `CASES_MONITOR_MINUTES`          | `60`                     | Interval of the promise and overdue-task check (at most 60).   |
+| `TASK_DUE_DAYS`                  | `2`                      | Default due time of new reply, dispute and manual tasks.       |
 
 ## Google Sheets setup
 
@@ -650,6 +654,44 @@ store and which invoices it would hold. It reads headers only and changes nothin
   polling, Gemini (budget, cooldown) and the worker, plus the scheduled jobs. Built from local
   records only (no provider calls), with no tokens or message text.
 
+## Promises, disputes and tasks (M11)
+
+Customer replies (M10) feed three business workflows. The AI only suggests; people confirm, and the
+backend decides every state change. All of them stop chasing through the same **chase holds**: each hold
+is owned by one reply, promise or dispute, only its owner ends it, and chasing resumes only when no
+hold is left.
+
+- **Promise to pay.** From a PROMISE_TO_PAY reply (Inbox → "Confirm the promise", prefilled with the
+  AI's extracted date and amount as suggestions) or from the invoice drawer. Date from today to
+  `PROMISE_MAX_DAYS` (60) ahead, amount up to the invoice amount, one OPEN promise per invoice.
+  Recording it withdraws unsent reminders (the sequence step stays pending), places a hold and hands
+  the reply's hold over to it. The hourly `cases.monitor` job (also run after each sync) decides:
+  - **KEPT:** the sheet showed the invoice PAID by promised date + `PROMISE_GRACE_DAYS` (2). The time
+    comes from the sync's own record, never from the reply.
+  - **BROKEN:** still unpaid after that day. The next reminder is **one tone firmer** (capped at firm)
+    and mentions the missed date (prompt `draft-v3`). Other holds still apply, and nothing is approved or sent.
+  - **CANCELLED:** an approver withdrew it, with a note.
+- **Disputes.** From a DISPUTE reply or the drawer: reason, description and owner. While a case is open,
+  every chasing path refuses with `409 invoice_disputed`: drafting, approval, send reservation, a
+  delivery already queued, the sequence tick and automation runs. Unsent reminders are withdrawn and an
+  approver gets a "Dispute review" task. Operators assign owners and add internal notes. **Only an
+  approver resolves**, with a written resolution:
+  - **customer is right** (`RESOLVED_VALID`): the sequence exits and the invoice is not re-enrolled until
+    the sheet changes it;
+  - **invoice stands** (`RESOLVED_INVALID`): the dispute's hold ends.
+
+  The response says whether chasing resumes and, if not, what still blocks it. Nothing is ever sent
+  on resolution.
+- **Tasks.** Kinds: call (sequence step 4), information request, contact update, reconciliation, dispute
+  review and other follow-up. OPEN → DONE (optional note) or CANCELLED (note required). They support
+  assignment and due dates, and are audited on the timeline; overdue tasks are flagged once by
+  `cases.monitor`. Completing a call task records its sequence step at once, exactly once. Completing any
+  other task never resumes chasing. Manual tasks can be added from the drawer.
+- **UI:** the invoice drawer's "Promises, disputes and tasks" section lists every hold and who can end
+  it. It shows the promise and dispute cards, the record/open forms, approver-only cancel and resolve,
+  owner and assignee pickers, notes, tasks and recent history. The Inbox links each reply to the promise
+  or dispute made from it.
+
 ## Proactive automation
 
 ### Architecture
@@ -952,8 +994,8 @@ provider queue a job and return `202`; poll `GET /api/jobs/{id}/`.
 | GET    | `/api/enrollments/`      | Filters: `?invoice=`, `?status=`, `?review_required=true`; each with its step states |
 | POST   | `/api/enrollments/{id}/pause/`, `/resume/` | Pause with `{reason}` / resume. `409` on the wrong status |
 | POST   | `/api/enrollments/{id}/review/` | APPROVER: `{last_completed_step, note}` confirms the position after a history review |
-| GET    | `/api/tasks/`            | Tasks; `?open=true`, `?invoice=` |
-| POST   | `/api/tasks/{id}/done/`  | Mark done (idempotent); completes a call step on the next tick |
+| GET    | `/api/tasks/`            | Tasks; `?open=true`, `?status=`, `?invoice=`, `?assignee=me` |
+| POST   | `/api/tasks/{id}/done/`  | `{note?}`: mark done (idempotent); a call task completes its sequence step at once |
 | POST   | `/api/sync/`             | `202 {run_id, job_id, run}`; the worker syncs. Read the run for `SUCCEEDED` / `FAILED` with row errors |
 | GET    | `/api/invoices/`         | List of invoices, including `is_overdue` and `days_overdue`                  |
 | GET    | `/api/invoices/{id}/`    | A single invoice (UUID)                                                      |
@@ -978,6 +1020,15 @@ provider queue a job and return `202`; poll `GET /api/jobs/{id}/`.
 | POST   | `/api/replies/{id}/classify/` | `{label, extracted?, note?}`: a person classifies or corrects; the label's action runs. `403 approver_required` when it would resume chasing after a promise, dispute or payment claim |
 | POST   | `/api/replies/{id}/release-hold/` | `{note}`: resume chasing (APPROVER and a note for protected holds) |
 | POST   | `/api/replies/{id}/retry-classification/` | `202 {job_id}`: one more AI attempt for an unclassified reply |
+| GET/POST | `/api/promises/`       | `?invoice=`, `?status=`, `?reply=`. POST `{invoice_id, promised_date, amount?, reply_id?, note?}` (operator) → `201`; `400` date or amount out of range; `409 promise_exists` / `invoice_disputed` / `invoice_not_chaseable` |
+| POST   | `/api/promises/{id}/cancel/` | APPROVER `{note}`; returns the promise plus `chasing` (resumes, blocked_by) |
+| GET/POST | `/api/disputes/`       | `?invoice=`, `?status=`, `?reply=`. POST `{invoice_id, reason, description, reply_id?, owner_id?}` (operator); `409 dispute_exists` |
+| GET    | `/api/disputes/{id}/`    | Case with notes |
+| POST   | `/api/disputes/{id}/assign/`, `/notes/` | `{owner_id}` / `{note}` (operator) |
+| POST   | `/api/disputes/{id}/resolve/` | APPROVER `{outcome: VALID \| INVALID, resolution}`; returns `chasing` |
+| POST   | `/api/tasks/`            | `{invoice_id, title, due_at?, assignee_id?, detail?}`: a manual follow-up task |
+| POST   | `/api/tasks/{id}/assign/`, `/cancel/` | `{assignee_id}` / `{note}` (call-step tasks cannot be cancelled) |
+| GET    | `/api/users/`            | Active users with a role (id, username, display name, role) for assignment |
 
 Errors return `{"code": "...", "detail": "...", "fields"?: {...}}`; `401` means no session, `403` a
 missing role or CSRF token.

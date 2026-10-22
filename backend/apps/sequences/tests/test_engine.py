@@ -264,7 +264,7 @@ class ProgressionTests(TestCase):
 
         task = Task.objects.get()
         self.assertEqual((task.kind, task.step.order, enrollment_of(inv).pending_step), ("CALL", 4, 4))
-        Task.objects.filter(pk=task.pk).update(done_at=timezone.now())
+        Task.objects.filter(pk=task.pk).update(status="DONE", done_at=timezone.now())
         tick(StepGemini())
         enrollment = enrollment_of(inv)
         self.assertEqual((enrollment.status, enrollment.last_completed_step), ("COMPLETED", 4))

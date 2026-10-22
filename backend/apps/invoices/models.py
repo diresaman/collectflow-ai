@@ -163,8 +163,12 @@ class ChaseHold(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="chase_holds")
     reason = models.CharField(max_length=30, choices=Reason.choices)
-    # The inbound reply that caused the hold (inbox.InboundMessage); no FK so this app stays independent.
+    # What owns the hold (no FKs, so this app stays independent). Exactly one is set: the inbound reply
+    # (inbox.InboundMessage, M10), the promise (cases.PromiseToPay) or the dispute (cases.DisputeCase, M11).
+    # Only its owner releases it, so resolving one never clears another.
     reply_id = models.UUIDField(null=True, blank=True)
+    promise_id = models.UUIDField(null=True, blank=True)
+    dispute_id = models.UUIDField(null=True, blank=True)
     detail = models.CharField(max_length=300, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -182,6 +186,20 @@ class ChaseHold(models.Model):
                 fields=["invoice", "reply_id"], condition=Q(released_at__isnull=True),
                 name="one_active_hold_per_invoice_reply",
             ),
+            models.UniqueConstraint(
+                fields=["invoice", "promise_id"], condition=Q(released_at__isnull=True, promise_id__isnull=False),
+                name="one_active_hold_per_invoice_promise",
+            ),
+            models.UniqueConstraint(
+                fields=["invoice", "dispute_id"], condition=Q(released_at__isnull=True, dispute_id__isnull=False),
+                name="one_active_hold_per_invoice_dispute",
+            ),
+            models.CheckConstraint(
+                condition=(Q(reply_id__isnull=False, promise_id__isnull=True, dispute_id__isnull=True)
+                           | Q(reply_id__isnull=True, promise_id__isnull=False, dispute_id__isnull=True)
+                           | Q(reply_id__isnull=True, promise_id__isnull=True, dispute_id__isnull=False)),
+                name="hold_has_exactly_one_owner",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -191,3 +209,18 @@ class ChaseHold(models.Model):
     @property
     def protected(self) -> bool:
         return self.reason in self.PROTECTED_REASONS
+
+    @property
+    def source(self) -> str:
+        return "dispute" if self.dispute_id else "promise" if self.promise_id else "reply"
+
+    @property
+    def release_rule(self) -> str:
+        """Who or what ends this hold, in operator terms."""
+        if self.dispute_id:
+            return "An approver resolves the dispute."
+        if self.promise_id:
+            return "Ends when the promise is kept or broken (checked automatically), or an approver cancels it."
+        if self.protected:
+            return "An approver reviews the reply (with a note), or the promise or dispute is recorded."
+        return "Anyone reviewing the reply in the Inbox."

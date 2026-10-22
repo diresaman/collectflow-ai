@@ -8,6 +8,7 @@ import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 
 import { DeliveryPanel } from "./DeliveryPanel";
 import { DraftEditor } from "./DraftEditor";
+import { CasePanel } from "./CasePanel";
 import { BLOCKED_REASONS, SequencePanel } from "./SequencePanel";
 import { FollowUpStatusBadge, ToneBadge } from "./FollowUpBadges";
 import { ErrorMessage, Icon, Spinner } from "./ui";
@@ -159,6 +160,8 @@ export function FollowUpDrawer({
           </dl>
 
           <SequencePanel invoiceId={invoice.id} refreshKey={followUps.length + (followUps[0] ? Date.parse(followUps[0].updated_at) : 0)} />
+
+          <CasePanel invoice={invoice} />
 
           {running && (
             <div className="flex items-center gap-3 rounded-lg border border-indigo-100 bg-indigo-50/60 p-4 text-sm text-indigo-700">

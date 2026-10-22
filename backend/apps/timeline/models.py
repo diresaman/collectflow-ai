@@ -49,6 +49,20 @@ class EventType(models.TextChoices):
     CHASE_HOLD_PLACED = "CHASE_HOLD_PLACED", "Chasing put on hold"
     CHASE_HOLD_RELEASED = "CHASE_HOLD_RELEASED", "Chasing hold released"
     SEQUENCE_POSTPONED = "SEQUENCE_POSTPONED", "Next step postponed"
+    # Promises, disputes and tasks (M11)
+    FOLLOW_UP_CANCELLED = "FOLLOW_UP_CANCELLED", "Unsent reminder withdrawn"
+    PROMISE_RECORDED = "PROMISE_RECORDED", "Promise to pay recorded"
+    PROMISE_KEPT = "PROMISE_KEPT", "Promise kept"
+    PROMISE_BROKEN = "PROMISE_BROKEN", "Promise broken"
+    PROMISE_CANCELLED = "PROMISE_CANCELLED", "Promise cancelled"
+    SEQUENCE_ESCALATED = "SEQUENCE_ESCALATED", "Next reminder escalated"
+    DISPUTE_OPENED = "DISPUTE_OPENED", "Dispute opened"
+    DISPUTE_ASSIGNED = "DISPUTE_ASSIGNED", "Dispute assigned"
+    DISPUTE_NOTE_ADDED = "DISPUTE_NOTE_ADDED", "Dispute note added"
+    DISPUTE_RESOLVED = "DISPUTE_RESOLVED", "Dispute resolved"
+    TASK_ASSIGNED = "TASK_ASSIGNED", "Task assigned"
+    TASK_CANCELLED = "TASK_CANCELLED", "Task cancelled"
+    TASK_OVERDUE = "TASK_OVERDUE", "Task overdue"
 
 
 class TimelineEvent(models.Model):
