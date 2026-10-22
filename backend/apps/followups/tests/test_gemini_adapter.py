@@ -4,7 +4,7 @@ import httpx
 from django.test import SimpleTestCase, override_settings
 from google.genai import errors
 
-from integrations.gemini import GeminiClient, GeminiResponseError, GeminiUnavailable
+from integrations.gemini import GeminiClient, GeminiQuotaExceeded, GeminiResponseError, GeminiUnavailable
 
 SCHEMA = {"type": "object", "properties": {"subject": {"type": "string"}}}
 
@@ -58,6 +58,15 @@ class GeminiClientTests(SimpleTestCase):
                 self.generate(client_class).side_effect = error
                 with self.assertRaises(GeminiUnavailable), self.assertLogs("integrations.gemini"):
                     self.call()
+
+    def test_quota_error_is_classified_and_never_retried(self, client_class: mock.Mock, sleep: mock.Mock) -> None:
+        # Retrying a 429 within seconds only spends more quota; callers back off instead.
+        self.generate(client_class).side_effect = errors.ClientError(429, {})
+        with self.assertRaises(GeminiQuotaExceeded) as ctx, self.assertLogs("integrations.gemini"):
+            self.call()
+        self.assertEqual(ctx.exception.code, "ai_quota_exhausted")
+        self.assertEqual(self.generate(client_class).call_count, 1)
+        sleep.assert_not_called()
 
     def test_overload_is_retried_then_succeeds(self, client_class: mock.Mock, sleep: mock.Mock) -> None:
         self.generate(client_class).side_effect = [

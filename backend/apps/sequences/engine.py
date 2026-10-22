@@ -29,6 +29,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.utils import timezone
 
+from apps.followups import ai_budget
 from apps.followups.eligibility import changed_snapshot_fields, ineligibility
 from apps.followups.models import DeliveryAttempt, FollowUp, Tone
 from apps.followups.services import (
@@ -47,6 +48,9 @@ from .models import Channel, Sequence, SequenceEnrollment, SequenceStep
 logger = logging.getLogger(__name__)
 
 TICK_JOB_KIND = "sequences.tick"
+# Failures worth retrying automatically (after a backoff), and failures a person must look at.
+RETRYABLE_AI_ERRORS = {"ai_unavailable", "ai_quota_exhausted"}
+NEEDS_PERSON_AI_ERRORS = {"ai_bad_response", "ai_not_configured", "unexpected_error"}
 TONE_LADDER = [Tone.FRIENDLY, Tone.PROFESSIONAL, Tone.FIRM]
 Status = SequenceEnrollment.Status
 
@@ -366,6 +370,11 @@ def _exit(enrollment_id: Any, reason: str, actor: Any) -> int:
 
 DRAFT, TASK, WAIT, SKIP = "DRAFT", "TASK", "WAIT", "SKIP"
 
+AI_GATE_DETAILS = {
+    "ai_quota_cooldown": "Gemini's quota was exhausted recently; automatic drafting is backing off.",
+    "ai_budget_exhausted": "Today's automatic drafting budget (AI_DAILY_GENERATION_BUDGET) is used up.",
+}
+
 
 @dataclass
 class Evaluation:
@@ -450,6 +459,15 @@ def evaluate(enrollment: SequenceEnrollment, *, now: dt.datetime) -> Evaluation:
                 timeout = dt.timedelta(seconds=settings.SEQUENCE_DRAFTING_TIMEOUT_SECONDS)
                 if drafting is not None and now - drafting < timeout:
                     return Evaluation(WAIT, "drafting", f"Step {order}'s draft is being generated.", step=step)
+                if enrollment.blocked_reason == "generation_failed":
+                    return Evaluation(WAIT, "generation_failed",
+                                      f"Step {order}'s AI draft failed and won't be retried automatically. "
+                                      "Draft it manually to try again.", step=step)
+                if enrollment.retry_after is not None and now < enrollment.retry_after:
+                    when = timezone.localtime(enrollment.retry_after).strftime("%Y-%m-%d %H:%M")
+                    return Evaluation(WAIT, "ai_retry_scheduled",
+                                      f"Step {order}'s AI draft failed {enrollment.generation_failures} time(s); "
+                                      f"next automatic try after {when}.", step=step)
                 return Evaluation(DRAFT, "", f"Retrying the step {order} draft.", step=step)
             if follow_up.status in (FollowUp.Status.DRAFT, FollowUp.Status.APPROVED):
                 changed = changed_snapshot_fields(follow_up.invoice_snapshot, invoice)
@@ -501,7 +519,7 @@ class StepResult:
 
 
 def advance(enrollment_id: Any, *, actor: Any, now: dt.datetime, allow_draft: bool = True,
-            gemini: Any = None) -> StepResult | None:
+            gemini: Any = None, ai_gate: Callable[[], str] | None = None) -> StepResult | None:
     """
     One tick for one enrollment. Evaluates and applies under the row lock, then (if a draft is
     due) calls Gemini with no transaction open. Returns None if another worker holds the row.
@@ -517,6 +535,12 @@ def advance(enrollment_id: Any, *, actor: Any, now: dt.datetime, allow_draft: bo
         if evaluation.action == DRAFT and not allow_draft:
             evaluation = Evaluation(SKIP, "run_limit_reached", "Draft limit for this run reached.",
                                     step=evaluation.step, updates=evaluation.updates, events=evaluation.events)
+        # Spending guard: no Gemini call while quota is cooling down or the daily budget is used up.
+        # The step is not started, so it stays due and is picked up once Gemini may be called again.
+        gate = ai_gate() if evaluation.action == DRAFT and ai_gate is not None else ""
+        if gate:
+            evaluation = Evaluation(SKIP, gate, AI_GATE_DETAILS[gate], step=evaluation.step,
+                                    updates=evaluation.updates, events=evaluation.events)
         _apply(enrollment, evaluation, actor)
         invoice = enrollment.invoice
         if evaluation.action == TASK:
@@ -566,11 +590,25 @@ def _start_draft(enrollment: SequenceEnrollment, step: SequenceStep, *, now: dt.
     enrollment_id = enrollment.pk
 
     def on_created(follow_up: FollowUp) -> None:
-        SequenceEnrollment.objects.filter(pk=enrollment_id).update(drafting_started_at=None, blocked_reason="")
+        SequenceEnrollment.objects.filter(pk=enrollment_id).update(
+            drafting_started_at=None, blocked_reason="", generation_failures=0, retry_after=None
+        )
 
-    def on_failed() -> None:
-        # The step stays pending with no draft: the next tick (or a person) retries it.
-        SequenceEnrollment.objects.filter(pk=enrollment_id).update(drafting_started_at=None)
+    def on_failed(code: str) -> None:
+        # The step stays pending with no draft. Transient AI errors are retried automatically after
+        # an exponential backoff; other AI errors wait for a person; anything else just clears the marker.
+        queryset = SequenceEnrollment.objects.filter(pk=enrollment_id)
+        if code in RETRYABLE_AI_ERRORS:
+            current = queryset.values_list("generation_failures", flat=True).first() or 0
+            failures = current + 1
+            queryset.update(
+                drafting_started_at=None, generation_failures=failures, blocked_reason="ai_retry_scheduled",
+                retry_after=timezone.now() + ai_budget.backoff(failures, base_minutes=settings.AI_RETRY_BASE_MINUTES),
+            )
+        elif code in NEEDS_PERSON_AI_ERRORS:
+            queryset.update(drafting_started_at=None, blocked_reason="generation_failed", retry_after=None)
+        else:
+            queryset.update(drafting_started_at=None)
 
     return DraftPlan(
         invoice_id=invoice.pk, enrollment_id=enrollment_id, step=step, tone=step_tone(enrollment, step),
@@ -589,7 +627,7 @@ def _generate(plan: DraftPlan, *, actor: Any, gemini: Any = None) -> StepResult:
         return StepResult(invoice, outcome, exc.code, exc.message)
     except Exception:
         logger.exception("Unexpected error drafting sequence step for invoice %s", invoice.pk)
-        plan.on_failed()
+        plan.on_failed("unexpected_error")
         return StepResult(invoice, "FAILED", "unexpected_error", "Unexpected error while generating the draft.")
     return StepResult(invoice, "GENERATED", "", f"Step {plan.step_number} drafted; awaiting approval.", follow_up)
 
@@ -620,7 +658,8 @@ def run_tick(*, actor: Any, record: Callable[[StepResult], None] | None = None,
     drafts = 0
     for enrollment_id in due_enrollments(now):
         result = advance(enrollment_id, actor=actor, now=now,
-                         allow_draft=drafts < settings.AUTOMATION_MAX_DRAFTS_PER_RUN, gemini=gemini)
+                         allow_draft=drafts < settings.AUTOMATION_MAX_DRAFTS_PER_RUN, gemini=gemini,
+                         ai_gate=lambda: ai_budget.status(now).blocked_reason(now))
         if result is None:
             continue
         drafts += int(result.outcome in ("GENERATED", "FAILED") and result.reason != "run_limit_reached")

@@ -43,6 +43,8 @@ export type Enrollment = {
   exit_reason: string;
   review_required: boolean;
   review_reason: string;
+  generation_failures: number;
+  retry_after: string | null;
   steps: StepState[];
 };
 
@@ -91,6 +93,8 @@ function isEnrollment(v: unknown): v is Enrollment {
     (v.next_action_at === null || isStr(v.next_action_at)) &&
     ["blocked_reason", "pause_reason", "exit_reason", "review_reason"].every((key) => isStr(v[key])) &&
     typeof v.review_required === "boolean" &&
+    isNum(v.generation_failures) &&
+    (v.retry_after === null || isStr(v.retry_after)) &&
     Array.isArray(v.steps) &&
     v.steps.every((step) => isStep(step) && ["done", "pending", "upcoming"].includes((step as Rec).state as string))
   );

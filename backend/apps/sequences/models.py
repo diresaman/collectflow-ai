@@ -105,6 +105,9 @@ class SequenceEnrollment(models.Model):
     history = models.JSONField(default=dict, blank=True)
     # Set while a draft for `pending_step` is being generated outside any transaction.
     drafting_started_at = models.DateTimeField(null=True, blank=True)
+    # Transient AI failures for the pending step: retried after an exponential backoff (M09.1).
+    generation_failures = models.PositiveSmallIntegerField(default=0)
+    retry_after = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)

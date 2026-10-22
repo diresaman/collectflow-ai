@@ -57,6 +57,20 @@ def _amounts_by_currency(invoices: QuerySet[Invoice]) -> list[dict[str, str]]:
     return [{"currency": row["currency"], "amount": f"{row['total']:.2f}"} for row in rows]
 
 
+def _ai_budget() -> dict[str, object]:
+    from apps.followups import ai_budget
+
+    now = timezone.now()
+    budget = ai_budget.status(now)
+    return {
+        "used_24h": budget.used_24h,
+        "limit": budget.limit,
+        "cooldown_until": budget.cooldown_until if budget.cooldown_until and budget.cooldown_until > now else None,
+        # Why automatic drafting is paused right now ('' when it may run).
+        "automatic_drafting_blocked": budget.blocked_reason(now),
+    }
+
+
 class DashboardView(APIView):
     def get(self, request: Request) -> Response:
         unpaid = Invoice.objects.filter(status=Invoice.Status.UNPAID)
@@ -79,5 +93,6 @@ class DashboardView(APIView):
                 "last_successful_sync_at": last_sync,
                 "stale": stale,
                 "stale_after_hours": settings.STALE_DATA_HOURS,
+                "ai_budget": _ai_budget(),
             }
         )

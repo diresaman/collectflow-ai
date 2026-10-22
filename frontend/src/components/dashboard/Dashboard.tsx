@@ -161,6 +161,15 @@ export function Dashboard() {
           Sequences keep using the last synced data until the next successful sync.
         </p>
       )}
+      {summary.kind === "ready" && summary.data.ai_budget.automatic_drafting_blocked && (
+        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="font-semibold">Automatic AI drafting is paused:</span>{" "}
+          {summary.data.ai_budget.automatic_drafting_blocked === "ai_quota_cooldown"
+            ? `Gemini reported its quota is used up; scheduled drafting resumes after ${new Date(summary.data.ai_budget.cooldown_until ?? "").toLocaleString()}.`
+            : `today's budget of ${summary.data.ai_budget.limit} AI drafts is used (${summary.data.ai_budget.used_24h} in the last 24 hours).`}{" "}
+          Due steps wait; you can still draft manually.
+        </p>
+      )}
       <SummaryCards state={summary} />
       <AutomationPanel onRunFinished={() => setReloadKey((key) => key + 1)} onOpenInvoice={followUpActions.onOpen} />
       <ApprovalQueue state={followUps} onOpen={followUpActions.onOpen} />

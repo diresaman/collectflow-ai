@@ -298,6 +298,10 @@ records the acting user, or `SYSTEM` / `SCHEDULER`. A database trigger rejects `
 | `SEQUENCE_TICK_MINUTES`          | `15`                     | Interval of the worker's scheduled sequence tick.              |
 | `SEQUENCE_DRAFTING_TIMEOUT_SECONDS` | `900`                 | A step "being drafted" longer than this is retried.            |
 | `STALE_DATA_HOURS`               | `26`                     | Dashboard warns when the last successful sync is older.        |
+| `AI_DAILY_GENERATION_BUDGET`     | `15`                     | Gemini attempts per rolling 24 h after which automatic drafting stops. |
+| `AI_QUOTA_BACKOFF_MINUTES`       | `30`                     | Pause of all automatic drafting after a quota error; doubles.  |
+| `AI_RETRY_BASE_MINUTES`          | `15`                     | Retry delay for a step after a transient AI failure; doubles.  |
+| `AI_RETRY_MAX_HOURS`             | `24`                     | Cap for both backoffs.                                         |
 
 ## Google Sheets setup
 
@@ -560,6 +564,15 @@ collection" v1, seeded by migration):
   queues a tick. Ticks run under the automation lease (never in parallel with a run or another
   tick), lock each enrollment with `SELECT … FOR UPDATE SKIP LOCKED`, and call Gemini only after
   that transaction commits. **A tick never approves and never sends.**
+- **Gemini spending guard (M09.1):** automatic drafting (ticks and runs) stops for the rest of a
+  rolling 24 hours once `AI_DAILY_GENERATION_BUDGET` generation attempts (default 15, under the
+  free tier's ~20/day) were made, counting manual drafts. After a quota error (HTTP 429) **all**
+  automatic drafting pauses for 30 minutes, doubling with each further quota error (capped at
+  24 h); a success ends the pause. A transient failure (Gemini busy, timeout) retries that step
+  after 15 minutes, doubling per failure. Invalid output or a missing configuration is **not**
+  retried automatically: the step waits for a person to draft it by hand. The adapter no longer
+  retries 429 within a call. People can always draft manually. The dashboard shows when and why
+  automatic drafting is paused.
 - **Commands:** `python manage.py tick_sequences [--dry-run]`; `run_automation --dry-run` shows
   the next step per invoice.
 - **UI:** the invoice table shows each invoice's step and why it is held. The drawer shows the step

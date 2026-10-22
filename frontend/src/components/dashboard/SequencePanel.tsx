@@ -21,6 +21,8 @@ export const BLOCKED_REASONS: Record<string, string> = {
   delivery_unknown: "The last reminder's delivery outcome is unknown. Reconcile it (reconcile_delivery); nothing is resent automatically.",
   delivery_in_progress: "A reminder is being sent.",
   delivery_failed: "The last reminder was not delivered. Draft the step again to retry.",
+  ai_retry_scheduled: "The AI draft failed for a temporary reason (Gemini busy or out of quota); it is retried automatically after a pause.",
+  generation_failed: "The AI draft failed in a way that won't fix itself (invalid output or missing configuration). Draft the step manually to try again.",
 };
 
 const STATE_STYLES: Record<StepState["state"], string> = {
@@ -123,6 +125,9 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
       {enrollment.blocked_reason && (
         <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <span className="font-semibold">Held:</span> {BLOCKED_REASONS[enrollment.blocked_reason] ?? enrollment.blocked_reason}
+          {enrollment.blocked_reason === "ai_retry_scheduled" && enrollment.retry_after && (
+            <> Next try after {formatDateTime(enrollment.retry_after)}.</>
+          )}
         </p>
       )}
       {enrollment.status === "PAUSED" && !inReview && (

@@ -63,6 +63,7 @@ class EnrollmentSerializer(serializers.ModelSerializer):
         fields = [
             "id", "invoice_id", "invoice_external_id", "sequence", "status", "last_completed_step", "pending_step",
             "next_step", "next_action_at", "escalation_level", "blocked_reason", "pause_reason", "exit_reason",
+            "generation_failures", "retry_after",
             "review_required", "review_reason", "history", "steps", "created_at", "updated_at", "completed_at",
         ]
         read_only_fields = fields

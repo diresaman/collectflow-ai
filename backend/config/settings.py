@@ -276,3 +276,11 @@ SEQUENCE_TICK_MINUTES = int(os.environ.get("SEQUENCE_TICK_MINUTES", "15"))
 SEQUENCE_DRAFTING_TIMEOUT_SECONDS = int(os.environ.get("SEQUENCE_DRAFTING_TIMEOUT_SECONDS", "900"))
 # Hours without a successful sync before the dashboard flags the data as stale.
 STALE_DATA_HOURS = int(os.environ.get("STALE_DATA_HOURS", "26"))
+
+# Gemini spending guard for automatic drafting (M09.1). Manual drafts are never blocked, but count.
+AI_DAILY_GENERATION_BUDGET = int(os.environ.get("AI_DAILY_GENERATION_BUDGET", "15"))
+# After a quota error (HTTP 429) all automatic drafting waits this long, doubling per consecutive error.
+AI_QUOTA_BACKOFF_MINUTES = int(os.environ.get("AI_QUOTA_BACKOFF_MINUTES", "30"))
+# After a transient Gemini failure a sequence step is retried after this long, doubling per failure.
+AI_RETRY_BASE_MINUTES = int(os.environ.get("AI_RETRY_BASE_MINUTES", "15"))
+AI_RETRY_MAX_HOURS = int(os.environ.get("AI_RETRY_MAX_HOURS", "24"))

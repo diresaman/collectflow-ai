@@ -20,6 +20,8 @@ export type EnrollmentSummary = {
   exit_reason: string;
   review_required: boolean;
   review_reason: string;
+  /** Next automatic AI retry after a transient failure. */
+  retry_after: string | null;
 };
 
 export type Invoice = {
@@ -56,6 +58,13 @@ export type DashboardSummary = {
   /** No successful sync for `stale_after_hours`: sequences keep running on the last good data. */
   stale: boolean;
   stale_after_hours: number;
+  /** Gemini spending guard for automatic drafting (manual drafts are never blocked). */
+  ai_budget: {
+    used_24h: number;
+    limit: number;
+    cooldown_until: string | null;
+    automatic_drafting_blocked: "" | "ai_quota_cooldown" | "ai_budget_exhausted";
+  };
 };
 
 export type SyncRowError = {
@@ -108,7 +117,8 @@ export function isEnrollmentSummary(value: unknown): value is EnrollmentSummary 
     isNumber(value.total_steps) &&
     isNullable(isString)(value.next_action_at) &&
     ["blocked_reason", "pause_reason", "exit_reason", "review_reason"].every((key) => isString(value[key])) &&
-    typeof value.review_required === "boolean"
+    typeof value.review_required === "boolean" &&
+    isNullable(isString)(value.retry_after)
   );
 }
 
@@ -146,7 +156,12 @@ function isDashboardSummary(value: unknown): value is DashboardSummary {
     isArrayOf(isString)(value.expected_columns) &&
     isNullable(isString)(value.last_successful_sync_at) &&
     typeof value.stale === "boolean" &&
-    isNumber(value.stale_after_hours)
+    isNumber(value.stale_after_hours) &&
+    isRecord(value.ai_budget) &&
+    isNumber(value.ai_budget.used_24h) &&
+    isNumber(value.ai_budget.limit) &&
+    isNullable(isString)(value.ai_budget.cooldown_until) &&
+    ["", "ai_quota_cooldown", "ai_budget_exhausted"].includes(value.ai_budget.automatic_drafting_blocked as string)
   );
 }
 

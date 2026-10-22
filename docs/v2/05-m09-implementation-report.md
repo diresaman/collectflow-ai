@@ -186,12 +186,28 @@ If Gmail replaced the `Message-ID`, the fallback is to read the real header afte
   recipients' mail clients rely on `In-Reply-To`/`References`.
 - **Flagged histories** (4 real invoices) continue at a non-firm step without a person's confirmation.
   Only firm or approver steps wait. Review them from the drawer.
-- **Gemini quota:** from 2026-10-23, five step-2 drafts become due at once. The free tier is about
-  20/day, shared with manual drafting. Failed generations stay pending and retry each tick (every
-  15 minutes), which consumes quota. A retry back-off is a candidate improvement.
+- **Gemini quota:** from 2026-10-23, five step-2 drafts become due at once. **Addressed in M09.1**
+  (section 10): a daily budget, a global quota cooldown, per-step exponential backoff, no automatic
+  retry of non-retryable errors, and no in-call retry of HTTP 429.
 - **REJECTED completes a step** (v2 rule). Rejecting a step-2 draft moves on to step 3, which is firm
   and needs an approver. People should regenerate rather than reject when they want different wording.
 - **Escalation level** is stored but only raised by broken promises in Phase 04.
 - **Sequence editing** is a basic form; per-step validation messages come from the API.
 - **Development database:** `collectflow_dev` exists on the Compose server for M10 development. Drop it
   with `docker compose exec db dropdb -U collectflow collectflow_dev` if it isn't wanted.
+
+## 10. M09.1 patch: Gemini spending guard (2026-10-22)
+
+Added before the first scheduled drafting cycle (five step-2 drafts due 2026-10-23):
+
+| Safeguard | Behaviour |
+| --- | --- |
+| Error classes | The adapter distinguishes `ai_quota_exhausted` (HTTP 429), `ai_unavailable` (5xx, timeout, network), `ai_not_configured` and `ai_bad_response` (invalid output, rejected request). **429 is no longer retried inside a call**; 5xx still is, briefly. |
+| Daily budget | Automatic drafting stops once `AI_DAILY_GENERATION_BUDGET` (15) attempts were made in a rolling 24 h, counting manual drafts. Due steps are not started, so nothing is marked as failed. |
+| Quota cooldown | After a quota error, all automatic drafting pauses for 30 min × 2^(n−1) after the n-th consecutive quota error (cap 24 h). The first quota error in a tick stops further Gemini calls in that tick. A successful generation (e.g. a manual one) ends the cooldown. |
+| Per-step backoff | A transient failure retries that step after 15 min × 2^(n−1) (cap 24 h); `retry_after` and `generation_failures` are on the enrollment and reset on success. |
+| Non-retryable | Invalid output, missing configuration and unexpected errors set `blocked_reason=generation_failed`; ticks never retry them. A person drafts manually, which clears the hold. |
+| Visibility | The dashboard API returns `ai_budget {used_24h, limit, cooldown_until, automatic_drafting_blocked}`, and the dashboard shows a banner when automatic drafting is paused. The sequence panel explains held steps and the next retry time. |
+
+Migration `sequences/0003_generation_backoff` (two additive fields). Tests: `apps/sequences/tests/test_ai_budget.py`
+(9 tests) plus an adapter test for "429 classified and not retried".

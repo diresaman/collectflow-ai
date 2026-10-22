@@ -20,6 +20,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "id": str(e.pk), "status": e.status, "last_completed_step": e.last_completed_step,
             "pending_step": e.pending_step, "next_step": e.next_step, "total_steps": total,
             "next_action_at": e.next_action_at, "blocked_reason": e.blocked_reason, "pause_reason": e.pause_reason,
+            "retry_after": e.retry_after,
             "exit_reason": e.exit_reason, "review_required": e.review_required, "review_reason": e.review_reason,
         }
     days_overdue = serializers.IntegerField(read_only=True)

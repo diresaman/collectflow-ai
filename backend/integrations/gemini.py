@@ -19,10 +19,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = 30
 # Gemini returns 503 when a model is temporarily overloaded; retry briefly, but never start a
-# new attempt after RETRY_WINDOW_SECONDS so a request stays within the frontend proxy timeout.
+# new attempt after RETRY_WINDOW_SECONDS. 429 (quota/rate limit) is NOT retried here: retrying
+# a quota error within seconds only burns more quota. Callers back off instead.
 MAX_ATTEMPTS = 3
 RETRY_WINDOW_SECONDS = 15
-RETRYABLE_STATUS_CODES = frozenset({429, 500, 503})
+RETRYABLE_STATUS_CODES = frozenset({500, 503})
 
 
 class GeminiError(Exception):
@@ -35,6 +36,18 @@ class GeminiUnavailable(GeminiError):
     """Gemini could not be reached or is temporarily refusing requests (retryable)."""
 
     code = "ai_unavailable"
+
+
+class GeminiQuotaExceeded(GeminiUnavailable):
+    """HTTP 429: the API key's quota or rate limit is used up. Retry only after backing off."""
+
+    code = "ai_quota_exhausted"
+
+
+class GeminiNotConfigured(GeminiUnavailable):
+    """No API key or model configured. Retrying will not help until someone configures it."""
+
+    code = "ai_not_configured"
 
 
 class GeminiResponseError(GeminiError):
@@ -55,7 +68,7 @@ class GeminiClient:
     def from_settings(cls) -> "GeminiClient":
         missing = [name for name in ("GEMINI_API_KEY", "GEMINI_MODEL") if not getattr(settings, name)]
         if missing:
-            raise GeminiUnavailable(f"Gemini is not configured. Missing: {', '.join(missing)}.")
+            raise GeminiNotConfigured(f"Gemini is not configured. Missing: {', '.join(missing)}.")
         return cls(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
 
     def generate_json(
@@ -78,7 +91,7 @@ class GeminiClient:
             # Log only the status code; messages may echo request content.
             logger.warning("Gemini rejected the request (HTTP %s)", exc.code)
             if exc.code == 429:
-                raise GeminiUnavailable("Gemini rate limit reached. Try again shortly.") from None
+                raise GeminiQuotaExceeded("Gemini quota or rate limit reached. Automatic drafting backs off.") from None
             if exc.code in (401, 403):
                 raise GeminiResponseError("Gemini rejected the API key. Check GEMINI_API_KEY.") from None
             if exc.code == 404:

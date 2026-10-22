@@ -21,7 +21,13 @@ from apps.automation import outbox
 from apps.invoices.models import Invoice
 from apps.timeline import services as timeline
 from apps.timeline.models import EventType
-from integrations.gemini import GeminiClient, GeminiError, GeminiResponseError
+from integrations.gemini import (
+    GeminiClient,
+    GeminiError,
+    GeminiNotConfigured,
+    GeminiQuotaExceeded,
+    GeminiResponseError,
+)
 
 from . import prompts
 from .eligibility import changed_snapshot_fields, ineligibility_reasons, invoice_snapshot, tone_for_days_overdue
@@ -97,6 +103,14 @@ class GenerationInProgress(FollowUpError):
 class AIUnavailable(FollowUpError):
     status_code = 503
     code = "ai_unavailable"
+
+
+class AIQuotaExhausted(AIUnavailable):
+    code = "ai_quota_exhausted"
+
+
+class AINotConfigured(AIUnavailable):
+    code = "ai_not_configured"
 
 
 class AIBadResponse(FollowUpError):
@@ -183,7 +197,8 @@ class DraftPlan:
     previous_send_date: dt.date | None
     manual: bool = False
     on_created: Callable[[FollowUp], None] = lambda follow_up: None
-    on_failed: Callable[[], None] = lambda: None
+    # Called with the failure's error code (e.g. ai_quota_exhausted) so the sequence can back off.
+    on_failed: Callable[[str], None] = lambda code: None
 
 
 # The sequences app registers the planner that turns a person's "Analyze" into the invoice's next
@@ -272,17 +287,17 @@ class FollowUpGenerationService:
             existing = check_can_generate(invoice, regenerate=regenerate)
             if plan is None and _draft_planner is not None:
                 plan = _draft_planner.plan(invoice, regenerate=regenerate, actor=actor)
-        except FollowUpError:
+        except FollowUpError as exc:
             # Refused before any AI call (not eligible, a draft already exists, sequence state):
             # not a generation attempt.
             if plan is not None:
-                plan.on_failed()
+                plan.on_failed(exc.code)
             raise
         try:
             return self._generate(invoice, existing, plan, actor)
-        except Exception:
+        except Exception as exc:
             if plan is not None:
-                plan.on_failed()
+                plan.on_failed(exc.code if isinstance(exc, FollowUpError) else "unexpected_error")
             raise
 
     def _generate(self, invoice: Invoice, existing: FollowUp | None, plan: DraftPlan | None, actor: Any) -> FollowUp:
@@ -309,9 +324,15 @@ class FollowUpGenerationService:
             )
             content = validate_ai_output(data, tone)
         except GeminiError as exc:
-            error: FollowUpError = (
-                AIBadResponse(str(exc)) if isinstance(exc, GeminiResponseError) else AIUnavailable(str(exc))
-            )
+            error: FollowUpError
+            if isinstance(exc, GeminiResponseError):
+                error = AIBadResponse(str(exc))
+            elif isinstance(exc, GeminiQuotaExceeded):
+                error = AIQuotaExhausted(str(exc))
+            elif isinstance(exc, GeminiNotConfigured):
+                error = AINotConfigured(str(exc))
+            else:
+                error = AIUnavailable(str(exc))
             self._record_failure(invoice, error, model_name, actor)
             raise error from None
         except AIBadResponse as exc:

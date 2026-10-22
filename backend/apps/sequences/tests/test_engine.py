@@ -233,12 +233,13 @@ class ProgressionTests(TestCase):
         self.assertEqual(before, after)
         self.assertEqual((FollowUp.objects.count(), gemini.calls), (1, []))
 
-    def test_generation_failure_leaves_the_step_pending_for_the_next_tick(self) -> None:
+    def test_generation_failure_leaves_the_step_pending_and_retries_after_a_backoff(self) -> None:
         inv = invoice()
         results = tick(StepGemini(fail=GeminiUnavailable("busy")))
         enrollment = enrollment_of(inv)
         self.assertEqual((results[0].outcome, enrollment.pending_step, enrollment.drafting_started_at), ("FAILED", 1, None))
 
+        SequenceEnrollment.objects.filter(pk=enrollment.pk).update(retry_after=timezone.now() - dt.timedelta(seconds=1))
         tick(StepGemini())
         self.assertEqual(FollowUp.objects.get().step.order, 1)
 
