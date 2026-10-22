@@ -9,7 +9,7 @@ continue the repository's commit history.
 | --- | --- | --- | --- | --- | --- |
 | 01 Foundation and architecture | M08 | Sessions and roles, outbox and worker, timeline, clients | P0 | — | **Done** (`676b43c`) |
 | 01 Foundation: PostgreSQL migration | M08.1 | PostgreSQL 16, Docker Compose, SKIP LOCKED, SQLite → PostgreSQL transfer | P0 | — | **Done**: data cut over and verified 2026-10-22 |
-| 02 Sequences, threading, four-eyes | M09 | Sequence engine, tick, threaded send, approval policy, call tasks | P0 | 7–8 h | **Done** (see `05-m09-implementation-report.md`); live threading check awaits authorization |
+| 02 Sequences, threading, four-eyes | M09 | Sequence engine, tick, threaded send, approval policy, call tasks | P0 | 7–8 h | **Done** (see `05-m09-implementation-report.md`); live threading verified 2026-10-22 |
 | 03 Reply ingestion and classification | M10 | Gmail read, poll, classify, triage, health page | P0 | 6–7 h | **Next** |
 | 04 Promises, disputes, tasks | M11 | Promise lifecycle, dispute lock, all task kinds, daily promise check | P0 | 4–5 h | |
 | 05 Closed-loop UI and P0 gate | M12 | Invoice detail, approvals, sequence editor, explicit unavailable states, P0 demo | P0 | 4–5 h | |
@@ -242,7 +242,7 @@ owner's approval after Phase 08.
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
 | Gemini free tier (about 20 requests/day) shared by drafting, classification and evals | Blocks live demos and evals | Classification first; recorded responses in CI; collect eval recordings over several days or use a paid key once |
-| Gmail rewrites a client-set `Message-ID` | Threading breaks | Verify in the first hour of Phase 02; fallback is a metadata or readonly scope |
+| Gmail rewrites a client-set `Message-ID` | Threading breaks | **Closed 2026-10-22:** verified live that Gmail keeps it (05 §8) |
 | Re-authorizing Gmail with a restricted scope; 7-day refresh-token expiry in Testing mode | Polling stops | Health page shows it; re-run `authorize_gmail`; plan the demo within a token lifetime |
 | Enrolling existing invoices restarts chasing | A wrong-tone email to a client | Start step derived from history; dry-run preview; human approval still required |
 | Cron runs on the host and needs the Compose database | A missed daily run if `db` is down | `restart: unless-stopped`; the scheduling guide says to keep `db` up; the run exits 1 and is visible in the log |

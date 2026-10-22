@@ -163,27 +163,36 @@ separate `collectflow_dev` database.
 Do **not** reverse the migrations after reminders have been drafted under sequences without exporting
 them first: `followups 0004` drops the step and thread links (the follow-ups themselves stay).
 
-## 8. Live Gmail threading verification (prepared, not run)
+## 8. Live Gmail threading verification (passed, 2026-10-22)
 
-Automated tests cover the headers and `threadId`. One assumption is still unverified live: **Gmail keeps
-a client-supplied `Message-ID`**. To check it, with authorization:
+Run on the `collectflow_dev` database with test invoice `THREAD-TEST-1`, sent to the allowlisted inbox
+the owner controls. No customer address was used, no OAuth scope was changed, and no message was
+resent automatically.
+
+| | Step 1 | Step 2 |
+| --- | --- | --- |
+| Subject | Friendly Reminder: Invoice THREAD-TEST-1 | Re: Friendly Reminder: Invoice THREAD-TEST-1 |
+| Gmail `threadId` | `1a163f7c061bc40b` | `1a163f7c061bc40b` (same thread) |
+| Gmail message id | `1a163f7c061bc40b` | `1a16444ea23e850f` |
+| `Message-ID` | `<179267854098.581876.781490546204565742@gmail.com>` | `<179268359760.638675.10720477397725022369@gmail.com>` |
+| `In-Reply-To` / `References` | none | step 1's `Message-ID` |
+
+The owner checked both messages with Gmail "Show original": the `Message-ID` headers match
+`DeliveryAttempt.rfc_message_id`, step 2's `In-Reply-To` equals step 1's `Message-ID`, and both appear
+as one conversation. **Gmail keeps a client-supplied `Message-ID`**, so the `gmail.metadata` fallback is
+not needed.
+
+Procedure, for a repeat check:
 
 1. Pick an allowlisted test invoice whose step 1 reminder is approved, and send it from the UI.
 2. Make step 2 due: wait 7 days, or on a test copy move the first reminder's `sent_at` back. Draft
    step 2, approve it, send it.
-3. In the sender's Gmail, open both messages with "Show original" and confirm:
-   - the `Message-ID` matches `DeliveryAttempt.rfc_message_id`;
-   - step 2's `In-Reply-To` equals step 1's `Message-ID`;
-   - both sit in one conversation in the sender's and the recipient's mailboxes.
-
-If Gmail replaced the `Message-ID`, the fallback is to read the real header after sending with
-`messages.get(format=metadata)`. That needs the `gmail.metadata` scope and a re-run of
-`authorize_gmail`, which needs separate confirmation. No OAuth scope was changed in M09.
+3. In Gmail, open both messages with "Show original" and compare the headers as above.
 
 ## 9. Known limitations and remaining risks
 
-- **Live threading is unverified** (section 8). Gmail threads by `threadId` and subject anyway, but
-  recipients' mail clients rely on `In-Reply-To`/`References`.
+- **Live threading verified** (section 8) with one allowlisted inbox. Other recipients' mail clients
+  rely on the same `In-Reply-To`/`References` headers, which Gmail preserved.
 - **Flagged histories** (4 real invoices) continue at a non-firm step without a person's confirmation.
   Only firm or approver steps wait. Review them from the drawer.
 - **Gemini quota:** from 2026-10-23, five step-2 drafts become due at once. **Addressed in M09.1**
