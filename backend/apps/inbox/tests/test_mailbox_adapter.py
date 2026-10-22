@@ -85,6 +85,14 @@ class MailboxReaderTests(SimpleTestCase):
         with self.assertLogs("integrations.mailbox"), self.assertRaises(MailboxUnavailable):
             self.reader().history_page("1")
 
+    def test_metadata_requests_headers_only(self, load: mock.Mock, build: mock.Mock) -> None:
+        load.return_value = mock.Mock(refresh_token="r")
+        get = self.users(build).messages.return_value.get
+        get.return_value.execute.return_value = {"id": "m", "threadId": "t", "payload": {"headers": []}}
+        self.reader().get_metadata("m")
+        self.assertEqual((get.call_args.kwargs["format"], get.call_args.kwargs["metadataHeaders"]),
+                         ("metadata", ["From", "Subject", "Date"]))
+
     def test_deleted_message_returns_none(self, load: mock.Mock, build: mock.Mock) -> None:
         load.return_value = mock.Mock(refresh_token="r")
         self.users(build).messages.return_value.get.return_value.execute.side_effect = http_error(404)

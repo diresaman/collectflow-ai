@@ -76,8 +76,8 @@ Applied to the development database (`collectflow_dev`), then reversed in depend
 
 ## 5. Changed files
 
-- **New backend:** `integrations/mailbox.py`; `apps/inbox/{ingestion,classification,actions,triage,holds,text,prompts}.py`;
-  `apps/core/integrations.py`; commands `poll_replies` and `purge_reply_bodies`; the four
+- **New backend:** `integrations/mailbox.py`; `apps/inbox/{ingestion,classification,actions,triage,holds,text,prompts,preview}.py`;
+  `apps/core/integrations.py`; commands `poll_replies`, `purge_reply_bodies` and `preview_reply_discovery`; the four
   migrations; tests in `apps/inbox/tests/` (`helpers`, `test_text`, `test_ingestion`,
   `test_classification`, `test_triage_api`, `test_races`, `test_mailbox_adapter`).
 - **Changed backend:** `config/settings.py` (M10 settings); `invoices/models.py` (`ChaseHold`),
@@ -174,7 +174,47 @@ It needs, in this order and each with the owner's explicit approval:
 **On the owner's real data:** the first poll scans the last 30 days of CollectFlow threads. Any
 customer reply that arrived in that window, possibly to a v1 reminder, will be stored and will put
 its invoice on hold until reviewed. This is intended (an unseen dispute must stop chasing), but the
-Inbox may show older replies on day one.
+Inbox may show older replies on day one. Preview it first (section 9.1).
+
+### 9.1 Preview of the first 30-day discovery (read-only)
+
+`python manage.py preview_reply_discovery [--days 30] [--json]` reports what the first poll would
+do, **without doing it**:
+
+- the CollectFlow threads in the window and the messages in them;
+- the replies the first poll would store, with skipped messages counted by reason (own message,
+  older than CollectFlow's first send, deleted, already stored);
+- per affected invoice: the reply count, the sender check (invoice contact, same domain, unknown),
+  the latest reply date, the sequence position, any active reminder, and the effect of the hold
+  ("chasing stops", "the draft reminder can no longer be approved", "not being chased anyway").
+
+Guarantees, all covered by `apps/inbox/tests/test_preview.py`:
+
+- It reads Gmail **headers only** (`messages.get(format=metadata)`), never a message body. Only
+  threads containing a SENT CollectFlow delivery are touched.
+- It **writes nothing**: no replies, holds, tasks, jobs, cursor, timeline events, follow-up or
+  enrollment changes. The test compares every affected table and enrollment timestamps before and
+  after.
+- It works while `GMAIL_READ_ENABLED` is **off**, so polling never starts during the preview. It
+  still requires the `gmail.readonly` grant, and it prints no addresses, subjects or text.
+
+**Procedure, once read access is separately approved (Step 2):**
+
+1. Back up the database (as in Step 1).
+2. On the host: `cd backend && .venv/bin/python manage.py authorize_gmail --with-read-access`, signed
+   in as `diresaman@gmail.com`. This replaces the token in `backend/credentials/` (mounted into the
+   containers). Sending keeps working with the new token.
+3. Leave `GMAIL_READ_ENABLED` unset (off). Confirm on `/settings/integrations` that Gmail read still
+   shows *Awaiting authorization* and that no `inbox.poll` job exists.
+4. Run the preview against the real database:
+   `docker compose exec api python manage.py preview_reply_discovery`.
+5. The owner reviews the list of invoices that would be held. Only then, and only with separate
+   approval, set `GMAIL_READ_ENABLED=true` and restart the worker (Step 3). The first poll then stores
+   exactly what the preview listed, plus anything that arrived in between.
+
+To back out after step 2 without ever polling: delete the token, re-run `authorize_gmail` without
+the flag, or revoke the app's access in the Google account. `GMAIL_READ_ENABLED` was never switched
+on.
 
 ## 10. Known limitations
 

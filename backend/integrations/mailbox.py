@@ -98,20 +98,23 @@ def parse_message(data: dict[str, Any]) -> MailMessage:
 
 
 class MailboxReader:
-    def __init__(self, *, token_file: str, mailbox_email: str) -> None:
+    def __init__(self, *, token_file: str, mailbox_email: str, require_enabled: bool = True) -> None:
         self.token_file = Path(token_file) if token_file else None
         self.mailbox_email = mailbox_email.strip().lower()
+        # False only for the read-only discovery preview, which runs before polling is switched on.
+        self.require_enabled = require_enabled
         self._service: Any = None
 
     @classmethod
-    def from_settings(cls) -> "MailboxReader":
-        return cls(token_file=settings.GMAIL_TOKEN_FILE, mailbox_email=settings.GMAIL_SENDER_EMAIL)
+    def from_settings(cls, *, require_enabled: bool = True) -> "MailboxReader":
+        return cls(token_file=settings.GMAIL_TOKEN_FILE, mailbox_email=settings.GMAIL_SENDER_EMAIL,
+                   require_enabled=require_enabled)
 
     # Readiness ------------------------------------------------------------------
 
     def check_configured(self) -> tuple[bool, str]:
         """Local-only (no network): read access enabled, mailbox and token file configured."""
-        if not settings.GMAIL_READ_ENABLED:
+        if self.require_enabled and not settings.GMAIL_READ_ENABLED:
             return False, "Reading replies is not enabled (GMAIL_READ_ENABLED is off)."
         if not self.mailbox_email:
             return False, "GMAIL_SENDER_EMAIL is not configured."
@@ -208,6 +211,17 @@ class MailboxReader:
             return []  # 404: the thread was deleted
         return [MessageRef(str(m.get("id")), str(m.get("threadId") or thread_id), tuple(m.get("labelIds") or ()))
                 for m in data.get("messages") or [] if m.get("id")]
+
+    def get_metadata(self, message_id: str) -> MailMessage | None:
+        """Headers (From, Subject, Date) and labels only; Gmail does not return the body."""
+        service = self._connect()
+        request = service.users().messages().get(userId="me", id=message_id, format="metadata",
+                                                 metadataHeaders=["From", "Subject", "Date"])
+        try:
+            data = self._execute(request, what="message", expired_on_404=True)
+        except HistoryExpired:
+            return None
+        return parse_message(data)
 
     def get_message(self, message_id: str) -> MailMessage | None:
         """The full message, or None if it no longer exists."""

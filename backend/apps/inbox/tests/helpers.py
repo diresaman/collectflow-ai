@@ -53,6 +53,7 @@ class FakeMailbox:
         self.expired = False
         self.not_authorized = False
         self.fetched: list[str] = []
+        self.metadata_fetched: list[str] = []
         self.fail_on_get: str = ""
         self.history_starts: list[str] = []
 
@@ -80,6 +81,14 @@ class FakeMailbox:
 
     def thread_messages(self, thread_id: str) -> list[MessageRef]:
         return [MessageRef(mid, thread_id, self.messages[mid].label_ids) for mid in self.threads.get(thread_id, [])]
+
+    def get_metadata(self, message_id: str) -> MailMessage | None:
+        self.metadata_fetched.append(message_id)
+        message = self.messages.get(message_id)
+        if message is None:
+            return None
+        return MailMessage(message.message_id, message.thread_id, message.label_ids, message.internal_date_ms,
+                           message.headers, payload={})  # Gmail returns no body with format=metadata
 
     def get_message(self, message_id: str) -> MailMessage | None:
         self.fetched.append(message_id)

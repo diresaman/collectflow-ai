@@ -601,6 +601,9 @@ CollectFlow reminder). Nothing else in the mailbox is fetched or stored. It need
 3. `GMAIL_READ_ENABLED=true` in `backend/.env`, then restart the worker.
 
 Until then no poll is scheduled, and `/settings/integrations` shows *Awaiting authorization*.
+Between steps 2 and 3, `python manage.py preview_reply_discovery` shows what the first poll would
+store and which invoices it would hold. It reads headers only and changes nothing (see
+`docs/v2/06-m10-implementation-report.md` §9.1).
 
 - **Polling:** the worker queues an `inbox.poll` job every `INBOX_POLL_MINUTES` (5). It reads
   `users.history.list` from a stored cursor (`MailboxCursor`), page by page. The cursor moves only
