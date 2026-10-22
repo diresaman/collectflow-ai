@@ -538,7 +538,8 @@ collection" v1, seeded by migration):
   *pending* step. A step completes only when its reminder is `SENT`, a person `REJECTED` its
   draft, or its call task is done. Creating a draft does not complete a step. `DRAFT`,
   `APPROVED` and `SENDING` wait; `DELIVERY_UNKNOWN` and `FAILED` hold the sequence until a person
-  reconciles or re-drafts. The next step is due at due date + offset, never earlier than the last
+  reconciles or re-drafts. Outcomes are recorded the moment they happen (send result, rejection,
+  reconciliation), not on the next tick. The next step is due at due date + offset, never earlier than the last
   send + `FOLLOWUP_COOLDOWN_DAYS`. A tick advances an enrollment by **at most one new step**, so a
   machine that was off for days never produces a burst.
 - **Existing history** (reminders sent before sequences): the position comes from the reminders

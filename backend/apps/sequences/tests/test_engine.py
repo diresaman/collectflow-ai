@@ -414,3 +414,56 @@ class ManualDraftTests(TestCase):
         from django.conf import settings
 
         self.assertEqual(settings.HIGH_VALUE_THRESHOLD, Decimal("5000"))
+
+
+@override_settings(DEBUG=False, GMAIL_ALLOWED_RECIPIENTS=[])
+class ImmediateOutcomeTests(TestCase):
+    """A sent or rejected reminder completes its step at once, not on the next tick."""
+
+    def drafted(self, days: int = 3) -> tuple[Invoice, FollowUp]:
+        inv = invoice(days=days)
+        tick(StepGemini())
+        return inv, FollowUp.objects.get(invoice=inv, status="DRAFT")
+
+    def test_sending_completes_the_step_immediately(self) -> None:
+        inv, draft = self.drafted()
+        set_status(draft, FollowUp.Status.APPROVED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            FollowUpDeliveryService(FakeGmail()).send(draft.pk)
+
+        enrollment = enrollment_of(inv)
+        self.assertEqual((enrollment.last_completed_step, enrollment.pending_step, enrollment.next_step), (1, None, 2))
+        self.assertGreater(enrollment.next_action_at, timezone.now() + dt.timedelta(days=6))  # cooldown after the send
+        self.assertTrue(TimelineEvent.objects.filter(type="STEP_COMPLETED", payload__outcome="sent").exists())
+
+    def test_rejecting_completes_the_step_and_the_next_tick_starts_the_next(self) -> None:
+        from apps.followups.services import reject
+
+        inv, draft = self.drafted(days=12)
+        gemini = StepGemini()
+        with self.captureOnCommitCallbacks(execute=True):
+            reject(draft.pk)
+
+        enrollment = enrollment_of(inv)
+        self.assertEqual((enrollment.last_completed_step, enrollment.pending_step), (1, None))
+        self.assertLessEqual(enrollment.next_action_at, timezone.now())  # step 2 is due; nothing drafted yet
+        self.assertEqual(gemini.calls, [])
+        tick(gemini)
+        self.assertEqual(gemini.tones(), ["PROFESSIONAL"])
+
+    def test_unknown_delivery_holds_the_step_immediately(self) -> None:
+        from integrations.gmail import GmailDeliveryUnknown
+
+        inv, draft = self.drafted()
+        set_status(draft, FollowUp.Status.APPROVED)
+        with self.captureOnCommitCallbacks(execute=True), self.assertLogs("apps.followups.delivery"):
+            FollowUpDeliveryService(FakeGmail(error=GmailDeliveryUnknown("timeout"))).send(draft.pk)
+        enrollment = enrollment_of(inv)
+        self.assertEqual((enrollment.pending_step, enrollment.blocked_reason), (1, "delivery_unknown"))
+
+    def test_regenerating_a_draft_does_not_complete_the_step(self) -> None:
+        inv, _ = self.drafted()
+        with self.captureOnCommitCallbacks(execute=True):
+            FollowUpGenerationService(gemini=StepGemini()).generate(inv.pk, regenerate=True)
+        self.assertEqual((enrollment_of(inv).last_completed_step, enrollment_of(inv).pending_step), (0, 1))

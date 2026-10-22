@@ -14,3 +14,5 @@ class SequencesConfig(AppConfig):
         outbox.register(engine.TICK_JOB_KIND, engine.handle_tick_job)
         # Manual "Analyze" and regenerate draft the invoice's sequence step (see engine.plan_manual_draft).
         followups.register_draft_planner(engine.plan_manual_draft)
+        # A sent, rejected or reconciled reminder completes (or holds) its step immediately.
+        followups.register_outcome_listener(engine.on_follow_up_outcome)

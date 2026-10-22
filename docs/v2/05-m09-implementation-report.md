@@ -211,3 +211,18 @@ Added before the first scheduled drafting cycle (five step-2 drafts due 2026-10-
 
 Migration `sequences/0003_generation_backoff` (two additive fields). Tests: `apps/sequences/tests/test_ai_budget.py`
 (9 tests) plus an adapter test for "429 classified and not retried".
+
+## 11. M09.2 fix: step outcomes recorded immediately (2026-10-22)
+
+Found during the threading test: after step 1 was **sent**, the enrollment still showed step 1
+in progress, and the UI offered "Draft step 1". The engine recorded outcomes only on the next tick
+(up to 15 minutes later). Drafting would still have produced step 2, because the manual planner
+resolves the pending step first, but the label and step strip were wrong.
+
+Fix: the follow-up service now calls registered *outcome listeners* after commit (sent, failed,
+unknown, released, rejected or withdrawn, reconciled). The sequences app registers
+`engine.on_follow_up_outcome`, which records the step's result under the enrollment's row lock.
+It never starts a step (no Gemini call, no task); if the next step is already due, it marks it due
+for the next tick. Regenerating a draft does not complete a step. The dependency still points from
+sequences to follow-ups. Tests: `ImmediateOutcomeTests` (4). Suite: 337 tests OK.
+

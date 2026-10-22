@@ -744,6 +744,38 @@ def handle_tick_job(job: Any) -> dict[str, Any]:
         lease.release()
 
 
+def refresh(enrollment_id: Any, *, actor: Any, now: dt.datetime | None = None) -> None:
+    """
+    Records a pending step's outcome right away (e.g. its reminder was just sent or rejected) so the
+    enrollment never shows a finished step as in progress. Never starts a step: no Gemini call and
+    no task here; if the next step is already due, the next tick starts it.
+    """
+    now = now or timezone.now()
+    with transaction.atomic():
+        enrollment = (
+            SequenceEnrollment.objects.select_for_update(of=("self",)).select_related("invoice__client", "sequence")
+            .filter(pk=enrollment_id, status__in=SequenceEnrollment.LIVE_STATUSES).first()
+        )
+        if enrollment is None:
+            return
+        evaluation = evaluate(enrollment, now=now)
+        updates = dict(evaluation.updates)
+        if evaluation.action in (DRAFT, TASK) and updates.get("pending_step", enrollment.pending_step) is None:
+            updates["next_action_at"] = now  # due now: the next tick starts it
+        _apply(enrollment, Evaluation(evaluation.action, evaluation.reason, evaluation.detail,
+                                      updates=updates, events=evaluation.events), actor)
+
+
+def on_follow_up_outcome(follow_up: FollowUp) -> None:
+    """Listener registered with the follow-up service (see SequencesConfig.ready)."""
+    enrollment_id = (
+        SequenceEnrollment.objects.filter(invoice_id=follow_up.invoice_id, status__in=SequenceEnrollment.LIVE_STATUSES)
+        .values_list("pk", flat=True).first()
+    )
+    if enrollment_id is not None:
+        refresh(enrollment_id, actor=ActorType.SYSTEM)
+
+
 # Manual drafting (Analyze / regenerate) ------------------------------------------------------
 
 

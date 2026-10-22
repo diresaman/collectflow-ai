@@ -211,6 +211,29 @@ def register_draft_planner(planner: Any) -> None:
     _draft_planner = planner
 
 
+# Called after a reminder's outcome changes (sent, failed, unknown, rejected, reconciled), so the
+# sequences app can record the step's result at once instead of on the next tick.
+_outcome_listeners: list[Callable[[FollowUp], None]] = []
+
+
+def register_outcome_listener(listener: Callable[[FollowUp], None]) -> None:
+    if listener not in _outcome_listeners:
+        _outcome_listeners.append(listener)
+
+
+def notify_outcome(follow_up: FollowUp) -> None:
+    """Runs the listeners once the current transaction commits. A listener's failure never undoes the outcome."""
+
+    def run() -> None:
+        for listener in _outcome_listeners:
+            try:
+                listener(follow_up)
+            except Exception:
+                logger.exception("Follow-up outcome listener failed for %s", follow_up.pk)
+
+    transaction.on_commit(run)
+
+
 REPLY_PREFIX = re.compile(r"^\s*((re|aw|fwd?)\s*:\s*)+", re.IGNORECASE)
 
 
@@ -538,6 +561,7 @@ def reject(follow_up_id: uuid.UUID, *, actor: Any = None) -> FollowUp:
         event = EventType.APPROVAL_WITHDRAWN if follow_up.status == FollowUp.Status.APPROVED else EventType.FOLLOW_UP_REJECTED
         _conditional_transition(follow_up, FollowUp.Status.REJECTED)
         timeline.record(event, actor=actor, invoice=follow_up.invoice, follow_up_id=str(follow_up.pk))
+        notify_outcome(follow_up)
     return follow_up
 
 

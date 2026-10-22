@@ -49,6 +49,7 @@ from .services import (
     InvalidContent,
     InvalidState,
     StaleInvoice,
+    notify_outcome,
     validate_body,
     validate_subject,
 )
@@ -293,6 +294,7 @@ class FollowUpDeliveryService:
         logger.warning("Delivery of follow-up %s was not attempted: %s", follow_up.pk, error.code)
         follow_up.refresh_from_db()
         attempt.refresh_from_db()
+        notify_outcome(follow_up)
 
     @staticmethod
     def _finish(
@@ -336,6 +338,7 @@ class FollowUpDeliveryService:
 
         follow_up.refresh_from_db()
         attempt.refresh_from_db()
+        notify_outcome(follow_up)
         return DeliveryOutcome(follow_up=follow_up, attempt=attempt)
 
 
@@ -400,4 +403,5 @@ def reconcile(
             outcome=outcome, gmail_message_id=message_id[:100],
         )
     follow_up.refresh_from_db()
+    notify_outcome(follow_up)
     return follow_up
