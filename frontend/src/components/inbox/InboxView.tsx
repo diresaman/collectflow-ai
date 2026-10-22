@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { useCurrentUser } from "@/components/auth/SessionGate";
@@ -24,6 +25,7 @@ import {
   type ReplyRow,
 } from "@/lib/api/replies";
 import { formatDateTime } from "@/lib/format";
+import { links, queryParam } from "@/lib/url";
 
 const FILTERS: { key: ReplyFilter; label: string }[] = [
   { key: "triage", label: "Needs review" },
@@ -134,8 +136,10 @@ function ReplyCaseActions({
     return (
       <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
         <span className="font-semibold">Promise recorded</span> ({reply.promise.status.toLowerCase()}): pay{" "}
-        {reply.promise.amount} {reply.promise.currency} by {reply.promise.promised_date}. Manage it from invoice{" "}
-        {reply.invoice_external_id} on the dashboard.
+        {reply.promise.amount} {reply.promise.currency} by {reply.promise.promised_date}.{" "}
+        <Link href={links.invoice(reply.invoice)} className="font-medium underline">
+          Manage it on invoice {reply.invoice_external_id}
+        </Link>
       </p>
     );
   }
@@ -143,7 +147,10 @@ function ReplyCaseActions({
     return (
       <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
         <span className="font-semibold">Dispute {reply.dispute.status_display.toLowerCase()}</span>:{" "}
-        {reply.dispute.reason_display}. Manage it from invoice {reply.invoice_external_id} on the dashboard.
+        {reply.dispute.reason_display}.{" "}
+        <Link href={links.dispute(reply.dispute.id)} className="font-medium underline">
+          Open the dispute case
+        </Link>
       </p>
     );
   }
@@ -330,7 +337,11 @@ function ReplyPanel({
           </span>
         </p>
         <p className="text-sm text-slate-600">
-          Invoice <span className="font-medium text-slate-900">{reply.invoice_external_id}</span> · {reply.client_name} · received{" "}
+          Invoice{" "}
+          <Link href={links.invoice(reply.invoice)} className="font-medium text-indigo-600 hover:underline">
+            {reply.invoice_external_id}
+          </Link>{" "}
+          · {reply.client_name} · received{" "}
           {formatDateTime(reply.received_at)}
           {reply.replied_to ? ` · in reply to step ${reply.replied_to.step ?? "?"} ("${reply.replied_to.subject}")` : ""}
         </p>
@@ -468,7 +479,10 @@ function ReplyPanel({
             {reply.tasks.map((task) => (
               <li key={task.id}>
                 {task.title}
-                {task.status === "DONE" ? " · done" : task.status === "CANCELLED" ? " · cancelled" : " · open (Dashboard → Tasks)"}
+                {task.status === "DONE" ? " · done" : task.status === "CANCELLED" ? " · cancelled" : " · open"}{" "}
+                <Link href={links.task(task.id)} className="text-xs font-medium text-indigo-600 hover:underline">
+                  view
+                </Link>
               </li>
             ))}
           </ul>
@@ -500,9 +514,10 @@ function ReplyPanel({
 }
 
 export function InboxView() {
-  const [filter, setFilter] = useState<ReplyFilter>("triage");
+  // Other screens link here with ?reply=<id>; that reply may already be handled, so show all replies.
+  const [filter, setFilter] = useState<ReplyFilter>(() => (queryParam("reply") ? "all" : "triage"));
   const [rows, setRows] = useState<ReplyRow[] | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => queryParam("reply"));
   const [detail, setDetail] = useState<ReplyDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);

@@ -16,6 +16,8 @@ import {
 
 import { ApprovalQueue } from "./ApprovalQueue";
 import { AutomationPanel } from "./AutomationPanel";
+import { queryParam, setQueryParam } from "@/lib/url";
+
 import { FollowUpDrawer, type GenerationState } from "./FollowUpDrawer";
 import { FollowUpHistory } from "./FollowUpHistory";
 import { InvoiceTable, type FollowUpActions } from "./InvoiceTable";
@@ -47,7 +49,8 @@ export function Dashboard() {
 
   const [followUps, setFollowUps] = useState<Loadable<FollowUp[]>>({ kind: "loading" });
   const [followUpsKey, setFollowUpsKey] = useState(0);
-  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
+  // Other screens link here with ?invoice=<id> to open that invoice's drawer.
+  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(() => queryParam("invoice"));
   const [generation, setGeneration] = useState<(GenerationState & { invoiceId: string }) | null>(null);
 
   useEffect(() => {
@@ -112,6 +115,7 @@ export function Dashboard() {
 
   const closeDrawer = useCallback(() => {
     setOpenInvoiceId(null);
+    setQueryParam("invoice", null);
     setGeneration((current) => (current?.running ? current : null));
   }, []);
 
@@ -128,6 +132,7 @@ export function Dashboard() {
     onAnalyze: (invoiceId) => void handleAnalyze(invoiceId, false),
     onOpen: (invoiceId) => {
       setOpenInvoiceId(invoiceId);
+      setQueryParam("invoice", invoiceId);
       setGeneration((current) => (current && current.invoiceId !== invoiceId && !current.running ? null : current));
     },
   };

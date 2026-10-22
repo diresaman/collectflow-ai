@@ -21,3 +21,12 @@ class IntegrationStatusView(APIView):
         from .integrations import report
 
         return Response(report())
+
+
+class TodayView(APIView):
+    """GET /api/today/: actionable work in fixed sections, deterministic order, no scoring (M12)."""
+
+    def get(self, request: Request) -> Response:
+        from .today import report
+
+        return Response(report(request.user))

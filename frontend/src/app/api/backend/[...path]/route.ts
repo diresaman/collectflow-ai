@@ -38,6 +38,7 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     new RegExp(`^replies/${UUID}$`),
     /^integrations\/status$/,
     /^users$/,
+    /^today$/,
     /^promises$/,
     /^disputes$/,
     new RegExp(`^disputes/${UUID}$`),

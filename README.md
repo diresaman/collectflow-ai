@@ -692,6 +692,39 @@ hold is left.
   owner and assignee pickers, notes, tasks and recent history. The Inbox links each reply to the promise
   or dispute made from it.
 
+## Operator workflow (M12)
+
+The screens form one loop: **Invoice → Sequence → Draft → Approval → Delivery → Customer reply →
+Classification → Promise, dispute or task → Resolution**. Every screen links to the related record
+through deep links: `/?invoice=<id>` opens the invoice drawer, `/inbox?reply=<id>`,
+`/disputes?case=<id>` and `/tasks?task=<id>`.
+
+- **Today (`/today`):** what needs a person now, from existing records only, with no scores or
+  predictions. Fixed sections in a fixed order, each oldest or most overdue first:
+  - integration problems;
+  - replies to review;
+  - open disputes (unassigned first);
+  - unknown delivery outcomes;
+  - drafts awaiting approval;
+  - approved reminders not sent;
+  - broken promises (last 14 days);
+  - promised payments due;
+  - tasks due today or overdue;
+  - sequences that need a person;
+  - invoices on hold.
+
+  Each item says why it is there and who can act. If the signed-in user cannot act (e.g. a firm draft
+  for an operator), it also says why. The page refreshes every minute.
+- **Disputes (`/disputes`):** filter by open, open without an owner, mine, resolved or all. Each case
+  shows the invoice, client, amount, due date, the originating reply (with the AI's suggestion), the
+  owner, notes and resolution, and whether the invoice is chased now (with every remaining reason if
+  not). Operators set owners and add notes; resolving shows the approver requirement instead of
+  silently disabling it.
+- **Tasks (`/tasks`):** open, mine, done, cancelled or all; open tasks first by due time. Assign, done
+  with a note, or cancel with a note (call tasks cannot be cancelled).
+- **Invoice drawer:** each hold links to the reply or dispute that owns it; the Inbox links to the
+  invoice, the promise or dispute and its tasks.
+
 ## Proactive automation
 
 ### Architecture
@@ -1022,13 +1055,14 @@ provider queue a job and return `202`; poll `GET /api/jobs/{id}/`.
 | POST   | `/api/replies/{id}/retry-classification/` | `202 {job_id}`: one more AI attempt for an unclassified reply |
 | GET/POST | `/api/promises/`       | `?invoice=`, `?status=`, `?reply=`. POST `{invoice_id, promised_date, amount?, reply_id?, note?}` (operator) → `201`; `400` date or amount out of range; `409 promise_exists` / `invoice_disputed` / `invoice_not_chaseable` |
 | POST   | `/api/promises/{id}/cancel/` | APPROVER `{note}`; returns the promise plus `chasing` (resumes, blocked_by) |
-| GET/POST | `/api/disputes/`       | `?invoice=`, `?status=`, `?reply=`. POST `{invoice_id, reason, description, reply_id?, owner_id?}` (operator); `409 dispute_exists` |
+| GET/POST | `/api/disputes/`       | `?invoice=`, `?status=` (or `RESOLVED`), `?reply=`, `?owner=me`, `?unassigned=true`; open first. Each case has `chasing` and `can_resolve`. POST `{invoice_id, reason, description, reply_id?, owner_id?}` (operator); `409 dispute_exists` |
 | GET    | `/api/disputes/{id}/`    | Case with notes |
 | POST   | `/api/disputes/{id}/assign/`, `/notes/` | `{owner_id}` / `{note}` (operator) |
 | POST   | `/api/disputes/{id}/resolve/` | APPROVER `{outcome: VALID \| INVALID, resolution}`; returns `chasing` |
 | POST   | `/api/tasks/`            | `{invoice_id, title, due_at?, assignee_id?, detail?}`: a manual follow-up task |
 | POST   | `/api/tasks/{id}/assign/`, `/cancel/` | `{assignee_id}` / `{note}` (call-step tasks cannot be cancelled) |
 | GET    | `/api/users/`            | Active users with a role (id, username, display name, role) for assignment |
+| GET    | `/api/today/`            | Actionable work in fixed sections (`key`, `title`, `items` with `title`, `detail`, `since`, `link`, `who_can_act`, `blocked`) |
 
 Errors return `{"code": "...", "detail": "...", "fields"?: {...}}`; `401` means no session, `403` a
 missing role or CSRF token.

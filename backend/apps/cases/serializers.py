@@ -49,13 +49,46 @@ class DisputeSerializer(serializers.ModelSerializer):
     opened_by = serializers.CharField(source="opened_by.username", read_only=True)
     resolved_by = serializers.CharField(source="resolved_by.username", read_only=True, default=None)
     notes = DisputeNoteSerializer(many=True, read_only=True)
+    invoice_amount = serializers.DecimalField(source="invoice.amount", max_digits=12, decimal_places=2, read_only=True)
+    invoice_currency = serializers.CharField(source="invoice.currency", read_only=True)
+    invoice_status = serializers.CharField(source="invoice.status", read_only=True)
+    invoice_due_date = serializers.DateField(source="invoice.due_date", read_only=True)
+    reply_summary = serializers.SerializerMethodField()
+    chasing = serializers.SerializerMethodField()
+    can_resolve = serializers.SerializerMethodField()
 
     def get_owner(self, case: DisputeCase) -> dict[str, Any] | None:
         return _user(case.owner)
+
+    def get_reply_summary(self, case: DisputeCase) -> dict[str, Any] | None:
+        reply = case.reply
+        if reply is None:
+            return None
+        return {"id": str(reply.pk), "subject": reply.subject, "sender_email": reply.sender_email,
+                "received_at": reply.received_at, "ai_label": next(
+                    (c.label for c in reply.classifications.all() if c.source == "AI" and c.label), "")}
+
+    def get_chasing(self, case: DisputeCase) -> dict[str, Any]:
+        """Whether the invoice is chased now and, if not, every reason (this case, other holds, paid...)."""
+        from .disputes import chasing_status
+
+        return chasing_status(case.invoice)
+
+    def get_can_resolve(self, case: DisputeCase) -> dict[str, Any]:
+        from apps.accounts.models import Role
+        from apps.accounts.roles import has_role
+
+        user = self.context.get("user")
+        if case.status != DisputeCase.Status.OPEN:
+            return {"allowed": False, "reason": "This dispute is already resolved."}
+        if not has_role(user, Role.APPROVER):
+            return {"allowed": False, "reason": "Only an approver can resolve a dispute."}
+        return {"allowed": True, "reason": ""}
 
     class Meta:
         model = DisputeCase
         fields = ["id", "invoice", "invoice_external_id", "client", "client_name", "reply", "reason", "reason_display",
                   "description", "status", "status_display", "owner", "opened_by", "created_at", "resolved_at",
-                  "resolved_by", "resolution", "notes"]
+                  "resolved_by", "resolution", "notes", "invoice_amount", "invoice_currency", "invoice_status",
+                  "invoice_due_date", "reply_summary", "chasing", "can_resolve"]
         read_only_fields = fields

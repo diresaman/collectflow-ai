@@ -38,6 +38,7 @@ export type DisputeCase = {
   id: string;
   invoice: string;
   invoice_external_id: string;
+  client_name: string;
   reply: string | null;
   reason: string;
   reason_display: string;
@@ -51,6 +52,15 @@ export type DisputeCase = {
   resolved_by: string | null;
   resolution: string;
   notes: DisputeNote[];
+  invoice_amount?: string;
+  invoice_currency?: string;
+  invoice_status?: string;
+  invoice_due_date?: string;
+  reply_summary?: { id: string; subject: string; sender_email: string; received_at: string; ai_label: string } | null;
+  /** Whether the invoice is chased now, and every reason it is not. */
+  chasing?: ChasingStatus;
+  /** Whether the signed-in user may resolve it, and why not. */
+  can_resolve?: { allowed: boolean; reason: string };
 };
 
 export type ChasingStatus = {
@@ -100,6 +110,23 @@ export function cancelPromise(id: string, note: string): Promise<PromiseToPay & 
 
 export function getDisputes(invoiceId: string, signal?: AbortSignal): Promise<DisputeCase[]> {
   return backendGet(`/disputes/?invoice=${invoiceId}`, isList(isDispute), { signal });
+}
+
+export type DisputeFilter = "open" | "resolved" | "mine" | "unassigned" | "all";
+
+export function listDisputes(filter: DisputeFilter, signal?: AbortSignal): Promise<DisputeCase[]> {
+  const query = {
+    open: "?status=OPEN",
+    resolved: "?status=RESOLVED",
+    mine: "?owner=me&status=OPEN",
+    unassigned: "?unassigned=true&status=OPEN",
+    all: "",
+  }[filter];
+  return backendGet(`/disputes/${query}`, isList(isDispute), { signal });
+}
+
+export function getDispute(id: string, signal?: AbortSignal): Promise<DisputeCase> {
+  return backendGet(`/disputes/${id}/`, isDispute, { signal });
 }
 
 export function openDispute(body: {

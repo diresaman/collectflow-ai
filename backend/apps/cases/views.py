@@ -2,7 +2,7 @@ import uuid
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db.models import QuerySet
+from django.db.models import Case, IntegerField, QuerySet, Value, When
 from rest_framework import generics, status
 from rest_framework.exceptions import ParseError, UnsupportedMediaType
 from rest_framework.request import Request
@@ -56,8 +56,8 @@ def _promises() -> QuerySet[PromiseToPay]:
 
 
 def _disputes() -> QuerySet[DisputeCase]:
-    return DisputeCase.objects.select_related("invoice", "client", "owner", "opened_by", "resolved_by").prefetch_related(
-        "notes__author")
+    return DisputeCase.objects.select_related("invoice", "client", "owner", "opened_by", "resolved_by", "reply") \
+        .prefetch_related("notes__author", "reply__classifications")
 
 
 class PromiseListView(generics.ListCreateAPIView):
@@ -101,7 +101,22 @@ class DisputeListView(generics.ListCreateAPIView):
     serializer_class = DisputeSerializer
 
     def get_queryset(self) -> QuerySet[DisputeCase]:
-        return _filter(_disputes(), self.request, DisputeCase.Status.values)
+        """Also ?status=RESOLVED (either outcome), ?owner=me, ?unassigned=true. Open cases first, oldest first."""
+        queryset = _filter(_disputes(), self.request, DisputeCase.Status.values)
+        params = self.request.query_params
+        if params.get("status") == "RESOLVED":
+            queryset = queryset.exclude(status=DisputeCase.Status.OPEN)
+        if params.get("owner") == "me":
+            queryset = queryset.filter(owner=self.request.user)
+        if params.get("unassigned") == "true":
+            queryset = queryset.filter(owner__isnull=True)
+        if params.get("status") == "RESOLVED":
+            return queryset.order_by("-resolved_at", "id")
+        open_first = Case(When(status=DisputeCase.Status.OPEN, then=Value(0)), default=Value(1), output_field=IntegerField())
+        return queryset.annotate(open_first=open_first).order_by("open_first", "created_at", "id")
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        return {**super().get_serializer_context(), "user": self.request.user}
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = _body(request)
@@ -113,13 +128,14 @@ class DisputeListView(generics.ListCreateAPIView):
             return _not_found("Invoice")
         except FollowUpError as error:
             return _error(error)
-        return Response(DisputeSerializer(_disputes().get(pk=case.pk)).data, status=status.HTTP_201_CREATED)
+        return Response(DisputeSerializer(_disputes().get(pk=case.pk), context={"user": request.user}).data,
+                        status=status.HTTP_201_CREATED)
 
 
 class DisputeDetailView(APIView):
     def get(self, request: Request, pk: uuid.UUID) -> Response:
         case = _disputes().filter(pk=pk).first()
-        return Response(DisputeSerializer(case).data) if case else _not_found("Dispute")
+        return Response(DisputeSerializer(case, context={"user": request.user}).data) if case else _not_found("Dispute")
 
 
 class _DisputeAction(APIView):
@@ -130,7 +146,7 @@ class _DisputeAction(APIView):
             return _not_found("Dispute")
         except FollowUpError as error:
             return _error(error)
-        body = DisputeSerializer(_disputes().get(pk=pk)).data
+        body = DisputeSerializer(_disputes().get(pk=pk), context={"user": self.request.user}).data
         return Response({**body, **(extra(result) if extra else {})})
 
 

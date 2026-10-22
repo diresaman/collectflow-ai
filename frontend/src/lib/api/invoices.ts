@@ -36,6 +36,8 @@ export type HoldSummary = {
   /** Who or what ends the hold, in operator terms. */
   release_rule: string;
   reply_id: string | null;
+  promise_id: string | null;
+  dispute_id: string | null;
   detail: string;
   created_at: string;
 };

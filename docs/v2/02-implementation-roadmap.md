@@ -11,9 +11,9 @@ continue the repository's commit history.
 | 01 Foundation: PostgreSQL migration | M08.1 | PostgreSQL 16, Docker Compose, SKIP LOCKED, SQLite → PostgreSQL transfer | P0 | — | **Done**: data cut over and verified 2026-10-22 |
 | 02 Sequences, threading, four-eyes | M09 | Sequence engine, tick, threaded send, approval policy, call tasks | P0 | 7–8 h | **Done** (see `05-m09-implementation-report.md`); live threading verified 2026-10-22 |
 | 03 Reply ingestion and classification | M10 | Gmail read, poll, classify, triage, health page | P0 | 6–7 h | **Done and deployed** (see `06-m10-implementation-report.md`); reading enabled 2026-10-22 and verified with a live reply |
-| 04 Promises, disputes, tasks | M11 | Promise lifecycle, dispute lock, all task kinds, daily promise check | P0 | 4–5 h | **Done** on the development database (see `07-m11-implementation-report.md`); production deployment awaits approval |
-| 05 Closed-loop UI and P0 gate | M12 | Invoice detail, approvals, sequence editor, explicit unavailable states, P0 demo | P0 | 4–5 h | **Next** (not started) |
-| 06 Risk and worklist | M13 | Client metrics, risk score, Today page, `/clients` | P1 | 3–4 h | |
+| 04 Promises, disputes, tasks | M11 | Promise lifecycle, dispute lock, all task kinds, daily promise check | P0 | 4–5 h | **Done and deployed** 2026-10-22 (see `07-m11-implementation-report.md` §8.1) |
+| 05 Closed-loop UI and P0 gate | M12 | Invoice detail, approvals, sequence editor, explicit unavailable states, P0 demo | P0 | 4–5 h | **Done** on the development database (see `08-m12-implementation-report.md`); P0 acceptance passes with mocked providers; production deployment awaits approval |
+| 06 Risk and worklist | M13 | Client metrics, risk score, Today page, `/clients` | P1 | 3–4 h | **Next** (not started; M12 added a P0 Today page without scoring) |
 | 07 Statements, analytics, forecast | M14 | Statement email, aging, DSO, CEI, attribution, forecast | P1 | 4–5 h | |
 | 08 QA, AI evals, CI, delivery | M15 | Eval harness, Hypothesis, import-linter, Playwright, CI, docs | Release | 6–7 h | |
 | 09 Reconciliation | M16 | Stripe test mode or CSV, suggested matches | P2 | 3–4 h | Owner decides after 08 |
@@ -181,6 +181,8 @@ plan for the next phase is `03-phase-02-implementation-plan.md`.
 - **Exclusions:** risk, statements.
 
 ### Phase 05 — Closed-loop UI and P0 gate (M12)
+
+> **Status:** implemented on the development database (2026-10-22); see `08-m12-implementation-report.md`.
 
 - **Objective:** make the loop usable end to end and pass the P0 gate.
 - **Frontend:**

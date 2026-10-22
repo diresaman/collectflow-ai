@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 
 import { useCurrentUser } from "@/components/auth/SessionGate";
@@ -25,6 +26,7 @@ import { ApiError } from "@/lib/api/client";
 import { getInvoice, type Invoice } from "@/lib/api/invoices";
 import { assignTask, cancelTask, createTask, getInvoiceTasks, markTaskDone, type Task } from "@/lib/api/tasks";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { links } from "@/lib/url";
 
 import { ErrorMessage, Spinner } from "./ui";
 
@@ -64,7 +66,7 @@ function Box({ title, children, badge }: { title: string; children: ReactNode; b
   );
 }
 
-function ChasingNote({ chasing }: { chasing: ChasingStatus | null }) {
+export function ChasingNote({ chasing }: { chasing: ChasingStatus | null }) {
   if (!chasing) return null;
   return (
     <p role="status" className="rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
@@ -75,7 +77,7 @@ function ChasingNote({ chasing }: { chasing: ChasingStatus | null }) {
   );
 }
 
-function UserSelect({
+export function UserSelect({
   users,
   value,
   onChange,
@@ -179,7 +181,7 @@ function PromiseCard({
   );
 }
 
-function DisputeCard({
+export function DisputeCard({
   dispute,
   users,
   isApprover,
@@ -277,7 +279,7 @@ function DisputeCard({
         </button>
       </div>
       {open &&
-        (isApprover ? (
+        ((dispute.can_resolve?.allowed ?? isApprover) ? (
           <div className="space-y-2 rounded-md bg-slate-50 p-2">
             <div className="flex flex-wrap gap-3 text-xs text-slate-700" role="radiogroup" aria-label="Outcome">
               <label className="flex items-center gap-1">
@@ -309,7 +311,7 @@ function DisputeCard({
             <p className="text-[11px] text-slate-500">Resolving never sends anything; at most the next step is drafted for review.</p>
           </div>
         ) : (
-          <p className="text-xs text-slate-500">Only an approver can resolve a dispute.</p>
+          <p className="text-xs text-slate-500">{dispute.can_resolve?.reason || "Only an approver can resolve a dispute."}</p>
         ))}
       {error && <ErrorMessage message={error} />}
     </Box>
@@ -412,7 +414,7 @@ function NewDisputeForm({ invoice, users, onDone }: { invoice: Invoice; users: A
   );
 }
 
-function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser[]; onChanged: () => void }) {
+export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser[]; onChanged: () => void }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -590,7 +592,17 @@ export function CasePanel({ invoice: initial, onChanged }: { invoice: Invoice; o
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
             {invoice.holds.map((hold) => (
               <li key={hold.id}>
-                {hold.reason_display} ({hold.source}). {hold.release_rule}
+                {hold.reason_display} ({hold.source}). {hold.release_rule}{" "}
+                {hold.reply_id && (
+                  <Link href={links.reply(hold.reply_id)} className="font-medium underline">
+                    Review the reply
+                  </Link>
+                )}
+                {hold.dispute_id && (
+                  <Link href={links.dispute(hold.dispute_id)} className="font-medium underline">
+                    Open the dispute
+                  </Link>
+                )}
               </li>
             ))}
           </ul>

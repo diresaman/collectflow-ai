@@ -7,10 +7,13 @@ import { InboxBadge } from "./InboxBadge";
 import { Logo } from "./Logo";
 
 const LINKS = [
-  { href: "/", label: "Dashboard" },
-  { href: "/automation", label: "Automation" },
-  { href: "/sequences", label: "Sequences" },
+  { href: "/today", label: "Today" },
+  { href: "/", label: "Invoices" },
   { href: "/inbox", label: "Inbox" },
+  { href: "/disputes", label: "Disputes" },
+  { href: "/tasks", label: "Tasks" },
+  { href: "/sequences", label: "Sequences" },
+  { href: "/automation", label: "Automation" },
   { href: "/settings/integrations", label: "Integrations" },
 ] as const;
 

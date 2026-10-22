@@ -46,6 +46,13 @@ export function getOpenTasks(signal?: AbortSignal): Promise<Task[]> {
   return backendGet("/tasks/?open=true", isTaskList, { signal });
 }
 
+export type TaskFilter = "open" | "mine" | "done" | "cancelled" | "all";
+
+export function listTasks(filter: TaskFilter, signal?: AbortSignal): Promise<Task[]> {
+  const query = { open: "?open=true", mine: "?open=true&assignee=me", done: "?status=DONE", cancelled: "?status=CANCELLED", all: "" }[filter];
+  return backendGet(`/tasks/${query}`, isTaskList, { signal });
+}
+
 export function getInvoiceTasks(invoiceId: string, signal?: AbortSignal): Promise<Task[]> {
   return backendGet(`/tasks/?invoice=${invoiceId}`, isTaskList, { signal });
 }
