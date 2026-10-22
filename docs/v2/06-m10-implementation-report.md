@@ -162,7 +162,7 @@ drops replies, holds and classifications, so take a backup first.
 | Backup verification | Restored into a scratch database: 28/28 tables with identical row counts; content hashes identical for invoices, follow-ups, delivery attempts, enrollments, timeline, users and profiles; timeline triggers present. Scratch database dropped |
 | Rollback readiness | Images tagged `collectflow-{api,worker,web}:pre-m10`; migration reversal order verified on `collectflow_dev` |
 | Migrations | `followups 0005`, `invoices 0006`, `inbox 0002`, `timeline 0003` applied by the api on start. Existing data unchanged: only new empty tables, permission and content-type rows, one tick run, two jobs (tick, purge) and the verification login's session differ from before |
-| Services | api healthy, worker running (heartbeat healthy; scheduled tick COMPLETED with 0 drafts; `inbox.purge` SUCCEEDED), web serving `b509999` + `cdf…` build, db untouched |
+| Services | api healthy, worker running (heartbeat healthy; scheduled tick COMPLETED with 0 drafts; `inbox.purge` SUCCEEDED), web rebuilt from `b509999` plus the Dockerfile change committed in `78bde0e`, db container untouched |
 | API via web proxy | Login as `collectflow` (ADMIN); `me`, `replies`, `replies?triage=true`, `replies/summary`, `integrations/status`, `invoices` (with `holds`), `enrollments`, `tasks`, `dashboard`, `follow-ups`, `sequences`: all 200 |
 | Pages | `/`, `/inbox`, `/settings/integrations`, `/sequences`, `/automation`: 200 |
 | Integration health | Sheets, Gmail send, Gemini, worker: healthy. Gmail read and reply polling: awaiting authorization. No secrets, paths or addresses in the response |
