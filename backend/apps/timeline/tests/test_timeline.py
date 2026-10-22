@@ -36,6 +36,16 @@ class AppendOnlyTests(TestCase):
             event.save()
         self.assertEqual(TimelineEvent.objects.get(pk=event.pk).payload, {})
 
+    def test_database_rejects_truncate(self) -> None:
+        timeline.record(EventType.INVOICE_CREATED, actor=ActorType.SYSTEM, invoice=make_invoice())
+        with self.assertRaisesMessage(DatabaseError, "append-only"), transaction.atomic():
+            with connection.cursor() as cursor:
+                # Run the deferred FK checks of the insert above, as a commit would; PostgreSQL won't
+                # TRUNCATE a table with pending trigger events.
+                cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+                cursor.execute(f"TRUNCATE {TimelineEvent._meta.db_table} CASCADE")
+        self.assertEqual(TimelineEvent.objects.count(), 1)
+
     def test_user_events_must_name_the_user(self) -> None:
         with self.assertRaises(DatabaseError), transaction.atomic():
             TimelineEvent.objects.create(type=EventType.DRAFT_EDITED, actor_type=ActorType.USER)

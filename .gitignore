@@ -14,6 +14,7 @@ __pycache__/
 .venv/
 venv/
 *.sqlite3
+*.sqlite3-*
 /backend/staticfiles/
 /backend/media/
 .coverage
@@ -31,3 +32,6 @@ out/
 
 # Local logs (e.g. cron output)
 /backend/logs/
+
+# Database backups and migration snapshots
+/backend/backups/

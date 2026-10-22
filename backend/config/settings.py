@@ -6,7 +6,6 @@ All environment-specific values are read from environment variables. A local
 """
 
 import os
-import tempfile
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -97,23 +96,33 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # ------------------------------------------------------------------------------
 
-# SQLite in WAL mode so the web process, the worker and cron can read while one writes.
-# IMMEDIATE transactions take the write lock up front (no lock-upgrade deadlocks), and
-# `timeout` is the busy timeout: a writer waits this long for the lock instead of failing.
+# PostgreSQL 16. Connection details come from the environment (backend/.env, or the Docker
+# Compose service environment). Timestamps are stored as timestamptz in UTC; DJANGO_TIME_ZONE
+# only decides what "today" means for business rules.
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / os.environ.get("SQLITE_PATH", "db.sqlite3"),
-        "OPTIONS": {
-            "transaction_mode": "IMMEDIATE",
-            "timeout": 10,
-            "init_command": "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
-        },
-        # Tests use a real file (not shared-cache memory) so concurrency tests see the same WAL
-        # locking and busy timeout as production.
-        "TEST": {"NAME": os.environ.get("SQLITE_TEST_PATH") or str(Path(tempfile.gettempdir()) / "collectflow-test.sqlite3")},
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "collectflow"),
+        "USER": os.environ.get("POSTGRES_USER", "collectflow"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
+        "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": int(os.environ.get("POSTGRES_CONN_MAX_AGE", "60")),
+        "CONN_HEALTH_CHECKS": True,
+        "OPTIONS": {"connect_timeout": 10},
     }
 }
+
+# Read-only source for the one-time SQLite → PostgreSQL transfer (manage.py migrate_from_sqlite).
+# Only defined when SQLITE_SOURCE_PATH is set; the application never writes to it.
+if os.environ.get("SQLITE_SOURCE_PATH"):
+    DATABASES["sqlite_source"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": f"file:{os.path.abspath(os.environ['SQLITE_SOURCE_PATH'])}?mode=ro",
+        "OPTIONS": {"uri": True},
+        "TEST": {"MIRROR": "default"},
+    }
+DATABASE_ROUTERS = ["config.db_routers.SourceDatabaseRouter"]
 
 
 # Users, passwords and sessions

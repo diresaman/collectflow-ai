@@ -6,7 +6,8 @@
 # drafts wait for human approval. Overlapping runs are refused by the automation lease
 # (exit code 2). Output is appended to logs/automation.log with start/end timestamps.
 #
-# Environment comes from backend/.env; variables set by the caller (e.g. SQLITE_PATH) win.
+# Environment comes from backend/.env; variables set by the caller (e.g. POSTGRES_PORT) win.
+# PostgreSQL must be reachable (docker compose up -d db).
 
 set -u
 

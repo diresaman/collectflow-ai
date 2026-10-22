@@ -57,11 +57,11 @@ writing the email) and keeps a person in control of every message that leaves th
             Django REST API (localhost:8000)  ── session login; every endpoint except health/login
               │                                  needs a role (OPERATOR < APPROVER < ADMIN) and CSRF on writes
               ├── apps/accounts    users, roles, login rate limiting
-              ├── apps/timeline    append-only TimelineEvent (SQLite triggers block UPDATE/DELETE)
+              ├── apps/timeline    append-only TimelineEvent (triggers block UPDATE/DELETE/TRUNCATE)
               ├── apps/invoices    Client, Invoice, sync service
               ├── apps/followups   drafts, approval workflow, delivery (the only Gmail send path)
               ├── apps/automation  outbox jobs + worker, orchestrator, policy, lease, workflow view
-              └── SQLite (WAL)     state, timeline and the job queue
+              └── PostgreSQL 16    state, timeline and the job queue
                      ▲
  manage.py run_worker ┘  claims OutboxJobs ──▶ Google Sheets (read-only) · Gemini · Gmail send
  cron ──▶ manage.py run_automation  (same orchestrator; never sends email)
@@ -69,8 +69,8 @@ writing the email) and keeps a person in control of every message that leaves th
 
 - **No provider calls in web requests.** Sync, AI drafting, Gmail delivery and manual
   automation runs are written as an `OutboxJob` in the same transaction as the state change
-  and answered with `202` and a job ID. The `run_worker` process claims jobs with a conditional
-  `UPDATE` (SQLite-safe) and the frontend polls `GET /api/jobs/{id}/` every 1.5 s.
+  and answered with `202` and a job ID. The `run_worker` process claims jobs with
+  `SELECT … FOR UPDATE SKIP LOCKED` and the frontend polls `GET /api/jobs/{id}/` every 1.5 s.
 
 - **Automated phases** (sync → evaluate → draft) run in `AutomationOrchestrator` under a
   database lease and persist each step as a `WorkflowStep`.
@@ -85,38 +85,52 @@ writing the email) and keeps a person in control of every message that leaves th
 
 | Layer | Technology |
 | --- | --- |
-| Backend | Python 3.12, Django 5.2, Django REST Framework 3.15+, django-cors-headers, argon2-cffi, SQLite (WAL) |
+| Backend | Python 3.12, Django 5.2, Django REST Framework 3.15+, django-cors-headers, argon2-cffi, PostgreSQL 16 (psycopg 3) |
 | Integrations | `google-api-python-client` (Sheets v4, Gmail v1), `google-auth`, `google-auth-oauthlib`, `google-genai` (Gemini) |
 | Frontend | Next.js 16 (App Router, Turbopack), React 19, TypeScript 5, Tailwind CSS 4, ESLint 9 |
-| Jobs | SQLite-backed transactional outbox and a single `run_worker` process (no Redis) |
+| Jobs | PostgreSQL transactional outbox (`SKIP LOCKED`) processed by `run_worker` (no Redis) |
+| Runtime | Docker Compose: `db` (postgres:16), `api`, `worker`, `web` |
 | Scheduling | cron (or any scheduler) calling `manage.py run_automation` |
 
-## Quick start (local)
+## Quick start (Docker Compose)
 
 ```bash
-# 1. Backend
-cd backend
-uv venv --python 3.12 .venv && source .venv/bin/activate   # or: python3.12 -m venv .venv
-pip install -r requirements.txt
-cp .env.example .env            # set DJANGO_DEBUG=true (see below)
-python manage.py migrate
-python manage.py create_user ana --role APPROVER    # prompts for a password
-python manage.py runserver      # http://localhost:8000 (binds to 127.0.0.1)
+cp backend/.env.example backend/.env       # set DJANGO_DEBUG=true and POSTGRES_PASSWORD (see below)
+docker compose up -d --build               # db, api (runs migrate), worker, web
+docker compose exec api python manage.py create_user ana --role ADMIN   # prompts for a password
+```
 
-# 2. Worker (second terminal): runs sync, AI drafting and Gmail delivery jobs
-cd backend && source .venv/bin/activate
-python manage.py run_worker
+Open http://localhost:3000 and sign in. Every port is published on `127.0.0.1` only. Override
+the host ports with `WEB_HOST_PORT`, `API_HOST_PORT` and `POSTGRES_HOST_PORT` (default 5433, so
+it doesn't clash with a system PostgreSQL on 5432). Useful commands:
 
-# 3. Frontend (third terminal)
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev                     # http://localhost:3000 (binds to localhost only), sign in at /login
+```bash
+docker compose logs -f worker              # job progress
+docker compose exec api python manage.py reconcile_delivery
+docker compose down                        # stop (data stays in the pgdata volume)
 ```
 
 Then configure the integrations: [Google Sheets](#google-sheets-setup), [Gemini](#ai-follow-ups-gemini)
-and [Gmail](#gmail-delivery). Without the worker, requests are accepted and queued, and the UI
-says the worker is not running.
+and [Gmail](#gmail-delivery). Credentials go in `backend/credentials/`, which is mounted into the
+`api` and `worker` containers. `authorize_gmail` opens a browser, so run it on the host (below).
+Without the worker, requests are accepted and queued, and the UI says the worker is not running.
+
+### Without Docker for the app (host processes, Compose database)
+
+```bash
+docker compose up -d db                    # PostgreSQL 16 on 127.0.0.1:5433
+cd backend
+uv venv --python 3.12 .venv && source .venv/bin/activate   # or: python3.12 -m venv .venv
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py create_user ana --role ADMIN
+python manage.py runserver                 # terminal 1, http://localhost:8000
+python manage.py run_worker                # terminal 2
+cd ../frontend && npm install && cp .env.example .env.local && npm run dev   # terminal 3
+```
+
+`backend/.env`'s `POSTGRES_HOST=localhost` and `POSTGRES_PORT=5433` point host processes (and
+cron) at the Compose database; inside Compose the `api` and `worker` services use `db:5432`.
 
 ## Repository layout
 
@@ -161,13 +175,14 @@ collectflow-ai/
 
 ## Prerequisites
 
-- Python 3.12
-- Node.js 20.9+ and npm
+- Docker with Compose v2 (runs PostgreSQL 16 and, optionally, the whole app)
+- Python 3.12 and Node.js 20.9+ for running the app or tests on the host
 - A Google Cloud service account with the Google Sheets API enabled
 
 ## Backend setup
 
 ```bash
+docker compose up -d db       # or any PostgreSQL 16 reachable with the POSTGRES_* settings
 cd backend
 uv venv --python 3.12 .venv   # or: python3.12 -m venv .venv
 source .venv/bin/activate
@@ -216,17 +231,34 @@ is due and exits). Jobs: `invoices.sync`, `followups.generate`, `followups.deliv
 `TimelineEvent` is an append-only history per invoice and client: sync imports and field
 changes (so `UNPAID → PAID` is a dated fact), removal from / return to the sheet, drafts,
 edits, approvals, withdrawals, send requests and outcomes, and reconciliations. Each event
-records the acting user, or `SYSTEM` / `SCHEDULER`. SQLite triggers reject `UPDATE` and
-`DELETE` on the table. Read it with `GET /api/timeline/?invoice=<id>&client=<id>` (paginated).
+records the acting user, or `SYSTEM` / `SCHEDULER`. A database trigger rejects `UPDATE`,
+`DELETE` and `TRUNCATE` on the table. Read it with `GET /api/timeline/?invoice=<id>&client=<id>` (paginated).
 
-### SQLite
+### Database (PostgreSQL 16)
 
-The database runs in WAL mode with `IMMEDIATE` transactions and a 10 s busy timeout, so the
-web server, the worker and cron can work at the same time. Tests run against a file database
-(`SQLITE_TEST_PATH`, default in the system temp directory) so the concurrency tests see real
-locking. The design document specifies PostgreSQL; staying on SQLite is a deliberate choice for
-this single-machine MVP, and every race is decided by conditional updates and unique
-constraints that behave the same on both.
+- **Connection:** `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`,
+  `POSTGRES_PORT` (driver: psycopg 3). Timestamps are `timestamptz` in UTC; `DJANGO_TIME_ZONE`
+  only defines the business date.
+- **Concurrency:** jobs are claimed with `SELECT … FOR UPDATE SKIP LOCKED`; approvals and edits
+  lock the follow-up row (`select_for_update`); the send reservation, the automation lease and job
+  completion are conditional `UPDATE`s that PostgreSQL re-checks after waiting on a concurrent
+  writer. Partial unique indexes back up "one active reminder per invoice" and "one in-flight
+  send per reminder". No transaction is open during a Google call.
+- **Timeline:** a PL/pgSQL trigger rejects `UPDATE`, `DELETE` and `TRUNCATE` on
+  `timeline_timelineevent`. (A database superuser can still disable triggers; a separate,
+  less-privileged application role is future work.)
+- **Backups:**
+
+  ```bash
+  docker compose exec db pg_dump -U collectflow -Fc collectflow > backups/collectflow-$(date +%F).dump
+  # Restore into an empty database (stop api and worker first):
+  docker compose exec -T db pg_restore -U collectflow -d collectflow --clean --if-exists < backups/collectflow-2026-10-22.dump
+  ```
+
+- **Moving from the old SQLite database:** see [docs/v2/04-m08-postgresql-migration-report.md](docs/v2/04-m08-postgresql-migration-report.md).
+  In short: stop the app and cron, then `backend/scripts/cutover_to_postgres.sh` (backup → migrate
+  → dry run) and the same with `--commit`. It copies every row with its primary key, verifies
+  each one, and never modifies the SQLite file.
 
 ### Backend environment variables
 
@@ -236,7 +268,10 @@ constraints that behave the same on both.
 | `DJANGO_SECRET_KEY`              | dev fallback when debug  | **Required** when `DJANGO_DEBUG=false`.                        |
 | `DJANGO_ALLOWED_HOSTS`           | `localhost,127.0.0.1`    | Comma-separated hostnames.                                     |
 | `CORS_ALLOWED_ORIGINS`           | `http://localhost:3000`  | Comma-separated frontend origins allowed by CORS.              |
-| `SQLITE_PATH`                    | `db.sqlite3`             | SQLite file, relative to `backend/`.                           |
+| `POSTGRES_DB` / `POSTGRES_USER`  | `collectflow`            | Database name and user (Compose creates them on first start).  |
+| `POSTGRES_PASSWORD`              | — (required)             | Database password.                                             |
+| `POSTGRES_HOST` / `POSTGRES_PORT`| `localhost` / `5433`     | For host processes; Compose services use `db:5432`.            |
+| `POSTGRES_CONN_MAX_AGE`          | `60`                     | Seconds a connection is reused.                                |
 | `DJANGO_TIME_ZONE`               | `UTC`                    | Defines "today" for overdue calculations.                      |
 | `SECURE_COOKIES`                 | `true` unless debug      | `Secure` flag on session/CSRF cookies (needs HTTPS).           |
 | `SESSION_COOKIE_AGE`             | `43200`                  | Session lifetime in seconds (12 h).                            |
@@ -448,7 +483,7 @@ The frontend polls the job, then reads the follow-up and its attempts to show th
 - Only `APPROVED` reminders can be sent. `SENDING`, `SENT` and `DELIVERY_UNKNOWN` return `409
   duplicate_delivery`.
 - The reservation is an atomic conditional update (it does not rely on `select_for_update`,
-  which SQLite ignores), backed by a unique index on in-flight attempts.
+  so it holds even without a row lock), backed by a unique index on in-flight attempts.
 - Gmail calls never retry, and the UI disables the button while sending. A lost response is
   shown as "outcome unknown" and is never retried.
 - While a reminder is `SENDING` or `DELIVERY_UNKNOWN`, no new reminder can be generated for that
@@ -569,7 +604,8 @@ To pause without deleting, comment the line out with `crontab -e`.
 Notes:
 
 - `backend/.env` is loaded automatically, and variables set in the cron line take precedence
-  (e.g. `SQLITE_PATH=… /path/to/scheduled_automation.sh`). Cron needs no other environment.
+  (e.g. `POSTGRES_PORT=… /path/to/scheduled_automation.sh`). The database (`docker compose up -d db`)
+  must be running at the scheduled time; cron needs no other environment.
 - To try exactly what cron runs, in cron's minimal environment:
   `env -i HOME=$HOME /bin/sh -c '/path/to/backend/scripts/scheduled_automation.sh'; echo $?`
 - Cron fires in the **system** time zone, while "overdue" uses `DJANGO_TIME_ZONE`. Pick an hour
@@ -591,7 +627,8 @@ Verification evidence for an unattended, cron-triggered run is in
 ### Concurrency and duplicate protection
 
 - **One run at a time:** `AutomationLease` is a single database row acquired with a conditional
-  `UPDATE … WHERE owner='' OR expires_at < now`, which is atomic on SQLite. Manual and scheduled
+  `UPDATE … WHERE owner='' OR expires_at < now`; PostgreSQL re-checks the condition after a
+  concurrent update, so only one process wins. Manual and scheduled
   triggers share it. A second trigger gets `409 automation_running`, or exit code `2` from the
   command.
 - **Heartbeat:** the owner renews the lease after each step (sync, each invoice). Another run can
@@ -606,10 +643,6 @@ Verification evidence for an unattended, cron-triggered run is in
   database's partial unique constraint allows only one active reminder per invoice. Repeated runs
   report `draft_awaiting_review` instead of creating duplicates.
 
-**SQLite limitations:** SQLite serializes writes and ignores `select_for_update`. Correctness
-relies on conditional updates and unique constraints, not row locks. A long write elsewhere can
-briefly delay others ("database is locked" after Django's default 5s timeout). For multiple
-workers or hosts, use PostgreSQL.
 
 ### Known limitations
 
@@ -724,10 +757,10 @@ If you run the frontend on a port other than 3000, add that origin to
 ## Running checks
 
 ```bash
-# Backend (from backend/, with the virtualenv active)
+# Backend (from backend/, with the virtualenv active and PostgreSQL running: docker compose up -d db)
 python manage.py check
 python manage.py makemigrations --check --dry-run   # models and committed migrations agree
-python manage.py test
+python manage.py test        # creates and drops a test_<POSTGRES_DB> database (the user needs CREATEDB)
 
 # Frontend (from frontend/)
 npm run lint
@@ -738,14 +771,15 @@ npm run build
 Tests mock the Google Sheets, Gemini and Gmail APIs; they never make network calls or send email.
 The automation tests replace `GmailClient.send` with a function that fails the test if called,
 a route-wide test asserts that every `/api/` endpoint except health and login returns `401`
-without a session and `403` for a user without a role, and threaded tests against a real SQLite
-file show that parallel workers claim each job once and parallel send requests call Gmail at
-most once.
+without a session and `403` for a user without a role, and threaded tests with separate PostgreSQL
+connections show that workers skip rows locked by others, each job is claimed once, parallel
+approvals have one winner and parallel send requests call Gmail at most once. The SQLite → PostgreSQL
+transfer is tested against a real SQLite snapshot (`apps/core/tests_sqlite_transfer.py`).
 
 **Manual end-to-end check** (uses your real integrations; only allowlisted recipients can be
 emailed while `DJANGO_DEBUG=true`):
 
-0. Start `runserver`, `run_worker` and the frontend, then sign in at `/login`.
+0. Start the stack (`docker compose up -d`), then sign in at `/login`.
 1. Put a few rows in the sheet, at least one `UNPAID` and past due, with a `client_email` that
    is in `GMAIL_ALLOWED_RECIPIENTS`.
 2. Open `/automation` and click **Run Automation**. Watch the steps progress, then refresh the
@@ -801,10 +835,12 @@ Consolidated from the sections above. See also [docs/FINAL_QA_REPORT.md](docs/FI
 - **Local deployment.** Users, roles and sessions are in place, but the app is meant for one
   machine on `localhost`. Exposing it needs HTTPS (cookies are `Secure` outside debug) and a
   production secret store.
-- **One worker.** Jobs run one at a time in a single `run_worker` process. Without it, requests
-  are accepted and queued, and the UI says the worker is not running.
-- **SQLite.** Correctness relies on conditional updates and unique constraints, not row locks.
-  WAL mode lets the web server, worker and cron work in parallel, but writes are serialized.
+- **One worker by default.** Compose runs one `worker`, which processes jobs one at a time.
+  Claiming uses `SKIP LOCKED`, so more workers are safe (`docker compose up -d --scale worker=2`).
+  Without a worker, requests are accepted and queued, and the UI says so.
+- **Local Compose deployment.** Django runs with `runserver` inside the container, ports are bound
+  to `127.0.0.1`, and the database role owns its tables (so it could disable the timeline
+  trigger). Production would need a WSGI server, HTTPS and a separate least-privilege role.
 - **Invoices removed from the sheet** stay in the local database and in dashboard totals. They
   are only blocked from reminders (`not_in_sheet`).
 - **AI content rules.** Links (`http(s)://`, `www.`), length, single-line subject and tone are

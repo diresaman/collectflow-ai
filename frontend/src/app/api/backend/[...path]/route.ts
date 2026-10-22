@@ -61,7 +61,13 @@ function isSameOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
   // Non-browser clients and same-origin GETs may omit Origin.
   if (origin === null) return request.headers.get("sec-fetch-site") !== "cross-site";
-  return origin === request.nextUrl.origin;
+  // Compare with the Host the browser addressed, not this server's own URL: behind a port mapping
+  // (Docker publishes 3000 as e.g. 3010) the server listens on a different host:port.
+  try {
+    return new URL(origin).host === request.headers.get("host");
+  } catch {
+    return false;
+  }
 }
 
 function forwardedCookieHeader(request: NextRequest): string {

@@ -1,7 +1,8 @@
 """
-Single-owner lease for automation runs, safe on SQLite.
+Single-owner lease for automation runs.
 
-Every state change is a conditional UPDATE, which the database applies atomically, so two
+Every state change is a conditional UPDATE. Under PostgreSQL's READ COMMITTED isolation a
+concurrent UPDATE waits for the first one to commit and then re-checks its WHERE clause, so two
 processes can never both acquire the lease, and an owner that lost it cannot renew it.
 """
 

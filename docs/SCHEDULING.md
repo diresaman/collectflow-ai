@@ -148,15 +148,15 @@ In the app, scheduled runs appear in the dashboard's **Automation** panel and in
 
 Use fictional invoices, and a test database if you don't want to touch your working data.
 
-1. **Test database (optional):**
-   `cd backend && SQLITE_PATH=/tmp/cf-test.sqlite3 .venv/bin/python manage.py migrate`
+1. **Test database (optional):** create a separate PostgreSQL database and migrate it:
+   `docker compose exec db createdb -U collectflow cf_test && cd backend && POSTGRES_DB=cf_test .venv/bin/python manage.py migrate`
 2. **Short interval:** add a temporary, clearly tagged line next to the daily one:
 
    ```bash
    crontab -l > /tmp/crontab.before
    ( cat /tmp/crontab.before; \
      echo '# collectflow-test (temporary)'; \
-     echo '*/2 * * * * SQLITE_PATH=/tmp/cf-test.sqlite3 COLLECTFLOW_AUTOMATION_LOG=/tmp/cf-test.log /home/dires/projects/collectflow-ai/backend/scripts/scheduled_automation.sh' \
+     echo '*/2 * * * * POSTGRES_DB=cf_test COLLECTFLOW_AUTOMATION_LOG=/tmp/cf-test.log /home/dires/projects/collectflow-ai/backend/scripts/scheduled_automation.sh' \
    ) | crontab -
    ```
 
@@ -165,13 +165,14 @@ Use fictional invoices, and a test database if you don't want to touch your work
    - `/tmp/cf-test.log`: `Sync SUCCEEDED`, the reasons, and `drafts_generated=N`.
    - Repeated runs report `draft_awaiting_review` for invoices that already have a draft, so
      there are no duplicate active drafts.
-   - Database: run `SQLITE_PATH=/tmp/cf-test.sqlite3 .venv/bin/python manage.py shell`, then
+   - Database: run `POSTGRES_DB=cf_test .venv/bin/python manage.py shell`, then
      check that `AutomationRun.objects.filter(kind="AUTOMATION")` all have
      `trigger == "SCHEDULED"`, that every `FollowUp` is `DRAFT`, and that
      `DeliveryAttempt.objects.count() == 0`.
-   - Approval queue: run `runserver` with the same `SQLITE_PATH` and open the dashboard, or
+   - Approval queue: run `runserver` with the same `POSTGRES_DB` and open the dashboard, or
      `GET /api/follow-ups/` and look for `status == "DRAFT"`.
-4. **Restore** the daily schedule: `crontab - < /tmp/crontab.before && crontab -l`.
+4. **Restore** the daily schedule: `crontab - < /tmp/crontab.before && crontab -l`, then drop the
+   test database: `docker compose exec db dropdb -U collectflow cf_test`.
 
 ## 7. Disable scheduling
 
@@ -203,12 +204,16 @@ To pause instead, comment the line out with `crontab -e`. Disabling doesn't affe
   finalize themselves.
 - **Throughput.** At most `AUTOMATION_MAX_DRAFTS_PER_RUN` (10) drafts per run. Each run takes
   about 10s per Gemini call.
-- **SQLite and one host.** The schedule and the web app must share the same database file. For
-  several hosts, a shared database (PostgreSQL) and a single scheduler would be needed.
+- **The database must be running.** Cron runs `run_automation` on the host against PostgreSQL
+  (`POSTGRES_HOST`/`POSTGRES_PORT` in `backend/.env`, normally the Compose `db` on 127.0.0.1:5433).
+  If `db` is down, the run fails (exit 1) and nothing is drafted.
 - **No alerting.** Failures are visible only in the log and the app. Cron's mail is not used,
   because the wrapper redirects all output.
 
 ## 9. Verification record (Milestone 07)
+
+> Historical record from before the PostgreSQL move (M08.1). The scratch databases below were
+> SQLite files; the same procedure now uses a separate PostgreSQL database (section 6).
 
 Done on 2026-10-19 on the development machine. Both verification passes used **isolated scratch
 SQLite databases** (`SQLITE_PATH`), so the working `backend/db.sqlite3` was not modified (still

@@ -6,7 +6,7 @@ import uuid
 from django.conf import settings
 from django.db import migrations, models
 
-from apps.timeline.services import DROP_TRIGGER_SQL, TRIGGER_SQL
+from apps.timeline.services import install_triggers_migration, remove_triggers_migration
 
 
 class Migration(migrations.Migration):
@@ -37,6 +37,9 @@ class Migration(migrations.Migration):
                 'constraints': [models.CheckConstraint(condition=models.Q(models.Q(('actor__isnull', False), ('actor_type', 'USER')), models.Q(('actor_type', 'USER'), _negated=True), _connector='OR'), name='timeline_user_events_have_actor')],
             },
         ),
-        # Append-only: the database itself refuses UPDATE and DELETE on events.
-        migrations.RunSQL(TRIGGER_SQL, reverse_sql=DROP_TRIGGER_SQL),
+        # Append-only: the database itself refuses UPDATE and DELETE on events (and TRUNCATE on
+        # PostgreSQL). Originally a SQLite-only RunSQL; made vendor-aware in M08.1 so a fresh
+        # PostgreSQL database can be migrated. SQLite gets exactly the statements it got before, and
+        # databases that already applied this migration are not affected (applied migrations never re-run).
+        migrations.RunPython(install_triggers_migration, remove_triggers_migration),
     ]

@@ -1,10 +1,11 @@
 import datetime as dt
 import threading
+import time
 from io import StringIO
 from unittest import mock
 
 from django.core.management import call_command
-from django.db import connection
+from django.db import connection, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -12,9 +13,11 @@ from django.utils import timezone
 from apps.accounts.testing import SessionApiTestCase
 from apps.automation import outbox
 from apps.automation.models import OutboxJob, WorkerHeartbeat
+from apps.followups import services
 from apps.followups.delivery import DuplicateDelivery, FollowUpDeliveryService
 from apps.followups.models import DeliveryAttempt, FollowUp
 from apps.followups.tests.helpers import FakeGmail, make_follow_up, overdue_invoice
+from apps.timeline.models import TimelineEvent
 from apps.timeline.testing import TimelineTransactionTestCase
 
 calls: list[str] = []
@@ -86,6 +89,12 @@ class OutboxTests(OutboxTestCase):
             self.assertEqual(job.status, expected_status)
         self.assertEqual(job.attempts, 3)
 
+    def test_ping_job_round_trips_without_providers(self) -> None:
+        job = outbox.enqueue("core.ping", {})
+        outbox.run_pending()
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.result), ("SUCCEEDED", {"pong": True}))
+
     def test_unknown_kind_fails(self) -> None:
         job = outbox.enqueue("test.nobody-handles-this", {})
         with self.assertLogs("apps.automation.outbox", "ERROR"):
@@ -156,6 +165,19 @@ class WorkerCommandTests(OutboxTestCase):
         self.assertFalse(outbox.worker_alive())
 
 
+@override_settings(DEBUG=False, GMAIL_ALLOWED_RECIPIENTS=[])
+class RollbackTests(OutboxTestCase):
+    def test_a_failed_enqueue_rolls_back_the_send_reservation(self) -> None:
+        follow_up = make_follow_up(overdue_invoice(), status=FollowUp.Status.APPROVED)
+        with mock.patch("apps.followups.delivery.outbox.enqueue", side_effect=RuntimeError("queue down")):
+            with self.assertRaises(RuntimeError):
+                FollowUpDeliveryService(FakeGmail()).request(follow_up.pk)
+        follow_up.refresh_from_db()
+        self.assertEqual(follow_up.status, FollowUp.Status.APPROVED)
+        self.assertFalse(DeliveryAttempt.objects.exists())
+        self.assertFalse(TimelineEvent.objects.filter(type="SEND_REQUESTED").exists())
+
+
 class JobApiTests(SessionApiTestCase):
     def test_job_status(self) -> None:
         job = outbox.enqueue("test.nobody", {"name": "a"})
@@ -166,7 +188,7 @@ class JobApiTests(SessionApiTestCase):
 
 @override_settings(DEBUG=False, GMAIL_ALLOWED_RECIPIENTS=[])
 class ConcurrencyTests(TimelineTransactionTestCase):
-    """Real threads against the SQLite test database: conditional UPDATEs must decide every race."""
+    """Real threads, each with its own PostgreSQL connection: row locks and conditional UPDATEs must decide every race."""
 
     def run_threads(self, target, count: int = 4) -> None:  # type: ignore[no-untyped-def]
         barrier = threading.Barrier(count)
@@ -198,6 +220,48 @@ class ConcurrencyTests(TimelineTransactionTestCase):
 
         self.assertEqual(sorted(calls, key=int), [str(index) for index in range(20)])
         self.assertEqual(OutboxJob.objects.filter(status="SUCCEEDED", attempts=1).count(), 20)
+
+    def test_claiming_skips_a_row_locked_by_another_transaction(self) -> None:
+        outbox.register("test.ok", ok_handler)
+        first = outbox.enqueue("test.ok", {"name": "first"})
+        second = outbox.enqueue("test.ok", {"name": "second"})
+        locked, release = threading.Event(), threading.Event()
+
+        def hold_lock() -> None:
+            try:
+                with transaction.atomic():
+                    OutboxJob.objects.select_for_update().get(pk=first.pk)
+                    locked.set()
+                    release.wait(10)
+            finally:
+                connection.close()
+
+        holder = threading.Thread(target=hold_lock)
+        holder.start()
+        try:
+            self.assertTrue(locked.wait(10))
+            started = time.monotonic()
+            claimed = outbox.claim_next("worker-b")  # must not wait for the other transaction
+            self.assertLess(time.monotonic() - started, 2)
+            self.assertEqual(claimed.pk if claimed else None, second.pk)
+        finally:
+            release.set()
+            holder.join()
+
+    def test_parallel_approvals_have_exactly_one_winner(self) -> None:
+        follow_up = make_follow_up(overdue_invoice())
+        outcomes: list[str] = []
+
+        def approve_it(_: int) -> None:
+            try:
+                services.approve(follow_up.pk)
+                outcomes.append("approved")
+            except services.InvalidState:
+                outcomes.append("refused")
+
+        self.run_threads(approve_it)
+        self.assertEqual(sorted(outcomes), ["approved", "refused", "refused", "refused"])
+        self.assertEqual(TimelineEvent.objects.filter(type="FOLLOW_UP_APPROVED").count(), 1)
 
     def test_parallel_send_requests_and_workers_call_gmail_at_most_once(self) -> None:
         follow_up = make_follow_up(overdue_invoice(), status=FollowUp.Status.APPROVED)

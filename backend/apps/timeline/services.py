@@ -38,31 +38,76 @@ def bulk_record(events: list[TimelineEvent]) -> None:
 
 
 # Append-only enforcement --------------------------------------------------------
+# PostgreSQL is the application database. The SQLite statements remain because SQLite files
+# created before the PostgreSQL move (and the snapshots made from them) carry these triggers.
 
 TABLE = "timeline_timelineevent"
-TRIGGER_SQL = [
-    f"""
-    CREATE TRIGGER IF NOT EXISTS timeline_event_no_update BEFORE UPDATE ON {TABLE}
-    BEGIN SELECT RAISE(ABORT, 'timeline events are append-only'); END
-    """,
-    f"""
-    CREATE TRIGGER IF NOT EXISTS timeline_event_no_delete BEFORE DELETE ON {TABLE}
-    BEGIN SELECT RAISE(ABORT, 'timeline events are append-only'); END
-    """,
-]
-DROP_TRIGGER_SQL = [
-    "DROP TRIGGER IF EXISTS timeline_event_no_update",
-    "DROP TRIGGER IF EXISTS timeline_event_no_delete",
-]
+
+TRIGGER_SQL: dict[str, list[str]] = {
+    "postgresql": [
+        """
+        CREATE OR REPLACE FUNCTION timeline_event_append_only() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+            RAISE EXCEPTION 'timeline events are append-only' USING ERRCODE = 'restrict_violation';
+        END
+        $$
+        """,
+        f"""
+        CREATE OR REPLACE TRIGGER timeline_event_no_update_delete
+        BEFORE UPDATE OR DELETE ON {TABLE}
+        FOR EACH ROW EXECUTE FUNCTION timeline_event_append_only()
+        """,
+        f"""
+        CREATE OR REPLACE TRIGGER timeline_event_no_truncate
+        BEFORE TRUNCATE ON {TABLE}
+        FOR EACH STATEMENT EXECUTE FUNCTION timeline_event_append_only()
+        """,
+    ],
+    "sqlite": [
+        f"""
+        CREATE TRIGGER IF NOT EXISTS timeline_event_no_update BEFORE UPDATE ON {TABLE}
+        BEGIN SELECT RAISE(ABORT, 'timeline events are append-only'); END
+        """,
+        f"""
+        CREATE TRIGGER IF NOT EXISTS timeline_event_no_delete BEFORE DELETE ON {TABLE}
+        BEGIN SELECT RAISE(ABORT, 'timeline events are append-only'); END
+        """,
+    ],
+}
+DROP_TRIGGER_SQL: dict[str, list[str]] = {
+    "postgresql": [
+        f"DROP TRIGGER IF EXISTS timeline_event_no_update_delete ON {TABLE}",
+        f"DROP TRIGGER IF EXISTS timeline_event_no_truncate ON {TABLE}",
+        "DROP FUNCTION IF EXISTS timeline_event_append_only()",
+    ],
+    "sqlite": [
+        "DROP TRIGGER IF EXISTS timeline_event_no_update",
+        "DROP TRIGGER IF EXISTS timeline_event_no_delete",
+    ],
+}
 
 
-def install_triggers() -> None:
-    with connection.cursor() as cursor:
-        for statement in TRIGGER_SQL:
+def _execute(statements: dict[str, list[str]], conn: Any = None) -> None:
+    conn = conn or connection
+    with conn.cursor() as cursor:
+        for statement in statements.get(conn.vendor, []):
             cursor.execute(statement)
 
 
-def remove_triggers() -> None:
-    with connection.cursor() as cursor:
-        for statement in DROP_TRIGGER_SQL:
-            cursor.execute(statement)
+def install_triggers(conn: Any = None) -> None:
+    _execute(TRIGGER_SQL, conn)
+
+
+def remove_triggers(conn: Any = None) -> None:
+    _execute(DROP_TRIGGER_SQL, conn)
+
+
+# Migration operations (timeline 0001): run for the database being migrated.
+
+def install_triggers_migration(apps: Any, schema_editor: Any) -> None:
+    install_triggers(schema_editor.connection)
+
+
+def remove_triggers_migration(apps: Any, schema_editor: Any) -> None:
+    remove_triggers(schema_editor.connection)

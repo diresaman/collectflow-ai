@@ -411,8 +411,9 @@ def reject(follow_up_id: uuid.UUID, *, actor: Any = None) -> FollowUp:
 
 def _conditional_transition(follow_up: FollowUp, new_status: str, **fields: Any) -> None:
     """
-    Applies a transition only if the status is still what was read. SQLite ignores row locks, so
-    this is what stops, e.g., a withdrawal from overwriting a send that just reserved the reminder.
+    Applies a transition only if the status is still what was read. The row is normally locked by
+    the caller (select_for_update); the status condition also protects paths that don't hold the
+    lock, e.g. a withdrawal racing a send that just reserved the reminder.
     """
     now = timezone.now()
     updated = FollowUp.objects.filter(pk=follow_up.pk, status=follow_up.status).update(

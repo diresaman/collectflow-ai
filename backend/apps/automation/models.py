@@ -67,7 +67,8 @@ class AutomationLease(models.Model):
     """
     Database-backed mutual exclusion for automation runs (one row per lease name).
 
-    Acquired and renewed with conditional UPDATEs, which are atomic on SQLite too. The owner
+    Acquired and renewed with conditional UPDATEs (PostgreSQL re-checks the WHERE clause after
+    waiting on a concurrent writer, so only one process can win). The owner
     renews `expires_at` (heartbeat) after every step; another process may only take over once
     the lease has expired, i.e. the owner has made no progress for the whole lease duration.
     """
@@ -84,8 +85,8 @@ class OutboxJob(models.Model):
     """
     A unit of background work, written in the same transaction as the state change that needs it.
 
-    The worker claims a job with a conditional UPDATE (PENDING -> RUNNING), which only one worker
-    can win on SQLite too, then runs the handler with no transaction open. Provider calls (Sheets,
+    The worker claims a job with SELECT … FOR UPDATE SKIP LOCKED plus a conditional UPDATE
+    (PENDING -> RUNNING), then runs the handler with no transaction open. Provider calls (Sheets,
     Gemini, Gmail) only ever happen inside jobs or unattended commands, never in a web request.
     """
 

@@ -4,8 +4,9 @@ Transactional outbox: enqueue background work atomically with a state change, ru
 Apps register a handler per job kind in AppConfig.ready(), so this module never imports the
 code that performs the work (in particular, it has no path to Gmail delivery of its own).
 
-Claiming and finishing are conditional UPDATEs, so on SQLite two workers can never run the same
-job, and a worker that lost a job (it was recovered as abandoned) cannot overwrite its outcome.
+Workers claim jobs with `SELECT … FOR UPDATE SKIP LOCKED`, so parallel workers never run the same
+job. Finishing is a conditional UPDATE (`status='RUNNING' AND locked_by=<this worker>`), so a worker
+that lost a job (it was recovered as abandoned) cannot overwrite its outcome.
 """
 
 import datetime as dt
@@ -16,6 +17,7 @@ from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -82,17 +84,27 @@ def new_worker_id() -> str:
 
 
 def claim_next(worker_id: str) -> OutboxJob | None:
-    now = timezone.now()
-    candidates = OutboxJob.objects.filter(status=OutboxJob.Status.PENDING, run_after__lte=now).order_by(
-        "run_after", "created_at"
-    )
-    for job_id in candidates.values_list("pk", flat=True)[:10]:
-        claimed = OutboxJob.objects.filter(pk=job_id, status=OutboxJob.Status.PENDING).update(
-            status=OutboxJob.Status.RUNNING, locked_by=worker_id, locked_at=now, attempts=F("attempts") + 1
+    """
+    Claims the oldest due job. `SELECT … FOR UPDATE SKIP LOCKED` lets parallel workers each take a
+    different row without waiting on one another; the UPDATE keeps its status condition as a
+    second guard. The transaction ends before the job runs.
+    """
+    with transaction.atomic():
+        job = (
+            OutboxJob.objects.select_for_update(skip_locked=True)
+            .filter(status=OutboxJob.Status.PENDING, run_after__lte=timezone.now())
+            .order_by("run_after", "created_at")
+            .first()
         )
-        if claimed == 1:
-            return OutboxJob.objects.get(pk=job_id)
-    return None
+        if job is None:
+            return None
+        claimed = OutboxJob.objects.filter(pk=job.pk, status=OutboxJob.Status.PENDING).update(
+            status=OutboxJob.Status.RUNNING, locked_by=worker_id, locked_at=timezone.now(), attempts=F("attempts") + 1
+        )
+        if claimed != 1:
+            return None
+    job.refresh_from_db()
+    return job
 
 
 def execute(job: OutboxJob, worker_id: str) -> OutboxJob:

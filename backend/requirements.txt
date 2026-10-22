@@ -7,3 +7,4 @@ google-auth>=2.35,<3
 google-genai>=1.0,<2
 google-auth-oauthlib>=1.2,<2
 argon2-cffi>=23.1,<26
+psycopg[binary]>=3.2,<4
