@@ -4,7 +4,7 @@ import time
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import close_old_connections, connection
+from django.db import InterfaceError, OperationalError, close_old_connections, connection
 from django.utils import timezone
 
 from apps.automation import outbox
@@ -13,6 +13,7 @@ from apps.automation.scheduling import schedule_periodic_jobs
 HEARTBEAT_SECONDS = 10
 RECOVERY_SECONDS = 60
 SCHEDULE_CHECK_SECONDS = 60
+DB_RETRY_MAX_SECONDS = 60
 
 
 class Command(BaseCommand):
@@ -55,22 +56,34 @@ class Command(BaseCommand):
 
         last_recovery = time.monotonic()
         last_schedule = 0.0
+        db_failures = 0
         while not stopping.is_set():
-            close_old_connections()
-            if time.monotonic() - last_recovery >= RECOVERY_SECONDS:
-                outbox.recover_stale()
-                last_recovery = time.monotonic()
-            if time.monotonic() - last_schedule >= SCHEDULE_CHECK_SECONDS:
-                schedule_periodic_jobs()
-                last_schedule = time.monotonic()
-            job = outbox.claim_next(worker_id)
-            if job is None:
-                stopping.wait(settings.WORKER_POLL_SECONDS)
-                continue
-            self._say(f"{timezone.now():%H:%M:%S} {job.kind} {job.pk} ...")
-            job = outbox.execute(job, worker_id)
-            suffix = f" ({job.last_error_code})" if job.last_error_code else ""
-            self._say(f"{timezone.now():%H:%M:%S} {job.kind} {job.pk} {job.status}{suffix}")
+            try:
+                close_old_connections()
+                if time.monotonic() - last_recovery >= RECOVERY_SECONDS:
+                    outbox.recover_stale()
+                    last_recovery = time.monotonic()
+                if time.monotonic() - last_schedule >= SCHEDULE_CHECK_SECONDS:
+                    schedule_periodic_jobs()
+                    last_schedule = time.monotonic()
+                job = outbox.claim_next(worker_id)
+                db_failures = 0
+                if job is None:
+                    stopping.wait(settings.WORKER_POLL_SECONDS)
+                    continue
+                self._say(f"{timezone.now():%H:%M:%S} {job.kind} {job.pk} ...")
+                job = outbox.execute(job, worker_id)
+                suffix = f" ({job.last_error_code})" if job.last_error_code else ""
+                self._say(f"{timezone.now():%H:%M:%S} {job.kind} {job.pk} {job.status}{suffix}")
+            except (OperationalError, InterfaceError):
+                # The database restarted or is unreachable: wait and reconnect instead of exiting.
+                # A job interrupted mid-way stays RUNNING and is recovered by recover_stale()
+                # (delivery jobs are never re-run; they wait for reconciliation).
+                db_failures += 1
+                delay = min(DB_RETRY_MAX_SECONDS, 2 ** min(db_failures, 6))
+                self._say(f"{timezone.now():%H:%M:%S} database unavailable; retrying in {delay}s")
+                connection.close()
+                stopping.wait(delay)
 
         self._say("Worker stopped.")
 

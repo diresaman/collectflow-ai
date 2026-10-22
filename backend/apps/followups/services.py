@@ -272,8 +272,10 @@ def request_generation(invoice_id: uuid.UUID, *, regenerate: bool, actor: Any) -
     if _draft_planner is not None:
         _draft_planner.check(invoice, regenerate=regenerate)
     with transaction.atomic():
-        if outbox.has_active(GENERATE_JOB_KIND, invoice_id=str(invoice.pk)):
-            raise GenerationInProgress("A draft is already being generated for this invoice.")
+        queued = outbox.active_job(GENERATE_JOB_KIND, invoice_id=str(invoice.pk))
+        if queued is not None:
+            # The client can follow the job already queued instead of starting another one.
+            raise GenerationInProgress("A draft is already being generated for this invoice.", job_id=str(queued.pk))
         return outbox.enqueue(
             GENERATE_JOB_KIND,
             {"invoice_id": str(invoice.pk), "regenerate": regenerate},

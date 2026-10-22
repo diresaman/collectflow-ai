@@ -130,8 +130,17 @@ export function getFollowUp(id: string, signal?: AbortSignal): Promise<FollowUp>
 
 /** Queues AI generation and waits for the draft. Domain errors keep their HTTP status (409, 502, 503). */
 export async function analyzeInvoice(invoiceId: string, regenerate = false): Promise<FollowUp> {
-  const queued = await backendPost(`/invoices/${invoiceId}/analyze/`, isQueued, { body: { regenerate } });
-  const job = await waitForJob(queued.job_id, { timeoutMs: GENERATION_WAIT_MS });
+  let jobId: string;
+  try {
+    jobId = (await backendPost(`/invoices/${invoiceId}/analyze/`, isQueued, { body: { regenerate } })).job_id;
+  } catch (error) {
+    // A draft for this invoice is already queued (e.g. a retry after "worker not running"):
+    // follow that job instead of reporting a conflict.
+    const body = error instanceof ApiError ? (error.body as Record<string, unknown> | null) : null;
+    if (body?.code === "generation_in_progress" && typeof body.job_id === "string") jobId = body.job_id;
+    else throw error;
+  }
+  const job = await waitForJob(jobId, { timeoutMs: GENERATION_WAIT_MS });
   const followUpId = job.result.follow_up_id;
   if (job.status !== "SUCCEEDED" || typeof followUpId !== "string") throw jobError(job, 502);
   return getFollowUp(followUpId);

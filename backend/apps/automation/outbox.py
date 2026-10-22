@@ -74,6 +74,12 @@ def enqueue(
         return OutboxJob.objects.get(idempotency_key=key)
 
 
+def active_job(kind: str, **payload: Any) -> OutboxJob | None:
+    """The oldest PENDING or RUNNING job of this kind matching the payload values, if any."""
+    filters = {f"payload__{name}": value for name, value in payload.items()}
+    return OutboxJob.objects.filter(kind=kind, status__in=ACTIVE_STATUSES, **filters).order_by("created_at").first()
+
+
 def has_active(kind: str, **payload: Any) -> bool:
     """True if a PENDING or RUNNING job of this kind matches the given payload values."""
     filters = {f"payload__{name}": value for name, value in payload.items()}

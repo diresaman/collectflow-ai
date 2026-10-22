@@ -226,3 +226,21 @@ It never starts a step (no Gemini call, no task); if the next step is already du
 for the next tick. Regenerating a draft does not complete a step. The dependency still points from
 sequences to follow-ups. Tests: `ImmediateOutcomeTests` (4). Suite: 337 tests OK.
 
+## 12. M09.3 fix: worker survives database restarts; queued drafts can be followed (2026-10-22)
+
+Found during the threading test:
+
+- **Worker crash on a database restart.** Redeploying recreated the `db` container (Compose
+  recreates it when `backend/.env` changes, because `db` uses the same env file). A worker
+  connected to it exited on `OperationalError`, leaving queued jobs unprocessed. `run_worker` now
+  catches connection errors, waits with backoff (2 s doubling, max 60 s) and reconnects. A job
+  interrupted mid-way stays RUNNING and is handled by stale-job recovery (delivery jobs are never
+  re-run). Deploy app containers with `docker compose up -d --build --no-deps api worker web` to
+  avoid restarting the database.
+- **"Already requested" instead of progress.** Retrying a draft while one was queued returned
+  `409 generation_in_progress` with no way to follow it. The 409 now includes the queued `job_id`,
+  and the frontend waits on that job and shows the normal "drafting" progress.
+
+Tests: worker resilience (1), job_id on the 409 (1). Suite: 338 OK; frontend lint, typecheck and
+build pass.
+

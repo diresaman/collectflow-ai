@@ -288,3 +288,33 @@ class ConcurrencyTests(TimelineTransactionTestCase):
         self.assertEqual(len(gmail.sent), 1)
         self.assertEqual(FollowUp.objects.get(pk=follow_up.pk).status, FollowUp.Status.SENT)
         self.assertEqual(DeliveryAttempt.objects.count(), 1)
+
+
+class WorkerResilienceTests(TestCase):
+    def test_worker_survives_a_database_outage(self) -> None:
+        from django.db import OperationalError
+
+        from apps.automation.management.commands import run_worker
+
+        calls = {"n": 0}
+
+        def flaky_claim(worker_id: str) -> None:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OperationalError("the database system is shutting down")
+            raise KeyboardInterrupt  # stop the loop after the retry
+
+        out = StringIO()
+        # Only the claim fails here; closing the real connection inside the test transaction would
+        # break every later query, so the reconnect is stubbed.
+        with mock.patch.object(run_worker.outbox, "claim_next", side_effect=flaky_claim), \
+                mock.patch.object(run_worker, "schedule_periodic_jobs"), \
+                mock.patch.object(run_worker, "connection"), \
+                mock.patch.object(run_worker, "close_old_connections"), \
+                mock.patch.object(run_worker.threading.Event, "wait", return_value=False), \
+                mock.patch.object(run_worker.threading, "Thread"), \
+                mock.patch.object(run_worker.signal, "signal"):
+            with self.assertRaises(KeyboardInterrupt):
+                call_command("run_worker", stdout=out)
+        self.assertEqual(calls["n"], 2)  # it retried after the outage instead of exiting
+        self.assertIn("database unavailable; retrying", out.getvalue())

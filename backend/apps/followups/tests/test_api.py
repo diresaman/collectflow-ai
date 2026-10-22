@@ -68,12 +68,15 @@ class AnalyzeEndpointTests(SessionApiTestCase):
 
     def test_second_request_while_queued_returns_409(self) -> None:
         invoice = overdue_invoice()
-        self.assertEqual(self.analyze(invoice.pk).status_code, 202)
+        first = self.analyze(invoice.pk)
+        self.assertEqual(first.status_code, 202)
 
         response = self.analyze(invoice.pk)
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["code"], "generation_in_progress")
+        # The client follows the job already queued instead of starting another.
+        self.assertEqual(response.json()["job_id"], first.json()["job_id"])
         self.assertEqual(OutboxJob.objects.count(), 1)
 
     def test_upstream_failure_is_reported_on_the_job_without_trace(self) -> None:
