@@ -83,13 +83,13 @@ def _conflict(error: workflow.WorkflowConflict) -> Response:
 class CurrentWorkflowView(APIView):
     def get(self, request: Request) -> Response:
         run = workflow.current_run()
-        return Response({"workflow": workflow.build(run) if run else None})
+        return Response({"workflow": workflow.build(run, request) if run else None})
 
 
 class WorkflowDetailView(APIView):
     def get(self, request: Request, pk: int) -> Response:
         run = _workflow_run(pk)
-        return Response(workflow.build(run)) if run else _not_found()
+        return Response(workflow.build(run, request)) if run else _not_found()
 
 
 class WorkflowStepsView(APIView):
@@ -97,14 +97,14 @@ class WorkflowStepsView(APIView):
         run = _workflow_run(pk)
         if run is None:
             return _not_found()
-        data = workflow.build(run)
+        data = workflow.build(run, request)
         return Response({"state": data["state"], "current_step": data["current_step"], "steps": data["steps"]})
 
 
 class WorkflowPendingActionsView(APIView):
     def get(self, request: Request, pk: int) -> Response:
         run = _workflow_run(pk)
-        return Response(workflow.build(run)["pending_actions"]) if run else _not_found()
+        return Response(workflow.build(run, request)["pending_actions"]) if run else _not_found()
 
 
 class FinalizeWorkflowView(APIView):
@@ -116,7 +116,7 @@ class FinalizeWorkflowView(APIView):
             run = workflow.finalize(run)
         except workflow.WorkflowConflict as error:
             return _conflict(error)
-        return Response(workflow.build(run))
+        return Response(workflow.build(run, request))
 
 
 class LeaveUnsentView(APIView):
@@ -130,4 +130,4 @@ class LeaveUnsentView(APIView):
             return Response({"detail": "Item not found in this workflow.", "code": "not_found"}, status=status.HTTP_404_NOT_FOUND)
         except workflow.WorkflowConflict as error:
             return _conflict(error)
-        return Response(workflow.build(run))
+        return Response(workflow.build(run, request))

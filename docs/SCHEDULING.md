@@ -52,6 +52,17 @@ invocation while a run is active (scheduled or manual) does nothing and exits wi
 **Exit codes** (written to the log): `0` completed or partial · `1` failed (sync failed, or every
 draft failed) · `2` another run held the lease.
 
+## 1b. Sequence ticks (M09)
+
+Besides the daily cron run, the **worker** queues a sequence tick every 15 minutes
+(`SEQUENCE_TICK_MINUTES`) and after every successful sync. A tick enrolls eligible overdue
+invoices, records step outcomes (sent, rejected, task done) and drafts at most one due step per
+invoice. It never approves or sends. Each slot is queued once (idempotency key = slot start), so
+restarts and several workers are safe. Slots missed while no worker ran are not back-filled, and
+one tick moves each invoice forward by at most one step. Ticks and the daily run share the
+automation lease, so they never overlap. Without the worker, only the daily cron run advances
+sequences.
+
 ## 2. Prerequisites
 
 1. Backend installed with its virtualenv at `backend/.venv`, and `python manage.py migrate` run.

@@ -58,6 +58,15 @@ export function ApprovalQueue({ state, onOpen }: { state: Loadable<FollowUp[]>; 
                       Invoice changed — review
                     </span>
                   )}
+                  {draft.step && <span className="text-xs text-slate-500">Step {draft.step.order}</span>}
+                  {draft.approval.required_role === "APPROVER" && (
+                    <span
+                      className="rounded-md bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-800"
+                      title={draft.approval.reasons.join("; ")}
+                    >
+                      Needs approver
+                    </span>
+                  )}
                   <ToneBadge tone={draft.tone} />
                   <span className="text-xs font-medium text-indigo-600">Review →</span>
                 </div>

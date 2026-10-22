@@ -5,15 +5,18 @@ No database transaction is held open while waiting for Gemini; concurrent duplic
 prevented by re-checking under a lock at write time plus a partial unique constraint.
 """
 
+import datetime as dt
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from apps.accounts import approval
 from apps.automation import outbox
 from apps.invoices.models import Invoice
 from apps.timeline import services as timeline
@@ -70,6 +73,21 @@ class InvalidState(FollowUpError):
 class InvalidContent(FollowUpError):
     status_code = 400
     code = "invalid_content"
+
+
+class ApprovalForbidden(FollowUpError):
+    """Four-eyes refusal: 403 approver_required or self_approval."""
+
+    status_code = 403
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class SubjectLocked(FollowUpError):
+    status_code = 400
+    code = "subject_locked"
 
 
 class GenerationInProgress(FollowUpError):
@@ -147,6 +165,46 @@ def validate_ai_output(data: dict[str, Any], expected_tone: str) -> DraftContent
 # Generation -------------------------------------------------------------------
 
 
+@dataclass
+class DraftPlan:
+    """
+    What to draft for a sequence step, decided by the sequences app (never by the AI). The callbacks
+    let the sequence record the outcome: `on_created` runs inside the transaction that saves the
+    draft, `on_failed` after a failed attempt.
+    """
+
+    invoice_id: Any
+    enrollment_id: Any
+    step: Any
+    tone: str
+    thread_reply_to: Any
+    step_number: int
+    total_email_steps: int
+    previous_send_date: dt.date | None
+    manual: bool = False
+    on_created: Callable[[FollowUp], None] = lambda follow_up: None
+    on_failed: Callable[[], None] = lambda: None
+
+
+# The sequences app registers the planner that turns a person's "Analyze" into the invoice's next
+# sequence step. The dependency points from sequences to follow-ups, never the other way.
+_draft_planner: Any = None
+
+
+def register_draft_planner(planner: Any) -> None:
+    global _draft_planner
+    _draft_planner = planner
+
+
+REPLY_PREFIX = re.compile(r"^\s*((re|aw|fwd?)\s*:\s*)+", re.IGNORECASE)
+
+
+def reply_subject(root_subject: str) -> str:
+    """Gmail keeps a reply in the original thread only if the subject still matches it."""
+    subject = f"Re: {REPLY_PREFIX.sub('', root_subject).strip()}"
+    return subject[:SUBJECT_MAX_LENGTH]
+
+
 def check_can_generate(invoice: Invoice, *, regenerate: bool) -> FollowUp | None:
     """Raises if no draft may be generated now; returns the draft an explicit regeneration replaces."""
     reasons = ineligibility_reasons(invoice)
@@ -173,6 +231,8 @@ def request_generation(invoice_id: uuid.UUID, *, regenerate: bool, actor: Any) -
     """Checks the request now (cheap, no AI call) and queues generation for the worker."""
     invoice = Invoice.objects.get(pk=invoice_id)  # DoesNotExist -> 404 in the view
     check_can_generate(invoice, regenerate=regenerate)
+    if _draft_planner is not None:
+        _draft_planner.check(invoice, regenerate=regenerate)
     with transaction.atomic():
         if outbox.has_active(GENERATE_JOB_KIND, invoice_id=str(invoice.pk)):
             raise GenerationInProgress("A draft is already being generated for this invoice.")
@@ -204,14 +264,37 @@ class FollowUpGenerationService:
     def __init__(self, gemini: GeminiClient | None = None) -> None:
         self._gemini = gemini
 
-    def generate(self, invoice_id: uuid.UUID, *, regenerate: bool = False, actor: Any = None) -> FollowUp:
+    def generate(
+        self, invoice_id: uuid.UUID, *, regenerate: bool = False, actor: Any = None, plan: DraftPlan | None = None
+    ) -> FollowUp:
         invoice = Invoice.objects.select_related("client").get(pk=invoice_id)  # DoesNotExist -> 404 in the view
-        existing = check_can_generate(invoice, regenerate=regenerate)
+        try:
+            existing = check_can_generate(invoice, regenerate=regenerate)
+            if plan is None and _draft_planner is not None:
+                plan = _draft_planner.plan(invoice, regenerate=regenerate, actor=actor)
+        except FollowUpError:
+            # Refused before any AI call (not eligible, a draft already exists, sequence state):
+            # not a generation attempt.
+            if plan is not None:
+                plan.on_failed()
+            raise
+        try:
+            return self._generate(invoice, existing, plan, actor)
+        except Exception:
+            if plan is not None:
+                plan.on_failed()
+            raise
 
+    def _generate(self, invoice: Invoice, existing: FollowUp | None, plan: DraftPlan | None, actor: Any) -> FollowUp:
         days_overdue = invoice.days_overdue
-        tone = tone_for_days_overdue(days_overdue)
+        # A sequence step decides the tone; without sequences (legacy path) it follows days overdue.
+        tone = plan.tone if plan is not None else tone_for_days_overdue(days_overdue)
         snapshot = invoice_snapshot(invoice)
         model_name = ""
+        step_context: dict[str, Any] = {}
+        if plan is not None:
+            step_context = {"step_number": plan.step_number, "total_email_steps": plan.total_email_steps,
+                            "previous_send_date": plan.previous_send_date}
 
         # External call: deliberately outside any transaction.
         try:
@@ -219,7 +302,9 @@ class FollowUpGenerationService:
             model_name = gemini.model
             data = gemini.generate_json(
                 system_instruction=prompts.SYSTEM_INSTRUCTION,
-                prompt=prompts.build_prompt(prompts.build_context(invoice, days_overdue=days_overdue, tone=tone)),
+                prompt=prompts.build_prompt(
+                    prompts.build_context(invoice, days_overdue=days_overdue, tone=tone, **step_context)
+                ),
                 response_schema=prompts.response_schema(tone),
             )
             content = validate_ai_output(data, tone)
@@ -234,7 +319,7 @@ class FollowUpGenerationService:
             raise
 
         try:
-            follow_up = self._persist(invoice, snapshot, tone, content, model_name, existing, actor)
+            follow_up = self._persist(invoice, snapshot, tone, content, model_name, existing, actor, plan)
         except FollowUpError as exc:
             self._record_failure(invoice, exc, model_name, actor)
             raise
@@ -257,6 +342,7 @@ class FollowUpGenerationService:
         model_name: str,
         replacing: FollowUp | None,
         actor: Any,
+        plan: DraftPlan | None = None,
     ) -> FollowUp:
         try:
             with transaction.atomic():
@@ -279,9 +365,18 @@ class FollowUpGenerationService:
                     previous.transition_to(FollowUp.Status.REJECTED)
                     previous.save(update_fields=["status", "updated_at"])
 
+                # Eligibility is re-checked at write time: the invoice may have been paid meanwhile.
+                reasons = ineligibility_reasons(current)
+                if reasons:
+                    raise NotEligible(" ".join(reasons))
+                thread_parent = plan.thread_reply_to if plan is not None else None
+                subject = reply_subject(thread_parent.follow_up.subject) if thread_parent else content.subject
                 follow_up = FollowUp.objects.create(
                     invoice=current,
-                    subject=content.subject,
+                    enrollment_id=plan.enrollment_id if plan is not None else None,
+                    step=plan.step if plan is not None else None,
+                    thread_reply_to=thread_parent,
+                    subject=subject,
                     body=content.body,
                     tone=tone,
                     reasoning=content.reasoning,
@@ -299,7 +394,12 @@ class FollowUpGenerationService:
                     ai_model=model_name,
                     prompt_version=prompts.PROMPT_VERSION,
                     replaced_follow_up_id=str(replacing.pk) if replacing else None,
+                    sequence_step=plan.step_number if plan is not None else None,
+                    threaded=thread_parent is not None,
+                    manual=plan.manual if plan is not None else None,
                 )
+                if plan is not None:
+                    plan.on_created(follow_up)
                 return follow_up
         except IntegrityError:
             # The partial unique constraint caught a concurrent active follow-up.
@@ -324,7 +424,7 @@ class FollowUpGenerationService:
 
 
 def _locked(follow_up_id: uuid.UUID) -> FollowUp:
-    return FollowUp.objects.select_for_update().select_related("invoice").get(pk=follow_up_id)
+    return FollowUp.objects.select_for_update(of=("self",)).select_related("invoice", "step").get(pk=follow_up_id)
 
 
 def update_draft(follow_up_id: uuid.UUID, changes: dict[str, Any], *, actor: Any = None) -> FollowUp:
@@ -348,6 +448,11 @@ def update_draft(follow_up_id: uuid.UUID, changes: dict[str, Any], *, actor: Any
         follow_up = _locked(follow_up_id)
         if follow_up.status != FollowUp.Status.DRAFT:
             raise InvalidState(f"Only drafts can be edited; this follow-up is {follow_up.status}.")
+        if follow_up.thread_reply_to_id and "subject" in validated and validated["subject"] != follow_up.subject:
+            raise SubjectLocked(
+                "This reminder continues an earlier Gmail thread, so its subject must stay "
+                f'"{follow_up.subject}". Edit the body instead.'
+            )
         edited = [name for name, value in validated.items() if getattr(follow_up, name) != value]
         for name, value in validated.items():
             setattr(follow_up, name, value)
@@ -386,6 +491,12 @@ def approve(follow_up_id: uuid.UUID, *, actor: Any = None) -> FollowUp:
                 "Regenerate the reminder.",
                 changed_fields=changed,
             )
+
+        # Four-eyes: without an identifiable approver, only operator-level reminders can be approved.
+        blocked = approval.refusal(follow_up, actor)
+        if blocked is not None:
+            code, message = blocked
+            raise ApprovalForbidden(message, code=code)
 
         _conditional_transition(
             follow_up, FollowUp.Status.APPROVED,

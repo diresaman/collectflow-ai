@@ -158,7 +158,9 @@ class WorkerCommandTests(OutboxTestCase):
 
         call_command("run_worker", "--once", stdout=out)
 
-        self.assertIn("Ran 2 job(s).", out.getvalue())
+        # The two queued jobs plus the current 15-minute sequence tick slot.
+        self.assertIn("Ran 3 job(s).", out.getvalue())
+        self.assertEqual(OutboxJob.objects.get(kind="sequences.tick").status, "SUCCEEDED")
         self.assertEqual(sorted(calls), ["a", "b"])
         self.assertTrue(outbox.worker_alive())
         WorkerHeartbeat.objects.update(last_seen_at=timezone.now() - dt.timedelta(minutes=5))

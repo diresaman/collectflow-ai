@@ -17,7 +17,7 @@ from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -61,13 +61,17 @@ def enqueue(
     existing = OutboxJob.objects.filter(idempotency_key=key).first()
     if existing is not None:
         return existing
-    return OutboxJob.objects.create(
-        kind=kind,
-        payload=payload,
-        idempotency_key=key,
-        max_attempts=max_attempts or settings.JOB_MAX_ATTEMPTS,
-        created_by=created_by if getattr(created_by, "is_authenticated", False) else None,
-    )
+    try:
+        with transaction.atomic():  # savepoint: a concurrent enqueue of the same key may win
+            return OutboxJob.objects.create(
+                kind=kind,
+                payload=payload,
+                idempotency_key=key,
+                max_attempts=max_attempts or settings.JOB_MAX_ATTEMPTS,
+                created_by=created_by if getattr(created_by, "is_authenticated", False) else None,
+            )
+    except IntegrityError:
+        return OutboxJob.objects.get(idempotency_key=key)
 
 
 def has_active(kind: str, **payload: Any) -> bool:

@@ -112,7 +112,7 @@ def _step(key: str, status: str, started: dt.datetime | None, completed: dt.date
     }
 
 
-def build(run: AutomationRun) -> dict[str, Any]:
+def build(run: AutomationRun, request: Any = None) -> dict[str, Any]:
     stored = {step.key: step for step in run.workflow_steps.all()}
     tracked = tracked_follow_ups(run)
     processing = run.status == AutomationRun.Status.RUNNING
@@ -225,7 +225,7 @@ def build(run: AutomationRun) -> dict[str, Any]:
         current_step = "FINALIZING"
 
     def entry(t: Tracked) -> dict[str, Any]:
-        return {"item_id": t.item.pk, "follow_up": FollowUpSerializer(t.follow_up).data}
+        return {"item_id": t.item.pk, "follow_up": FollowUpSerializer(t.follow_up, context={"request": request}).data}
 
     attention = [
         {

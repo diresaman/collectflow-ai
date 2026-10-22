@@ -6,6 +6,7 @@ All environment-specific values are read from environment variables. A local
 """
 
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -58,6 +59,8 @@ INSTALLED_APPS = [
     "apps.timeline",
     "apps.invoices",
     "apps.followups",
+    "apps.sequences",
+    "apps.inbox",
     "apps.automation",
 ]
 
@@ -259,3 +262,17 @@ JOB_LOCK_TIMEOUT_SECONDS = int(os.environ.get("JOB_LOCK_TIMEOUT_SECONDS", "900")
 JOB_MAX_ATTEMPTS = int(os.environ.get("JOB_MAX_ATTEMPTS", "3"))
 # First retry delay; doubles on every further attempt.
 JOB_RETRY_BASE_SECONDS = int(os.environ.get("JOB_RETRY_BASE_SECONDS", "30"))
+
+
+# Sequences and approval
+# ------------------------------------------------------------------------------
+
+# Reminders for invoices at or above this amount (in the invoice's own currency) need an APPROVER
+# who is not the last editor (four-eyes rule).
+HIGH_VALUE_THRESHOLD = Decimal(os.environ.get("HIGH_VALUE_THRESHOLD", "5000"))
+# Minutes between scheduled sequence ticks (enqueued by run_worker).
+SEQUENCE_TICK_MINUTES = int(os.environ.get("SEQUENCE_TICK_MINUTES", "15"))
+# A draft still "being generated" after this long is treated as abandoned and retried.
+SEQUENCE_DRAFTING_TIMEOUT_SECONDS = int(os.environ.get("SEQUENCE_DRAFTING_TIMEOUT_SECONDS", "900"))
+# Hours without a successful sync before the dashboard flags the data as stale.
+STALE_DATA_HOURS = int(os.environ.get("STALE_DATA_HOURS", "26"))

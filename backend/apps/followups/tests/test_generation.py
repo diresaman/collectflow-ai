@@ -39,15 +39,17 @@ class GenerationSuccessTests(TestCase):
         self.assertEqual(GenerationAttempt.objects.get().outcome, "SUCCEEDED")
 
     def test_backend_selects_tone_and_sends_minimal_context(self) -> None:
+        # A never-contacted invoice starts at sequence step 1 (friendly), however overdue it is.
         invoice = overdue_invoice(days=20)
-        gemini = FakeGemini(ai_output("FIRM"))
+        gemini = FakeGemini(ai_output("FRIENDLY"))
 
         follow_up = generate(invoice, gemini)
 
-        self.assertEqual(follow_up.tone, "FIRM")
+        self.assertEqual((follow_up.tone, follow_up.step.order, follow_up.prompt_version), ("FRIENDLY", 1, "draft-v2"))
         call = gemini.calls[0]
-        self.assertEqual(call["response_schema"]["properties"]["tone"]["enum"], ["FIRM"])
+        self.assertEqual(call["response_schema"]["properties"]["tone"]["enum"], ["FRIENDLY"])
         self.assertIn('"days_overdue": 20', call["prompt"])
+        self.assertIn('"sequence_step": 1', call["prompt"])
         self.assertIn("<invoice_data>", call["prompt"])
         self.assertNotIn("billing@fictional.test", call["prompt"])  # email is not sent to the model
         self.assertIn("untrusted data", call["system_instruction"])

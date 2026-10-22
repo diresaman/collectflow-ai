@@ -294,6 +294,10 @@ records the acting user, or `SYSTEM` / `SCHEDULER`. A database trigger rejects `
 | `JOB_LOCK_TIMEOUT_SECONDS`       | `900`                    | A RUNNING job older than this is treated as abandoned.        |
 | `JOB_MAX_ATTEMPTS`               | `3`                      | Attempts for retryable jobs (delivery always 1).               |
 | `JOB_RETRY_BASE_SECONDS`         | `30`                     | First retry delay; doubles each attempt.                       |
+| `HIGH_VALUE_THRESHOLD`           | `5000`                   | Amount (invoice currency) from which an approver must approve. |
+| `SEQUENCE_TICK_MINUTES`          | `15`                     | Interval of the worker's scheduled sequence tick.              |
+| `SEQUENCE_DRAFTING_TIMEOUT_SECONDS` | `900`                 | A step "being drafted" longer than this is retried.            |
+| `STALE_DATA_HOURS`               | `26`                     | Dashboard warns when the last successful sync is older.        |
 
 ## Google Sheets setup
 
@@ -341,11 +345,10 @@ An invoice is **eligible** for a reminder only if it was present in the latest s
 sync, it is `UNPAID`, its due date is **before today** (due today is not overdue), its email is
 valid and its amount is positive. "Today" follows `DJANGO_TIME_ZONE`.
 
-| Days overdue | Tone           |
-| ------------ | -------------- |
-| 1–7          | `FRIENDLY`     |
-| 8–14         | `PROFESSIONAL` |
-| 15+          | `FIRM`         |
+The **tone comes from the invoice's collection-sequence step** (see
+[Collection sequences](#collection-sequences)), not from the AI and no longer from days overdue:
+a never-contacted invoice starts at step 1 (friendly) however overdue it is. Drafts written before
+sequences existed keep their stored tone.
 
 ### Generation workflow
 
@@ -512,6 +515,58 @@ Nothing is ever resent automatically. After `--failed`, draft a new reminder to 
 - In production (`DEBUG=false`) an empty `GMAIL_ALLOWED_RECIPIENTS` means any recipient is
   allowed.
 
+## Collection sequences
+
+Each overdue invoice follows a **versioned sequence** of steps. The default ("Standard
+collection" v1, seeded by migration):
+
+| Step | Due | Channel | Tone | Approval |
+| --- | --- | --- | --- | --- |
+| 1 | due date + 1 day | email | friendly | operator |
+| 2 | due date + 8 days | email (same Gmail thread) | professional | operator |
+| 3 | due date + 15 days | email (same Gmail thread) | firm | **approver** (four-eyes) |
+| 4 | due date + 30 days | call task for a person | — | — |
+
+- **Enrollment:** after every successful sync, eligible overdue invoices are enrolled in the
+  default sequence (one live enrollment per invoice, enforced by a partial unique index). Paid
+  invoices and invoices removed from the sheet leave their sequence (`EXITED`).
+- **Progression is deterministic.** An enrollment records the last *completed* step and the
+  *pending* step. A step completes only when its reminder is `SENT`, a person `REJECTED` its
+  draft, or its call task is done. Creating a draft does not complete a step. `DRAFT`,
+  `APPROVED` and `SENDING` wait; `DELIVERY_UNKNOWN` and `FAILED` hold the sequence until a person
+  reconciles or re-drafts. The next step is due at due date + offset, never earlier than the last
+  send + `FOLLOWUP_COOLDOWN_DAYS`. A tick advances an enrollment by **at most one new step**, so a
+  machine that was off for days never produces a burst.
+- **Existing history** (reminders sent before sequences): the position comes from the reminders
+  actually sent. If their tones match the first steps, the invoice continues after them. If not
+  (e.g. v1 sent a *professional* first reminder), the enrollment is **flagged for review**. It
+  keeps going only if the next step is neither firm nor approver-only; otherwise it is **paused**
+  until an approver confirms the position. An ambiguous history never moves an invoice into a
+  firm reminder automatically. Historical follow-ups are never modified.
+- **Threading:** step 2 onward replies in the Gmail thread of the last sent reminder. CollectFlow
+  sets its own `Message-ID` on every send and adds `In-Reply-To`/`References` plus Gmail's
+  `threadId`. The subject is fixed to `Re: <original subject>` (Gmail requires it to keep the
+  thread), so editing a threaded draft's subject is refused (`400 subject_locked`).
+- **Four-eyes approval:** a firm tone, a step marked "approver required", or an amount at or above
+  `HIGH_VALUE_THRESHOLD` (default 5,000, in the invoice's currency) needs an **APPROVER who is not
+  the reminder's last editor** (`403 approver_required` / `403 self_approval`). The API returns an
+  `approval` block on each follow-up so the UI says *why* approval is unavailable.
+- **Manual drafting:** "Draft step N" (`POST /api/invoices/{id}/analyze/`) drafts the invoice's
+  next step, enrolling it first if needed, even before the step is due. It still refuses a
+  pending step, an unknown delivery, a paused sequence or a pending history review.
+- **Scheduling:** the worker queues a `sequences.tick` job every 15 minutes
+  (`SEQUENCE_TICK_MINUTES`). The idempotency key is the slot start, so restarts and parallel
+  workers never queue a slot twice, and missed slots are not back-filled. A successful sync also
+  queues a tick. Ticks run under the automation lease (never in parallel with a run or another
+  tick), lock each enrollment with `SELECT … FOR UPDATE SKIP LOCKED`, and call Gemini only after
+  that transaction commits. **A tick never approves and never sends.**
+- **Commands:** `python manage.py tick_sequences [--dry-run]`; `run_automation --dry-run` shows
+  the next step per invoice.
+- **UI:** the invoice table shows each invoice's step and why it is held. The drawer shows the step
+  strip, pause/resume and the history review (approvers). `/sequences` shows versions on a
+  day timeline with enrollment counts, and admins can save a new version. Open call tasks appear
+  on the dashboard.
+
 ## Proactive automation
 
 ### Architecture
@@ -523,12 +578,12 @@ adds no new business logic of its own:
 2. **Sync:** `sync_invoices()` (Milestone 02) records its own `SYNC` run. If it fails, the
    automation run is `FAILED` and **no invoice is evaluated**. Drafts are never generated from a
    failed sync.
-3. **Evaluate:** every invoice is checked against the policy below, and one
-   `AutomationRunItem` is recorded per invoice (`GENERATED` / `SKIPPED` / `FAILED` plus a
-   `reason_code`).
-4. **Draft:** for eligible invoices, `FollowUpGenerationService.generate()` (Milestone 03) is
-   called, up to `AUTOMATION_MAX_DRAFTS_PER_RUN`. A Gemini failure is recorded on that invoice's
-   item and the run continues.
+3. **Evaluate:** sequence enrollments are reconciled with the synced invoices (enroll eligible
+   overdue invoices; exit paid or removed ones).
+4. **Draft:** the sequence tick advances each due enrollment by at most one step (an AI draft or
+   a call task), up to `AUTOMATION_MAX_DRAFTS_PER_RUN` drafts. One `AutomationRunItem` is recorded
+   per invoice (`GENERATED` / `SKIPPED` / `FAILED` plus a `reason_code`). A Gemini failure leaves
+   the step pending for the next tick, and the run continues.
 5. **Finish:** the run ends `COMPLETED` (no failures), `PARTIAL` (some drafts failed, some
    succeeded) or `FAILED` (sync failed, every draft failed, or the run was interrupted).
 
@@ -539,8 +594,8 @@ Gemini requests are bounded (30s timeout, short retry window).
 
 ### Eligibility policy (deterministic)
 
-An invoice gets a new draft only if none of these apply; the first match is the item's
-`reason_code`:
+Each invoice's run item explains what happened to it; the sequence rules above decide. Reason
+codes:
 
 | Reason code | Rule |
 | --- | --- |
@@ -548,9 +603,11 @@ An invoice gets a new draft only if none of these apply; the first match is the 
 | `draft_awaiting_review` / `approved_awaiting_send` | An active draft or approved reminder already exists. |
 | `delivery_unresolved` | A delivery is `SENDING` or `DELIVERY_UNKNOWN` (reconcile it first). |
 | `not_in_sheet` / `not_unpaid` / `not_overdue` / `invalid_recipient` / `invalid_amount` | Invoice rules shared with manual generation (in the latest sync, unpaid, due **before** today, valid email, amount > 0). |
-| `delivery_failed` | The most recent reminder's delivery `FAILED`; operator attention needed (draft a new one manually). |
-| `cooldown` | A reminder was confirmed `SENT` less than `FOLLOWUP_COOLDOWN_DAYS` (default 7) ago. |
-| `recently_rejected` | The operator rejected the most recent draft within the cooldown period. |
+| `delivery_failed` | The pending step's delivery `FAILED`; draft the step again. |
+| `cooldown` / `not_due` | The next step is not due yet (cooldown after the last send, or the step's offset). |
+| `recently_rejected` | A pre-sequence draft was rejected within the cooldown period. |
+| `history_review` / `sequence_paused` / `sequence_completed` / `sequence_exited` | The invoice's sequence is paused for review, paused by a person, finished, or ended. |
+| `task_created` / `task_open` | The call step created its task / the task is still open. |
 | `run_limit_reached` | The run already generated `AUTOMATION_MAX_DRAFTS_PER_RUN` drafts. |
 
 Failures use the generation error codes (`ai_unavailable`, `ai_bad_response`,
@@ -807,6 +864,13 @@ provider queue a job and return `202`; poll `GET /api/jobs/{id}/`.
 | GET    | `/api/me/`               | Current user: `username`, `display_name`, `email`, `role`                   |
 | GET    | `/api/jobs/{id}/`        | Job `status` (`PENDING`/`RUNNING`/`SUCCEEDED`/`FAILED`), `result`, `error_code`, `worker_alive` |
 | GET    | `/api/timeline/`         | Append-only events, newest first, paginated. Filters: `?invoice=<id>`, `?client=<id>` |
+| GET/POST | `/api/sequences/`      | Versions with steps and enrollment counts. POST (ADMIN): `{name, steps, make_default}` creates a new version (2–5 steps) |
+| GET    | `/api/sequences/{id}/`   | One version |
+| GET    | `/api/enrollments/`      | Filters: `?invoice=`, `?status=`, `?review_required=true`; each with its step states |
+| POST   | `/api/enrollments/{id}/pause/`, `/resume/` | Pause with `{reason}` / resume. `409` on the wrong status |
+| POST   | `/api/enrollments/{id}/review/` | APPROVER: `{last_completed_step, note}` confirms the position after a history review |
+| GET    | `/api/tasks/`            | Tasks; `?open=true`, `?invoice=` |
+| POST   | `/api/tasks/{id}/done/`  | Mark done (idempotent); completes a call step on the next tick |
 | POST   | `/api/sync/`             | `202 {run_id, job_id, run}`; the worker syncs. Read the run for `SUCCEEDED` / `FAILED` with row errors |
 | GET    | `/api/invoices/`         | List of invoices, including `is_overdue` and `days_overdue`                  |
 | GET    | `/api/invoices/{id}/`    | A single invoice (UUID)                                                      |
@@ -819,7 +883,7 @@ provider queue a job and return `202`; poll `GET /api/jobs/{id}/`.
 | GET    | `/api/follow-ups/`       | Follow-ups, newest first. Filters: `?invoice=<id>`, `?status=DRAFT`              |
 | GET    | `/api/follow-ups/{id}/`  | A single follow-up                                                               |
 | PATCH  | `/api/follow-ups/{id}/`  | Edit `subject` / `body` of a draft. `400` invalid content; `409` not a draft      |
-| POST   | `/api/follow-ups/{id}/approve/` | `DRAFT → APPROVED` (no email is sent). `409` wrong status or stale invoice |
+| POST   | `/api/follow-ups/{id}/approve/` | `DRAFT → APPROVED` (no email is sent). `409` wrong status or stale invoice; `403 approver_required` / `403 self_approval` (four-eyes) |
 | POST   | `/api/follow-ups/{id}/reject/`  | `DRAFT → REJECTED`, or withdraw an unsent approval (`APPROVED → REJECTED`). `409` wrong status |
 | POST   | `/api/follow-ups/{id}/send/`    | Reserve and queue delivery. `202 {job_id, follow_up, delivery_attempt}` · `409` wrong state/stale/duplicate · `400` invalid content · `503` Gmail not configured. The outcome lands on the follow-up and attempt (see Delivery flow) |
 | GET    | `/api/follow-ups/{id}/delivery-attempts/` | Delivery attempts, newest first                                  |

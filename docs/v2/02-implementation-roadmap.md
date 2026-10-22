@@ -9,8 +9,8 @@ continue the repository's commit history.
 | --- | --- | --- | --- | --- | --- |
 | 01 Foundation and architecture | M08 | Sessions and roles, outbox and worker, timeline, clients | P0 | — | **Done** (`676b43c`) |
 | 01 Foundation: PostgreSQL migration | M08.1 | PostgreSQL 16, Docker Compose, SKIP LOCKED, SQLite → PostgreSQL transfer | P0 | — | **Done**: data cut over and verified 2026-10-22 |
-| 02 Sequences, threading, four-eyes | M09 | Sequence engine, tick, threaded send, approval policy, call tasks | P0 | 7–8 h | **Next** |
-| 03 Reply ingestion and classification | M10 | Gmail read, poll, classify, triage, health page | P0 | 6–7 h | |
+| 02 Sequences, threading, four-eyes | M09 | Sequence engine, tick, threaded send, approval policy, call tasks | P0 | 7–8 h | **Done** (see `05-m09-implementation-report.md`); live threading check awaits authorization |
+| 03 Reply ingestion and classification | M10 | Gmail read, poll, classify, triage, health page | P0 | 6–7 h | **Next** |
 | 04 Promises, disputes, tasks | M11 | Promise lifecycle, dispute lock, all task kinds, daily promise check | P0 | 4–5 h | |
 | 05 Closed-loop UI and P0 gate | M12 | Invoice detail, approvals, sequence editor, explicit unavailable states, P0 demo | P0 | 4–5 h | |
 | 06 Risk and worklist | M13 | Client metrics, risk score, Today page, `/clients` | P1 | 3–4 h | |

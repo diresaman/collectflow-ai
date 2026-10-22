@@ -44,6 +44,8 @@ export function DraftEditor({
   const [error, setError] = useState<string | null>(null);
 
   const dirty = subject !== followUp.subject || body !== followUp.body;
+  // Four-eyes: the backend refuses these approvals; say why instead of a silently disabled button.
+  const approvalBlocked = followUp.approval.blocked_for_you;
   const validationError = dirty ? validate(subject, body) : null;
   const disabled = busy !== null || regenerating;
 
@@ -77,8 +79,16 @@ export function DraftEditor({
           onChange={(event) => setSubject(event.target.value)}
           maxLength={SUBJECT_MAX_LENGTH}
           disabled={disabled}
-          className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-50"
+          readOnly={followUp.threaded}
+          aria-describedby={followUp.threaded ? `${fieldId}-subject-note` : undefined}
+          className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm read-only:bg-slate-50 read-only:text-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-50"
         />
+        {followUp.threaded && (
+          <p id={`${fieldId}-subject-note`} className="mt-1 text-xs text-slate-500">
+            This reminder continues the earlier Gmail conversation, so its subject stays the same. Edit the message
+            instead.
+          </p>
+        )}
       </div>
 
       <div>
@@ -101,6 +111,12 @@ export function DraftEditor({
         />
       </div>
 
+      {followUp.approval.required_role === "APPROVER" && (
+        <p className="rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-900">
+          <span className="font-semibold">Needs an approver</span> other than the last editor:{" "}
+          {followUp.approval.reasons.join("; ")}.
+        </p>
+      )}
       {validationError && <p className="text-sm text-rose-600">{validationError}</p>}
       {error && <ErrorMessage message={error} />}
 
@@ -134,7 +150,8 @@ export function DraftEditor({
             <button
               type="button"
               onClick={() => void run("approve")}
-              disabled={disabled}
+              disabled={disabled || approvalBlocked !== null}
+              aria-describedby={approvalBlocked ? `${fieldId}-approval-blocked` : undefined}
               className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy === "approve" && <Spinner />}
@@ -161,6 +178,11 @@ export function DraftEditor({
           </>
         )}
       </div>
+      {approvalBlocked && !dirty && (
+        <p id={`${fieldId}-approval-blocked`} className="text-sm text-slate-700">
+          <span className="font-medium">You can&apos;t approve this:</span> {approvalBlocked.detail}
+        </p>
+      )}
       <p className="text-xs text-slate-500">
         Approving marks this reminder as ready. It does <span className="font-medium">not</span> send an email.
       </p>

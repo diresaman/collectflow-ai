@@ -156,6 +156,34 @@ class SendTests(SimpleTestCase):
         self.assertEqual((parsed["From"], parsed["To"]), (SENDER, "client@example.test"))
         self.send_request(build).return_value.execute.assert_called_once_with(num_retries=0)
 
+    def test_threaded_send_sets_thread_id_and_reply_headers(self, build: mock.Mock) -> None:
+        self.send_request(build).return_value.execute.return_value = {"id": "m-2", "threadId": "t-1"}
+
+        self.gmail_client().send(
+            recipient="client@example.test", subject="Re: Invoice INV-1", body="Following up.",
+            message_id="<step2@example.test>", thread_id="t-1", in_reply_to="<step1@example.test>",
+            references="<step1@example.test>",
+        )
+
+        body = self.send_request(build).call_args.kwargs["body"]
+        self.assertEqual(body["threadId"], "t-1")
+        parsed = message_from_bytes(base64.urlsafe_b64decode(body["raw"]))
+        self.assertEqual(
+            (parsed["Message-ID"], parsed["In-Reply-To"], parsed["References"], parsed["Subject"]),
+            ("<step2@example.test>", "<step1@example.test>", "<step1@example.test>", "Re: Invoice INV-1"),
+        )
+
+    def test_first_message_has_no_thread_or_reply_headers(self, build: mock.Mock) -> None:
+        self.send_request(build).return_value.execute.return_value = {"id": "m-1", "threadId": "t-1"}
+        self.gmail_client().send(recipient="client@example.test", subject="Invoice INV-1", body="Please pay.",
+                                 message_id="<step1@example.test>")
+        body = self.send_request(build).call_args.kwargs["body"]
+        self.assertNotIn("threadId", body)
+        parsed = message_from_bytes(base64.urlsafe_b64decode(body["raw"]))
+        self.assertEqual(parsed["Message-ID"], "<step1@example.test>")
+        self.assertIsNone(parsed["In-Reply-To"])
+        self.assertIsNone(parsed["References"])
+
     def test_send_requires_readiness_check(self, build: mock.Mock) -> None:
         with self.assertRaises(GmailNotReady):
             GmailClient(token_file="/tmp/t.json", sender_email=SENDER).send(recipient="a@b.test", subject="s", body="b")

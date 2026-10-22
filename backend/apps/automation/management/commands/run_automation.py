@@ -29,11 +29,14 @@ class Command(BaseCommand):
         if options["dry_run"]:
             planned = orchestrator.plan()
             for item in planned:
-                suffix = f" ({item.reason_code})" if item.reason_code else ""
+                code = item.reason_code or item.detail
+                suffix = f" ({code})" if code else ""
                 self.stdout.write(f"  {item.invoice_external_id}: {item.outcome}{suffix}")
             would = sum(1 for item in planned if item.outcome == "WOULD_GENERATE")
+            tasks = sum(1 for item in planned if item.outcome == "WOULD_CREATE_TASK")
             self.stdout.write(
-                self.style.SUCCESS(f"Dry run: {len(planned)} invoices evaluated, {would} would get a draft. Nothing was changed.")
+                self.style.SUCCESS(f"Dry run: {len(planned)} invoices evaluated, {would} would get a draft, {tasks} a call task. "
+                               "Nothing was changed.")
             )
             return
 

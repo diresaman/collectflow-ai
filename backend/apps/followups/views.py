@@ -49,7 +49,7 @@ class FollowUpListView(generics.ListAPIView):
     serializer_class = FollowUpSerializer
 
     def get_queryset(self) -> QuerySet[FollowUp]:
-        queryset = FollowUp.objects.select_related("invoice")
+        queryset = FollowUp.objects.select_related("invoice", "step", "last_edited_by", "approved_by")
         invoice_id = self.request.query_params.get("invoice")
         if invoice_id:
             try:
@@ -67,34 +67,34 @@ class FollowUpDetailView(APIView):
         follow_up = FollowUp.objects.select_related("invoice").filter(pk=pk).first()
         if follow_up is None:
             return not_found("Follow-up")
-        return Response(FollowUpSerializer(follow_up).data)
+        return Response(FollowUpSerializer(follow_up, context={"request": request}).data)
 
     def patch(self, request: Request, pk: uuid.UUID) -> Response:
         if not isinstance(request.data, dict):
             return Response(
                 {"detail": "Expected a JSON object.", "code": "invalid_input"}, status=status.HTTP_400_BAD_REQUEST
             )
-        return _run(lambda: services.update_draft(pk, dict(request.data), actor=request.user))
+        return _run(lambda: services.update_draft(pk, dict(request.data), actor=request.user), request)
 
 
-def _run(action: Any) -> Response:
+def _run(action: Any, request: Request) -> Response:
     try:
         follow_up = action()
     except FollowUp.DoesNotExist:
         return not_found("Follow-up")
     except services.FollowUpError as error:
         return error_response(error)
-    return Response(FollowUpSerializer(follow_up).data)
+    return Response(FollowUpSerializer(follow_up, context={"request": request}).data)
 
 
 class ApproveFollowUpView(APIView):
     def post(self, request: Request, pk: uuid.UUID) -> Response:
-        return _run(lambda: services.approve(pk, actor=request.user))
+        return _run(lambda: services.approve(pk, actor=request.user), request)
 
 
 class RejectFollowUpView(APIView):
     def post(self, request: Request, pk: uuid.UUID) -> Response:
-        return _run(lambda: services.reject(pk, actor=request.user))
+        return _run(lambda: services.reject(pk, actor=request.user), request)
 
 
 # Delivery ---------------------------------------------------------------------
@@ -121,7 +121,7 @@ class SendFollowUpView(APIView):
                 "code": "queued",
                 "detail": "Queued for delivery through Gmail. Do not resend while it is in progress.",
                 "job_id": str(job.pk),
-                "follow_up": FollowUpSerializer(follow_up).data,
+                "follow_up": FollowUpSerializer(follow_up, context={"request": request}).data,
                 "delivery_attempt": DeliveryAttemptSerializer(attempt).data,
             },
             status=status.HTTP_202_ACCEPTED,

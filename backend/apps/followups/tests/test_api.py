@@ -33,7 +33,7 @@ class AnalyzeEndpointTests(SessionApiTestCase):
 
     def test_generation_is_queued_and_the_job_reports_the_draft(self) -> None:
         invoice = overdue_invoice(days=10)
-        gemini = FakeGemini(ai_output("PROFESSIONAL"))
+        gemini = FakeGemini(ai_output("FRIENDLY"))
         with patch_gemini(gemini):
             response = self.analyze(invoice.pk)
             self.assertEqual(response.status_code, 202)
@@ -44,7 +44,9 @@ class AnalyzeEndpointTests(SessionApiTestCase):
         job = self.job(response)
         self.assertEqual(job["status"], "SUCCEEDED")
         follow_up = FollowUp.objects.get(pk=job["result"]["follow_up_id"])
-        self.assertEqual((follow_up.status, follow_up.tone, follow_up.prompt_version), ("DRAFT", "PROFESSIONAL", "draft-v1"))
+        # Never contacted: sequence step 1, friendly, however overdue the invoice is.
+        self.assertEqual((follow_up.status, follow_up.tone, follow_up.prompt_version), ("DRAFT", "FRIENDLY", "draft-v2"))
+        self.assertEqual((follow_up.step.order, follow_up.enrollment.status), (1, "ACTIVE"))
         event = TimelineEvent.objects.get(type="DRAFT_GENERATED")
         self.assertEqual((event.actor, event.invoice_id, event.payload["follow_up_id"]), (self.user, invoice.pk, str(follow_up.pk)))
 

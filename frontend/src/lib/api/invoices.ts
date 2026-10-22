@@ -3,6 +3,25 @@ import { waitForJob } from "./jobs";
 
 export type InvoiceStatus = "UNPAID" | "PAID";
 
+export type EnrollmentStatus = "ACTIVE" | "PAUSED" | "COMPLETED" | "EXITED";
+
+/** The invoice's latest sequence enrollment. */
+export type EnrollmentSummary = {
+  id: string;
+  status: EnrollmentStatus;
+  last_completed_step: number;
+  pending_step: number | null;
+  next_step: number;
+  total_steps: number;
+  next_action_at: string | null;
+  /** e.g. delivery_unknown, delivery_failed: why progress is held. */
+  blocked_reason: string;
+  pause_reason: string;
+  exit_reason: string;
+  review_required: boolean;
+  review_reason: string;
+};
+
 export type Invoice = {
   id: string;
   external_id: string;
@@ -17,6 +36,8 @@ export type Invoice = {
   is_overdue: boolean;
   days_overdue: number;
   last_synced_at: string;
+  in_sheet: boolean;
+  enrollment: EnrollmentSummary | null;
 };
 
 export type CurrencyAmount = {
@@ -31,6 +52,10 @@ export type DashboardSummary = {
   outstanding_amounts_by_currency: CurrencyAmount[];
   overdue_amounts_by_currency: CurrencyAmount[];
   expected_columns: string[];
+  last_successful_sync_at: string | null;
+  /** No successful sync for `stale_after_hours`: sequences keep running on the last good data. */
+  stale: boolean;
+  stale_after_hours: number;
 };
 
 export type SyncRowError = {
@@ -72,6 +97,21 @@ const isArrayOf =
   (value: unknown): value is T[] =>
     Array.isArray(value) && value.every(check);
 
+export function isEnrollmentSummary(value: unknown): value is EnrollmentSummary {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    ["ACTIVE", "PAUSED", "COMPLETED", "EXITED"].includes(value.status as string) &&
+    isNumber(value.last_completed_step) &&
+    isNullable(isNumber)(value.pending_step) &&
+    isNumber(value.next_step) &&
+    isNumber(value.total_steps) &&
+    isNullable(isString)(value.next_action_at) &&
+    ["blocked_reason", "pause_reason", "exit_reason", "review_reason"].every((key) => isString(value[key])) &&
+    typeof value.review_required === "boolean"
+  );
+}
+
 function isInvoice(value: unknown): value is Invoice {
   return (
     isRecord(value) &&
@@ -85,7 +125,9 @@ function isInvoice(value: unknown): value is Invoice {
     (value.status === "UNPAID" || value.status === "PAID") &&
     typeof value.is_overdue === "boolean" &&
     isNumber(value.days_overdue) &&
-    isString(value.last_synced_at)
+    isString(value.last_synced_at) &&
+    typeof value.in_sheet === "boolean" &&
+    isNullable(isEnrollmentSummary)(value.enrollment)
   );
 }
 
@@ -101,7 +143,10 @@ function isDashboardSummary(value: unknown): value is DashboardSummary {
     isNumber(value.overdue_invoices) &&
     isArrayOf(isCurrencyAmount)(value.outstanding_amounts_by_currency) &&
     isArrayOf(isCurrencyAmount)(value.overdue_amounts_by_currency) &&
-    isArrayOf(isString)(value.expected_columns)
+    isArrayOf(isString)(value.expected_columns) &&
+    isNullable(isString)(value.last_successful_sync_at) &&
+    typeof value.stale === "boolean" &&
+    isNumber(value.stale_after_hours)
   );
 }
 

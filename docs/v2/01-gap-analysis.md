@@ -17,27 +17,27 @@ document.
 | --- | --- | --- | --- |
 | 1 | Sheet sync, validation, all-or-nothing (§3, §4) | IMPLEMENTED | — |
 | 2 | Sync status history on the timeline (§4) | IMPLEMENTED | — |
-| 3 | Removed rows: kept, `not_in_sheet`, exit sequence (§4) | PARTIAL (exit part needs sequences) | 02 |
+| 3 | Removed rows: kept, `not_in_sheet`, exit sequence (§4) | IMPLEMENTED (M09) | 02 |
 | 4 | Clients grouped by email (§5) | PARTIAL (no metrics) | 06 |
 | 5 | Session login, roles, CSRF, rate limit (§8, §11) | IMPLEMENTED | — |
-| 6 | Four-eyes approval (§6) | MISSING | 02 |
+| 6 | Four-eyes approval (§6) | IMPLEMENTED (M09; statements join in Phase 07) | 02 |
 | 7 | Transactional outbox and worker (§7) | IMPLEMENTED (SKIP LOCKED claiming since M08.1) | — |
 | 8 | PostgreSQL 16, Docker Compose (§9) | IMPLEMENTED in M08.1 (data cut over and verified) | 01 (M08.1) |
 | 9 | Append-only timeline (§5, §11) | IMPLEMENTED for sync, draft and send events; new event types per phase | 02–04 |
-| 10 | Sequences, steps, enrollments, versioning (§3, §6) | MISSING | 02 |
-| 11 | Sequence tick, one step per tick, cooldown (§6, §7B) | MISSING | 02 |
-| 12 | Gemini draft with sequence context (§7C) | REQUIRES MIGRATION (tone source changes) | 02 |
-| 13 | Threaded Gmail delivery (§6) | MISSING | 02 |
-| 14 | Tasks (§5) | MISSING | 02 (model), 04 (all kinds) |
+| 10 | Sequences, steps, enrollments, versioning (§3, §6) | IMPLEMENTED (M09) | 02 |
+| 11 | Sequence tick, one step per tick, cooldown (§6, §7B) | IMPLEMENTED (M09) | 02 |
+| 12 | Gemini draft with sequence context (§7C) | IMPLEMENTED (`draft-v2`; broken-promise date in Phase 04) | 02 |
+| 13 | Threaded Gmail delivery (§6) | IMPLEMENTED (automated tests); live check awaits authorization | 02 |
+| 14 | Tasks (§5) | PARTIAL (M09: model, CALL tasks, API; other kinds in Phases 03/04) | 02, 04 |
 | 15 | Gmail read scope and reply polling (§4, §7E) | MISSING | 03 |
 | 16 | Reply classification and triage (§6, §7F) | MISSING | 03 |
 | 17 | Promise-to-pay (§6, §7G) | MISSING | 04 |
 | 18 | Dispute cases (§6) | MISSING | 04 |
-| 19 | Closed-loop UI routes (§10) | PARTIAL | 02–05 |
+| 19 | Closed-loop UI routes (§10) | PARTIAL (M09 adds `/sequences`, sequence panel, tasks, approval reasons) | 02–05 |
 | 20 | Client metrics, risk score, worklist (§3, §6) | MISSING | 06 |
 | 21 | Statement emails (§3) | MISSING | 07 |
 | 22 | Aging, DSO, CEI, attribution, forecast (§3, §7H) | MISSING | 07 |
-| 23 | Scheduling: daily run, 15-minute tick, 5-minute poll (§7J) | PARTIAL (daily run only) | 02, 03 |
+| 23 | Scheduling: daily run, 15-minute tick, 5-minute poll (§7J) | PARTIAL (daily run + 15-minute tick in the worker; poll in Phase 03) | 02, 03 |
 | 24 | Integrations health page (§8, §10) | PARTIAL (Gmail status endpoint only) | 03 |
 | 25 | AI evaluation harness (§12) | MISSING | 08 |
 | 26 | Hypothesis, import-linter, Playwright, CI (§9, §12) | MISSING | 08 |

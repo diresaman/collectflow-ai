@@ -31,6 +31,16 @@ class EventType(models.TextChoices):
     DELIVERY_FAILED = "DELIVERY_FAILED", "Delivery failed"
     DELIVERY_UNKNOWN = "DELIVERY_UNKNOWN", "Delivery outcome unknown"
     DELIVERY_RECONCILED = "DELIVERY_RECONCILED", "Delivery reconciled"
+    # Sequences
+    ENROLLED = "ENROLLED", "Enrolled in a sequence"
+    ENROLLMENT_PAUSED = "ENROLLMENT_PAUSED", "Sequence paused"
+    ENROLLMENT_RESUMED = "ENROLLMENT_RESUMED", "Sequence resumed"
+    ENROLLMENT_REVIEWED = "ENROLLMENT_REVIEWED", "Sequence history reviewed"
+    ENROLLMENT_EXITED = "ENROLLMENT_EXITED", "Left the sequence"
+    ENROLLMENT_COMPLETED = "ENROLLMENT_COMPLETED", "Sequence completed"
+    STEP_COMPLETED = "STEP_COMPLETED", "Sequence step completed"
+    TASK_CREATED = "TASK_CREATED", "Task created"
+    TASK_DONE = "TASK_DONE", "Task done"
 
 
 class TimelineEvent(models.Model):

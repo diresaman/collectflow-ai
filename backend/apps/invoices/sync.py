@@ -61,6 +61,13 @@ def handle_sync_job(job: Any) -> dict[str, Any]:
     if run.status != AutomationRun.Status.RUNNING:
         return {"run_id": run.pk, "status": run.status}
     run = execute_sync(run, actor=job.created_by)
+    if run.status == AutomationRun.Status.SUCCEEDED:
+        # Reconcile sequence enrollments and advance due steps with the fresh data. Queued by kind
+        # name only: invoices does not depend on the sequences app.
+        outbox.enqueue(
+            "sequences.tick", {"trigger": AutomationRun.Trigger.MANUAL},
+            idempotency_key=f"sequences.tick:after-sync:{run.pk}", max_attempts=1,
+        )
     return {"run_id": run.pk, "status": run.status}
 
 

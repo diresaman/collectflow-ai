@@ -38,6 +38,7 @@ from integrations.gmail import (
     GmailDeliveryUnknown,
     GmailNotReady,
     GmailRejected,
+    new_message_id,
 )
 
 from .eligibility import changed_snapshot_fields, ineligibility_reasons
@@ -104,7 +105,7 @@ class FollowUpDeliveryService:
 
     def request(self, follow_up_id: uuid.UUID, *, actor: Any = None, enqueue: bool = True) -> DeliveryAttempt:
         """Validates and reserves the send; with `enqueue`, the worker delivers it. Never calls Google."""
-        follow_up = FollowUp.objects.select_related("invoice").get(pk=follow_up_id)  # DoesNotExist -> 404
+        follow_up = FollowUp.objects.select_related("invoice", "thread_reply_to").get(pk=follow_up_id)  # DoesNotExist -> 404
         self._validate_state(follow_up)
         self._validate_invoice(follow_up)
         recipient = self._validate_recipient(follow_up)
@@ -118,7 +119,7 @@ class FollowUpDeliveryService:
 
     def deliver(self, attempt_id: uuid.UUID) -> DeliveryOutcome:
         attempt = DeliveryAttempt.objects.select_related("follow_up", "requested_by").get(pk=attempt_id)
-        follow_up = FollowUp.objects.select_related("invoice").get(pk=attempt.follow_up_id)
+        follow_up = FollowUp.objects.select_related("invoice", "thread_reply_to").get(pk=attempt.follow_up_id)
         if attempt.status != DeliveryAttempt.Status.SENDING or follow_up.status != FollowUp.Status.SENDING:
             # Already resolved (e.g. reconciled by an operator): never submit twice.
             return DeliveryOutcome(follow_up=follow_up, attempt=attempt)
@@ -141,8 +142,15 @@ class FollowUpDeliveryService:
             raise error
 
         # External call: deliberately outside any transaction.
+        parent = follow_up.thread_reply_to
         try:
-            result = gmail.send(recipient=recipient, subject=subject, body=body)
+            result = gmail.send(
+                recipient=recipient, subject=subject, body=body,
+                message_id=attempt.rfc_message_id,
+                thread_id=parent.gmail_thread_id if parent else "",
+                in_reply_to=parent.rfc_message_id if parent else "",
+                references=attempt.rfc_references,
+            )
         except GmailRejected as exc:
             return self._finish(follow_up, attempt, FollowUp.Status.FAILED, error_code=exc.code, error=str(exc))
         except GmailNotReady as exc:
@@ -238,8 +246,14 @@ class FollowUpDeliveryService:
                 )
                 if reserved != 1:
                     raise DuplicateDelivery("This reminder is already being sent or is no longer approved.")
+                # Message-ID chosen before the call, so it is known even if the outcome is not.
+                parent = follow_up.thread_reply_to
+                references = " ".join(
+                    part for part in ((parent.rfc_references, parent.rfc_message_id) if parent else ()) if part
+                )
                 attempt = DeliveryAttempt.objects.create(
-                    follow_up_id=follow_up.pk, recipient_email=recipient, started_at=now, requested_by=requested_by
+                    follow_up_id=follow_up.pk, recipient_email=recipient, started_at=now, requested_by=requested_by,
+                    rfc_message_id=new_message_id(settings.GMAIL_SENDER_EMAIL), rfc_references=references,
                 )
                 timeline.record(
                     EventType.SEND_REQUESTED, actor=actor, invoice=follow_up.invoice,

@@ -69,6 +69,15 @@ class FollowUp(models.Model):
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
     )
+    # Sequence position this draft was written for (null for drafts created before sequences).
+    enrollment = models.ForeignKey(
+        "sequences.SequenceEnrollment", on_delete=models.PROTECT, null=True, blank=True, related_name="follow_ups"
+    )
+    step = models.ForeignKey("sequences.SequenceStep", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    # The sent message this reminder continues in Gmail (same thread, In-Reply-To/References).
+    thread_reply_to = models.ForeignKey(
+        "followups.DeliveryAttempt", on_delete=models.PROTECT, null=True, blank=True, related_name="replies"
+    )
     generated_at = models.DateTimeField(default=timezone.now)
     approved_at = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
@@ -139,6 +148,9 @@ class DeliveryAttempt(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     gmail_message_id = models.CharField(max_length=100, blank=True)
     gmail_thread_id = models.CharField(max_length=100, blank=True)
+    # RFC 5322 Message-ID set by us before sending, and the References chain, for threading the next step.
+    rfc_message_id = models.CharField(max_length=255, blank=True)
+    rfc_references = models.TextField(blank=True)
     error_code = models.CharField(max_length=50, blank=True)
     error_summary = models.CharField(max_length=500, blank=True)
 

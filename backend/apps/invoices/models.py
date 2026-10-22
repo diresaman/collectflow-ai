@@ -90,6 +90,7 @@ class AutomationRun(models.Model):
     class Kind(models.TextChoices):
         SYNC = "SYNC", "Google Sheets sync"
         AUTOMATION = "AUTOMATION", "Follow-up automation"
+        SEQUENCE_TICK = "SEQUENCE_TICK", "Sequence tick"
 
     class Trigger(models.TextChoices):
         MANUAL = "MANUAL", "Manual (dashboard/API)"

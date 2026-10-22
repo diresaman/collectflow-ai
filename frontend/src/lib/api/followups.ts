@@ -12,6 +12,15 @@ export type FollowUpStatus =
   | "FAILED"
   | "DELIVERY_UNKNOWN";
 
+export type FollowUpStep = { order: number; channel: "EMAIL" | "TASK"; tone: string; requires_approver: boolean };
+
+/** Four-eyes policy for this reminder; `blocked_for_you` explains why the signed-in user can't approve. */
+export type Approval = {
+  required_role: "OPERATOR" | "APPROVER";
+  reasons: string[];
+  blocked_for_you: { code: "approver_required" | "self_approval"; detail: string } | null;
+};
+
 export type FollowUp = {
   id: string;
   invoice_id: string;
@@ -30,6 +39,11 @@ export type FollowUp = {
   recommended_action: string;
   status: FollowUpStatus;
   prompt_version: string;
+  /** Sequence step this reminder was drafted for (null for reminders from before sequences). */
+  step: FollowUpStep | null;
+  /** Continues an earlier Gmail thread: the subject is fixed to "Re: …". */
+  threaded: boolean;
+  approval: Approval;
   /** Usernames; null when the AI draft was never edited / not approved yet. */
   last_edited_by: string | null;
   approved_by: string | null;
@@ -49,6 +63,32 @@ export const ACTIVE_STATUSES: readonly FollowUpStatus[] = ["DRAFT", "APPROVED", 
 const TONES: readonly string[] = ["FRIENDLY", "PROFESSIONAL", "FIRM"];
 const STATUSES: readonly string[] = ["DRAFT", "APPROVED", "REJECTED", "SENDING", "SENT", "FAILED", "DELIVERY_UNKNOWN"];
 
+function isStep(value: unknown): value is FollowUpStep {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.order === "number" &&
+    (v.channel === "EMAIL" || v.channel === "TASK") &&
+    typeof v.tone === "string" &&
+    typeof v.requires_approver === "boolean"
+  );
+}
+
+function isApproval(value: unknown): value is Approval {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  const blocked = v.blocked_for_you as Record<string, unknown> | null;
+  return (
+    (v.required_role === "OPERATOR" || v.required_role === "APPROVER") &&
+    Array.isArray(v.reasons) &&
+    (v.reasons as unknown[]).every((reason) => typeof reason === "string") &&
+    (blocked === null ||
+      (typeof blocked === "object" &&
+        (blocked.code === "approver_required" || blocked.code === "self_approval") &&
+        typeof blocked.detail === "string"))
+  );
+}
+
 export function isFollowUp(value: unknown): value is FollowUp {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
@@ -64,6 +104,9 @@ export function isFollowUp(value: unknown): value is FollowUp {
     v.invoice_snapshot !== null &&
     nullableStr("approved_at") &&
     typeof v.prompt_version === "string" &&
+    (v.step === null || isStep(v.step)) &&
+    typeof v.threaded === "boolean" &&
+    isApproval(v.approval) &&
     nullableStr("last_edited_by") &&
     nullableStr("approved_by") &&
     nullableStr("sent_at") &&

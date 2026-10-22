@@ -140,7 +140,7 @@ class SyncEndpointTests(SessionApiTestCase):
         self.post_sync(FakeSheetsClient([HEADER, row()]))
         self.post_sync(FakeSheetsClient(error="down"))
 
-        runs = self.client.get(reverse("automation-run-list"), **AUTH).json()
+        runs = self.client.get(reverse("automation-run-list"), {"kind": "SYNC"}, **AUTH).json()
 
         self.assertEqual([run["status"] for run in runs], ["FAILED", "SUCCEEDED"])
-        self.assertEqual(AutomationRun.objects.count(), 2)
+        self.assertEqual(AutomationRun.objects.filter(kind="SYNC").count(), 2)

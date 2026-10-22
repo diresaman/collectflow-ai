@@ -26,7 +26,8 @@ def _fail_runs_started_before(moment: dt.datetime) -> None:
     """Marks RUNNING automation runs (and their unfinished steps) as abandoned."""
     run_ids = list(
         AutomationRun.objects.filter(
-            kind=AutomationRun.Kind.AUTOMATION, status=AutomationRun.Status.RUNNING, started_at__lt=moment
+            kind__in=[AutomationRun.Kind.AUTOMATION, AutomationRun.Kind.SEQUENCE_TICK],
+            status=AutomationRun.Status.RUNNING, started_at__lt=moment,
         ).values_list("pk", flat=True)
     )
     if not run_ids:

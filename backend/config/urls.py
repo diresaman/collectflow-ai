@@ -8,6 +8,8 @@ urlpatterns = [
     path("api/", include("apps.timeline.urls")),
     path("api/", include("apps.invoices.urls")),
     path("api/", include("apps.followups.urls")),
+    path("api/", include("apps.sequences.urls")),
+    path("api/", include("apps.inbox.urls")),
     path("api/", include("apps.automation.urls")),
 ]
 

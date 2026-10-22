@@ -109,8 +109,8 @@ class FakeGmail:
             self.on_check()
         return GmailStatus(True, self.ready, "sender@example.test", "sender@example.test", self.detail)
 
-    def send(self, *, recipient: str, subject: str, body: str):  # type: ignore[no-untyped-def]
-        self.sent.append({"recipient": recipient, "subject": subject, "body": body})
+    def send(self, *, recipient: str, subject: str, body: str, **threading: str):  # type: ignore[no-untyped-def]
+        self.sent.append({"recipient": recipient, "subject": subject, "body": body, **threading})
         if self.error:
             raise self.error
         return self.result

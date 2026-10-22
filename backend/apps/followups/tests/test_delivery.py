@@ -48,10 +48,17 @@ class SuccessfulDeliveryTests(TestCase):
 
         outcome = send(follow_up, gmail)
 
+        self.assertEqual(len(gmail.sent), 1)
+        sent = gmail.sent[0]
         self.assertEqual(
-            gmail.sent,
-            [{"recipient": "billing@fictional.test", "subject": follow_up.subject, "body": follow_up.body}],
+            (sent["recipient"], sent["subject"], sent["body"]),
+            ("billing@fictional.test", follow_up.subject, follow_up.body),
         )
+        # Not a reply: our own Message-ID only, no thread or reply headers.
+        attempt = outcome.attempt
+        self.assertTrue(attempt.rfc_message_id.startswith("<") and attempt.rfc_message_id.endswith(">"))
+        self.assertEqual(sent["message_id"], attempt.rfc_message_id)
+        self.assertEqual((sent["thread_id"], sent["in_reply_to"], sent["references"]), ("", "", ""))
         self.assertEqual(outcome.follow_up.status, FollowUp.Status.SENT)
         self.assertIsNotNone(outcome.follow_up.sent_at)
 

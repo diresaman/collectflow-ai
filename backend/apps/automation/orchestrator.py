@@ -1,31 +1,29 @@
 """
-AutomationOrchestrator: sync invoices, evaluate the policy, and draft follow-ups with Gemini.
+AutomationOrchestrator: sync invoices, reconcile sequence enrollments, and advance due sequence
+steps (AI drafts and call tasks).
 
-It reuses `sync_invoices` and `FollowUpGenerationService` unchanged and never calls Gmail:
-generated drafts always wait for operator approval. No database transaction is opened here,
+It reuses `sync_invoices` and the sequence engine, and never calls Gmail: generated drafts always
+wait for operator approval. No database transaction is opened here,
 so none is held during Google Sheets or Gemini calls.
 """
 
 import logging
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from apps.followups.models import FollowUp
-from apps.followups.services import ActiveFollowUpExists, FollowUpError, FollowUpGenerationService, NotEligible
 from apps.invoices.models import AutomationRun, Invoice
 from apps.invoices.sheets_client import GoogleSheetsClient
 from apps.invoices.sync import default_actor, sync_invoices
+from apps.sequences import engine as sequences
 from integrations.gemini import GeminiClient
 
 from . import outbox
 from .lease import LEASE_NAME, Lease, LeaseUnavailable
 from .models import AutomationLease, AutomationRunItem, OutboxJob, WorkflowStep
-from .policy import Decision, evaluate
 
 logger = logging.getLogger(__name__)
 
@@ -110,18 +108,12 @@ class AutomationOrchestrator:
             lease.release()
 
     def plan(self) -> list[PlannedItem]:
-        """Dry run: applies the policy to current data. No sync, no Gemini, no Gmail, no writes."""
-        planned: list[PlannedItem] = []
-        would_generate = 0
-        for invoice, decision in self._decisions():
-            if decision.eligible and would_generate >= settings.AUTOMATION_MAX_DRAFTS_PER_RUN:
-                decision = Decision.skip("run_limit_reached", "Draft limit for one run reached.")
-            if decision.eligible:
-                would_generate += 1
-                planned.append(PlannedItem(invoice.external_id, "WOULD_GENERATE", "", "Eligible for a new draft."))
-            else:
-                planned.append(PlannedItem(invoice.external_id, "SKIPPED", decision.reason_code, decision.detail))
-        return planned
+        """Dry run of the sequence tick on current data. No sync, no Gemini, no Gmail, no writes."""
+        return [
+            PlannedItem(invoice.external_id, outcome, "" if outcome.startswith("WOULD") else reason,
+                        reason if outcome.startswith("WOULD") else "")
+            for invoice, outcome, reason in sequences.preview()
+        ]
 
     # Execution ----------------------------------------------------------------
 
@@ -141,52 +133,43 @@ class AutomationOrchestrator:
         )
         self._heartbeat(lease)
 
-        # Evaluate every invoice first (no external calls), then draft for the eligible ones.
+        # Evaluate: keep sequence enrollments in line with the synced invoices (no external calls).
         self._step(run, WorkflowStep.Key.EVALUATING_INVOICES, WorkflowStep.Status.RUNNING)
-        eligible: list[Invoice] = []
+        actor = default_actor(run.trigger)
+        summary = sequences.reconcile(actor=actor)
         today = timezone.localdate()
-        for invoice, decision in self._decisions():
-            if invoice.status == Invoice.Status.UNPAID and invoice.due_date < today:
-                run.invoices_overdue += 1
-            if decision.eligible and len(eligible) >= settings.AUTOMATION_MAX_DRAFTS_PER_RUN:
-                decision = Decision.skip("run_limit_reached", "Draft limit for one run reached.")
-            if decision.eligible:
-                eligible.append(invoice)
-            else:
-                self._record(run, invoice, AutomationRunItem.Outcome.SKIPPED, decision.reason_code, decision.detail,
-                             decision.follow_up)
+        run.invoices_overdue = Invoice.objects.filter(status=Invoice.Status.UNPAID, due_date__lt=today).count()
         run.save(update_fields=["invoices_overdue"])
         self._step(
             run, WorkflowStep.Key.EVALUATING_INVOICES, WorkflowStep.Status.COMPLETED,
-            f"{run.invoices_skipped + len(eligible)} invoices evaluated, {run.invoices_overdue} overdue, "
-            f"{len(eligible)} eligible for a draft.",
+            f"{run.invoices_overdue} overdue; {summary.enrolled} newly enrolled, {summary.exited} left their "
+            f"sequence, {summary.flagged} flagged for history review.",
         )
         self._heartbeat(lease)
 
-        if not eligible:
-            self._step(run, WorkflowStep.Key.GENERATING_DRAFTS, WorkflowStep.Status.SKIPPED, "No eligible invoices.")
+        # Draft: advance each due enrollment by at most one sequence step (Gemini; never sends).
+        self._step(run, WorkflowStep.Key.GENERATING_DRAFTS, WorkflowStep.Status.RUNNING, "Advancing sequences.")
+        seen: set[Any] = set()
+
+        def record(result: sequences.StepResult) -> None:
+            seen.add(result.invoice.pk)
+            outcome = {"GENERATED": AutomationRunItem.Outcome.GENERATED, "FAILED": AutomationRunItem.Outcome.FAILED}.get(
+                result.outcome, AutomationRunItem.Outcome.SKIPPED
+            )
+            self._record(run, result.invoice, outcome, result.reason, result.detail, result.follow_up)
+            self._step(run, WorkflowStep.Key.GENERATING_DRAFTS, WorkflowStep.Status.RUNNING,
+                       f"{run.drafts_generated} drafted, {run.generation_failures} failed so far.")
+
+        sequences.run_tick(actor=actor, record=record, heartbeat=lambda: self._heartbeat(lease),
+                           gemini=self._gemini, reconcile_first=False)
+        # Invoices that no sequence step touched, with the reason (paid, not overdue, paused, ...).
+        for invoice, _, reason in sequences.preview():
+            if invoice.pk not in seen:
+                self._record(run, invoice, AutomationRunItem.Outcome.SKIPPED, reason or "no_action", _detail(reason))
+
+        if run.drafts_generated == 0 and run.generation_failures == 0:
+            self._step(run, WorkflowStep.Key.GENERATING_DRAFTS, WorkflowStep.Status.SKIPPED, "No sequence step was due.")
         else:
-            self._step(run, WorkflowStep.Key.GENERATING_DRAFTS, WorkflowStep.Status.RUNNING, f"0 of {len(eligible)} done.")
-            generator = FollowUpGenerationService(gemini=self._gemini)
-            for done, invoice in enumerate(eligible, start=1):
-                # Generation enforces eligibility and uniqueness again at the service/database level.
-                try:
-                    follow_up = generator.generate(invoice.pk, actor=default_actor(run.trigger))
-                except (NotEligible, ActiveFollowUpExists) as exc:
-                    self._record(run, invoice, AutomationRunItem.Outcome.SKIPPED, exc.code, exc.message)
-                except FollowUpError as exc:
-                    self._record(run, invoice, AutomationRunItem.Outcome.FAILED, exc.code, exc.message)
-                except Exception:
-                    logger.exception("Unexpected error generating a follow-up in automation run %s", run.pk)
-                    self._record(run, invoice, AutomationRunItem.Outcome.FAILED, "unexpected_error",
-                                 "Unexpected error while generating the draft.")
-                else:
-                    self._record(run, invoice, AutomationRunItem.Outcome.GENERATED, "",
-                                 "Draft generated; awaiting approval.", follow_up)
-                self._step(run, WorkflowStep.Key.GENERATING_DRAFTS, WorkflowStep.Status.RUNNING,
-                           f"{done} of {len(eligible)} done: {run.drafts_generated} drafted, "
-                           f"{run.generation_failures} failed.")
-                self._heartbeat(lease)
             all_failed = run.drafts_generated == 0 and run.generation_failures > 0
             self._step(
                 run, WorkflowStep.Key.GENERATING_DRAFTS,
@@ -231,16 +214,6 @@ class AutomationOrchestrator:
             )
 
     @staticmethod
-    def _decisions():  # type: ignore[no-untyped-def]
-        invoices = list(Invoice.objects.order_by("due_date", "external_id"))
-        follow_ups: dict[object, list[FollowUp]] = defaultdict(list)
-        for follow_up in FollowUp.objects.filter(invoice__in=invoices).order_by("-generated_at"):
-            follow_ups[follow_up.invoice_id].append(follow_up)
-        now = timezone.now()
-        for invoice in invoices:
-            yield invoice, evaluate(invoice, follow_ups[invoice.pk], now=now)
-
-    @staticmethod
     def _heartbeat(lease: Lease) -> None:
         if not lease.heartbeat():
             raise LeaseLost()
@@ -279,3 +252,20 @@ class AutomationOrchestrator:
         run.completed_at = timezone.now()
         run.error_summary = error_summary[:1000]
         run.save(update_fields=["status", "completed_at", "error_summary"])
+
+
+REASON_DETAILS = {
+    "not_unpaid": "Invoice is not unpaid.",
+    "not_overdue": "Invoice is not overdue yet.",
+    "not_in_sheet": "Invoice was not in the latest Google Sheets sync.",
+    "invalid_recipient": "Client email address is invalid.",
+    "invalid_amount": "Invoice amount must be positive.",
+    "history_review": "Earlier reminders don't match the sequence; a person must review the position.",
+    "sequence_paused": "The invoice's sequence is paused.",
+    "sequence_completed": "All sequence steps are done.",
+    "sequence_exited": "The invoice left its sequence.",
+}
+
+
+def _detail(reason: str) -> str:
+    return REASON_DETAILS.get(reason, reason.replace("_", " ").capitalize() + ".")

@@ -29,6 +29,10 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     /^automation\/workflows\/\d+(\/steps|\/pending-actions)?$/,
     new RegExp(`^jobs/${UUID}$`),
     /^timeline$/,
+    /^sequences$/,
+    new RegExp(`^sequences/${UUID}$`),
+    /^enrollments$/,
+    /^tasks$/,
   ],
   POST: [
     /^auth\/(login|logout)$/,
@@ -38,6 +42,9 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     /^automation\/workflows\/\d+\/items\/\d+\/leave-unsent$/,
     new RegExp(`^invoices/${UUID}/analyze$`),
     new RegExp(`^follow-ups/${UUID}/(approve|reject|send)$`),
+    /^sequences$/,
+    new RegExp(`^enrollments/${UUID}/(pause|resume|review)$`),
+    new RegExp(`^tasks/${UUID}/done$`),
   ],
   PATCH: [new RegExp(`^follow-ups/${UUID}$`)],
 };

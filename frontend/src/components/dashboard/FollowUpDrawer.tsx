@@ -8,6 +8,7 @@ import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 
 import { DeliveryPanel } from "./DeliveryPanel";
 import { DraftEditor } from "./DraftEditor";
+import { BLOCKED_REASONS, SequencePanel } from "./SequencePanel";
 import { FollowUpStatusBadge, ToneBadge } from "./FollowUpBadges";
 import { ErrorMessage, Icon, Spinner } from "./ui";
 
@@ -104,6 +105,20 @@ export function FollowUpDrawer({
   const history = followUps.filter((followUp) => followUp !== current);
   const canDraftNew = active === null && invoice.is_overdue;
   const running = generation?.running ?? false;
+  // Manual drafting writes the invoice's next sequence step (or re-drafts a failed one).
+  const enrollment = invoice.enrollment;
+  const nextStep = enrollment ? (enrollment.pending_step ?? enrollment.next_step) : 1;
+  const draftLabel = `Draft step ${nextStep} with AI`;
+  const draftBlocked =
+    enrollment?.status === "PAUSED"
+      ? enrollment.pause_reason === "history_review"
+        ? "An approver must confirm this invoice's sequence position first (see above)."
+        : "The sequence is paused. Resume it to draft the next step."
+      : enrollment?.status === "COMPLETED"
+        ? "All steps of this invoice's sequence are done."
+        : enrollment?.blocked_reason === "delivery_unknown"
+          ? BLOCKED_REASONS.delivery_unknown
+          : null;
 
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="follow-up-title">
@@ -143,6 +158,8 @@ export function FollowUpDrawer({
             </Fact>
           </dl>
 
+          <SequencePanel invoiceId={invoice.id} refreshKey={followUps.length + (followUps[0] ? Date.parse(followUps[0].updated_at) : 0)} />
+
           {running && (
             <div className="flex items-center gap-3 rounded-lg border border-indigo-100 bg-indigo-50/60 p-4 text-sm text-indigo-700">
               <Spinner className="h-5 w-5" />
@@ -169,16 +186,21 @@ export function FollowUpDrawer({
                 <>
                   <p className="text-sm font-medium text-slate-900">No active reminder</p>
                   <p className="mt-1 text-sm text-slate-500">
-                    Gemini drafts a reminder from the invoice facts. You review it before anything happens.
+                    Gemini drafts the next sequence step from the invoice facts, in the tone the step sets. You review
+                    it before anything happens.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => onAnalyze(false)}
-                    className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
-                  >
-                    <Icon name="sparkles" className="h-4 w-4" />
-                    Analyze with AI
-                  </button>
+                  {draftBlocked ? (
+                    <p className="mt-4 text-sm text-slate-600">{draftBlocked}</p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onAnalyze(false)}
+                      className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+                    >
+                      <Icon name="sparkles" className="h-4 w-4" />
+                      {draftLabel}
+                    </button>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-slate-500">
@@ -191,7 +213,11 @@ export function FollowUpDrawer({
           {current && (
             <section className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <FollowUpStatusBadge status={current.status} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <FollowUpStatusBadge status={current.status} />
+                  {current.step && <span className="text-xs font-medium text-slate-600">Step {current.step.order}</span>}
+                  {current.threaded && <span className="text-xs text-slate-500">Reply in the earlier Gmail thread</span>}
+                </div>
                 <span className="text-xs text-slate-500">Generated {formatDateTime(current.generated_at)}</span>
               </div>
               {current.invoice_changed_fields.length > 0 && (
@@ -224,14 +250,17 @@ export function FollowUpDrawer({
                   <DeliveryPanel key={`${current.id}:${current.status}`} followUp={current} onChanged={() => onChanged(current)} />
                 </>
               )}
-              {canDraftNew && current.status !== "DRAFT" && !running && (
+              {canDraftNew && current.status !== "DRAFT" && !running && draftBlocked && (
+                <p className="text-sm text-slate-600">{draftBlocked}</p>
+              )}
+              {canDraftNew && current.status !== "DRAFT" && !running && !draftBlocked && (
                 <button
                   type="button"
                   onClick={() => onAnalyze(false)}
                   className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-50"
                 >
                   <Icon name="sparkles" className="h-4 w-4" />
-                  Draft a new reminder
+                  {draftLabel}
                 </button>
               )}
             </section>

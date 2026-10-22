@@ -20,6 +20,7 @@ import { FollowUpDrawer, type GenerationState } from "./FollowUpDrawer";
 import { FollowUpHistory } from "./FollowUpHistory";
 import { InvoiceTable, type FollowUpActions } from "./InvoiceTable";
 import { SummaryCards } from "./SummaryCards";
+import { TasksPanel } from "./TasksPanel";
 import { SyncButton, SyncStatus } from "./SyncStatus";
 import type { Loadable } from "./types";
 
@@ -97,13 +98,16 @@ export function Dashboard() {
     } catch (error) {
       setGeneration({ invoiceId, running: false, regenerate, error: describeError(error) });
     } finally {
-      // Regeneration also retires the previous draft, so reload the full list.
+      // Regeneration also retires the previous draft, so reload the full list. Drafting also moves the
+      // invoice's sequence, so reload invoices (with their enrollment) too.
       setFollowUpsKey((key) => key + 1);
+      setReloadKey((key) => key + 1);
     }
   };
 
   const handleFollowUpChanged = () => {
     setFollowUpsKey((key) => key + 1);
+    setReloadKey((key) => key + 1);
   };
 
   const closeDrawer = useCallback(() => {
@@ -148,9 +152,19 @@ export function Dashboard() {
         </div>
       </div>
       <SyncStatus lastRun={lastRun} syncError={syncError} />
+      {summary.kind === "ready" && summary.data.stale && (
+        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="font-semibold">Invoice data may be out of date:</span>{" "}
+          {summary.data.last_successful_sync_at
+            ? `the last successful sync was more than ${summary.data.stale_after_hours} hours ago.`
+            : "there has been no successful sync yet."}{" "}
+          Sequences keep using the last synced data until the next successful sync.
+        </p>
+      )}
       <SummaryCards state={summary} />
       <AutomationPanel onRunFinished={() => setReloadKey((key) => key + 1)} onOpenInvoice={followUpActions.onOpen} />
       <ApprovalQueue state={followUps} onOpen={followUpActions.onOpen} />
+      <TasksPanel reloadKey={reloadKey} onOpenInvoice={followUpActions.onOpen} />
       <InvoiceTable state={invoices} expectedColumns={expectedColumns} followUps={followUpActions} />
       <FollowUpHistory state={followUps} onOpen={followUpActions.onOpen} />
 

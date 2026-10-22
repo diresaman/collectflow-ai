@@ -8,9 +8,10 @@ import { Logo } from "./Logo";
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/automation", label: "Automation" },
+  { href: "/sequences", label: "Sequences" },
 ] as const;
 
-export function AppHeader({ active }: { active: "/" | "/automation" }) {
+export function AppHeader({ active }: { active: (typeof LINKS)[number]["href"] }) {
   return (
     <header className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">

@@ -77,7 +77,42 @@ function OverdueNote({ invoice, block = false }: { invoice: Invoice; block?: boo
   );
 }
 
+/** One line on where the invoice is in its collection sequence. */
+function SequenceNote({ invoice }: { invoice: Invoice }) {
+  const e = invoice.enrollment;
+  if (!e) return null;
+  let text: string;
+  let tone = "text-slate-500";
+  if (e.status === "COMPLETED") text = "Sequence done";
+  else if (e.status === "EXITED") text = `Sequence ended (${e.exit_reason.replace(/_/g, " ")})`;
+  else if (e.status === "PAUSED") {
+    text = e.pause_reason === "history_review" ? "Paused: needs history review" : "Sequence paused";
+    tone = "text-amber-700";
+  } else if (e.blocked_reason) {
+    text = `Step ${e.pending_step ?? e.next_step} held: ${e.blocked_reason.replace(/_/g, " ")}`;
+    tone = "text-amber-700";
+  } else if (e.pending_step !== null) text = `Step ${e.pending_step} of ${e.total_steps} in progress`;
+  else if (e.next_action_at)
+    text = `Step ${e.next_step} of ${e.total_steps} due ${new Date(e.next_action_at).toLocaleDateString()}`;
+  else text = `Step ${e.next_step} of ${e.total_steps}`;
+  return (
+    <span className={`mt-1 block text-xs ${tone}`}>
+      {text}
+      {e.review_required && e.status === "ACTIVE" ? " · review suggested" : ""}
+    </span>
+  );
+}
+
 function FollowUpCell({ invoice, actions }: { invoice: Invoice; actions: FollowUpActions }) {
+  return (
+    <>
+      <FollowUpAction invoice={invoice} actions={actions} />
+      <SequenceNote invoice={invoice} />
+    </>
+  );
+}
+
+function FollowUpAction({ invoice, actions }: { invoice: Invoice; actions: FollowUpActions }) {
   const { active, latest, total } = actions.followUpFor(invoice.id);
 
   if (actions.analyzingInvoiceId === invoice.id) {
@@ -101,6 +136,19 @@ function FollowUpCell({ invoice, actions }: { invoice: Invoice; actions: FollowU
       </button>
     );
   }
+  const enrollment = invoice.enrollment;
+  const sequenceHeld = enrollment !== null && (enrollment.status === "PAUSED" || enrollment.status === "COMPLETED");
+  if (invoice.is_overdue && sequenceHeld) {
+    return (
+      <button
+        type="button"
+        onClick={() => actions.onOpen(invoice.id)}
+        className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline"
+      >
+        Open
+      </button>
+    );
+  }
   if (invoice.is_overdue) {
     return (
       <button
@@ -110,7 +158,7 @@ function FollowUpCell({ invoice, actions }: { invoice: Invoice; actions: FollowU
         className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Icon name="sparkles" className="h-3.5 w-3.5" />
-        Analyze with AI
+        Draft step {enrollment ? (enrollment.pending_step ?? enrollment.next_step) : 1}
       </button>
     );
   }

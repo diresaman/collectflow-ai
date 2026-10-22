@@ -8,9 +8,11 @@ from django.db import close_old_connections, connection
 from django.utils import timezone
 
 from apps.automation import outbox
+from apps.automation.scheduling import schedule_periodic_jobs
 
 HEARTBEAT_SECONDS = 10
 RECOVERY_SECONDS = 60
+SCHEDULE_CHECK_SECONDS = 60
 
 
 class Command(BaseCommand):
@@ -29,6 +31,7 @@ class Command(BaseCommand):
 
         if options["once"]:
             outbox.beat(worker_id, started_at)
+            schedule_periodic_jobs()
             count = outbox.run_pending(worker_id)
             self.stdout.write(f"Ran {count} job(s).")
             return
@@ -51,11 +54,15 @@ class Command(BaseCommand):
         self._say(f"Worker {worker_id} started.")
 
         last_recovery = time.monotonic()
+        last_schedule = 0.0
         while not stopping.is_set():
             close_old_connections()
             if time.monotonic() - last_recovery >= RECOVERY_SECONDS:
                 outbox.recover_stale()
                 last_recovery = time.monotonic()
+            if time.monotonic() - last_schedule >= SCHEDULE_CHECK_SECONDS:
+                schedule_periodic_jobs()
+                last_schedule = time.monotonic()
             job = outbox.claim_next(worker_id)
             if job is None:
                 stopping.wait(settings.WORKER_POLL_SECONDS)

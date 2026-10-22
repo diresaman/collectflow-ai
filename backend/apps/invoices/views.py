@@ -1,3 +1,6 @@
+import datetime as dt
+
+from django.conf import settings
 from django.db.models import QuerySet, Sum
 from django.utils import timezone
 from rest_framework import generics, status
@@ -24,13 +27,16 @@ class SyncView(APIView):
         )
 
 
+INVOICES = Invoice.objects.prefetch_related("enrollments__sequence__steps")
+
+
 class InvoiceListView(generics.ListAPIView):
-    queryset = Invoice.objects.all()
+    queryset = INVOICES
     serializer_class = InvoiceSerializer
 
 
 class InvoiceDetailView(generics.RetrieveAPIView):
-    queryset = Invoice.objects.all()
+    queryset = INVOICES
     serializer_class = InvoiceSerializer
 
 
@@ -55,6 +61,12 @@ class DashboardView(APIView):
     def get(self, request: Request) -> Response:
         unpaid = Invoice.objects.filter(status=Invoice.Status.UNPAID)
         overdue = unpaid.filter(due_date__lt=timezone.localdate())
+        last_sync = (
+            AutomationRun.objects.filter(kind=AutomationRun.Kind.SYNC, status=AutomationRun.Status.SUCCEEDED)
+            .values_list("completed_at", flat=True).first()
+        )
+        # v2 §11: sequence ticks keep using the last good sync; the UI warns once it is this old.
+        stale = last_sync is None or timezone.now() - last_sync > dt.timedelta(hours=settings.STALE_DATA_HOURS)
 
         return Response(
             {
@@ -64,5 +76,8 @@ class DashboardView(APIView):
                 "outstanding_amounts_by_currency": _amounts_by_currency(unpaid),
                 "overdue_amounts_by_currency": _amounts_by_currency(overdue),
                 "expected_columns": list(EXPECTED_HEADERS),
+                "last_successful_sync_at": last_sync,
+                "stale": stale,
+                "stale_after_hours": settings.STALE_DATA_HOURS,
             }
         )

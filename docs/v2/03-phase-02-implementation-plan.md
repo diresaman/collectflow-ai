@@ -1,5 +1,8 @@
 # 03 — Phase 02 implementation plan: sequences, threaded delivery, four-eyes (M09)
 
+> **Status (2026-10-22): implemented in M09.** Deviations from this plan, and why, are listed in
+> `05-m09-implementation-report.md` §3.
+>
 > **Why Phase 02 and not Phase 01:** Phase 01 (foundation) is already implemented in commit `676b43c`
 > (see `00-repository-audit.md`), so its implementation plan is skipped. This document is the
 > implementation-ready plan for the next phase. **Nothing here is implemented yet; it awaits approval.**

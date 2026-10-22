@@ -6,7 +6,7 @@ from typing import Any
 from apps.invoices.models import Invoice
 
 # Bump whenever the instructions, context or schema change; stored on every draft and attempt.
-PROMPT_VERSION = "draft-v1"
+PROMPT_VERSION = "draft-v2"
 
 SYSTEM_INSTRUCTION = """\
 You draft payment reminder emails for a small service business's accounts receivable team.
@@ -27,7 +27,10 @@ Rules you must always follow:
 9. Write the email body in plain text with short paragraphs. Address the client by the
    supplied client name. Sign off as "Accounts Receivable Team" and do not invent a person's
    name, company name or contact details.
-10. Use exactly the tone given in required_tone:
+10. When sequence_step is greater than 1, this is a follow-up in the same email conversation as
+    an earlier reminder (sent on previous_reminder_date). Refer to the earlier reminder briefly
+    without repeating it, and do not invent anything about the client's response.
+11. Use exactly the tone given in required_tone:
     - FRIENDLY: warm, assumes an oversight, gentle nudge.
     - PROFESSIONAL: courteous and businesslike, asks for payment or a status update.
     - FIRM: clear and direct, states the invoice is significantly overdue and asks for prompt
@@ -42,9 +45,17 @@ Output fields:
 """
 
 
-def build_context(invoice: Invoice, *, days_overdue: int, tone: str) -> dict[str, Any]:
+def build_context(
+    invoice: Invoice,
+    *,
+    days_overdue: int,
+    tone: str,
+    step_number: int | None = None,
+    total_email_steps: int | None = None,
+    previous_send_date: Any = None,
+) -> dict[str, Any]:
     """The minimum invoice facts the model needs. Deliberately excludes the client email."""
-    return {
+    context: dict[str, Any] = {
         "client_name": invoice.client_name,
         "invoice_number": invoice.external_id,
         "amount": f"{invoice.amount:.2f}",
@@ -53,6 +64,11 @@ def build_context(invoice: Invoice, *, days_overdue: int, tone: str) -> dict[str
         "days_overdue": days_overdue,
         "required_tone": tone,
     }
+    if step_number is not None:
+        context["sequence_step"] = step_number
+        context["sequence_email_steps"] = total_email_steps
+        context["previous_reminder_date"] = previous_send_date.isoformat() if previous_send_date else None
+    return context
 
 
 def build_prompt(context: dict[str, Any]) -> str:
