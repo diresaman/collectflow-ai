@@ -2,12 +2,26 @@ from typing import Any
 
 from rest_framework import serializers
 
-from .models import AutomationRun, Invoice
+from .models import AutomationRun, ChaseHold, Invoice
+
+
+def active_holds_summary(invoice: Invoice) -> list[dict[str, Any]]:
+    """Active chase holds (M10): why chasing is stopped, and the reply to review."""
+    holds = getattr(invoice, "active_chase_holds", None)
+    if holds is None:
+        holds = list(ChaseHold.objects.filter(invoice=invoice, released_at__isnull=True))
+    return [{"id": str(h.pk), "reason": h.reason, "reason_display": h.get_reason_display(), "protected": h.protected,
+             "reply_id": str(h.reply_id) if h.reply_id else None, "detail": h.detail, "created_at": h.created_at}
+            for h in sorted(holds, key=lambda h: h.created_at)]
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
     is_overdue = serializers.BooleanField(read_only=True)
     enrollment = serializers.SerializerMethodField()
+    holds = serializers.SerializerMethodField()
+
+    def get_holds(self, invoice: Invoice) -> list[dict[str, Any]]:
+        return active_holds_summary(invoice)
 
     def get_enrollment(self, invoice: Invoice) -> dict[str, Any] | None:
         """The invoice's latest sequence enrollment, summarised (None if never enrolled)."""
@@ -43,6 +57,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "in_sheet",
             "last_synced_at",
             "enrollment",
+            "holds",
         ]
         read_only_fields = fields
 

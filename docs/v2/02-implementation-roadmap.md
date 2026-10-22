@@ -10,8 +10,8 @@ continue the repository's commit history.
 | 01 Foundation and architecture | M08 | Sessions and roles, outbox and worker, timeline, clients | P0 | — | **Done** (`676b43c`) |
 | 01 Foundation: PostgreSQL migration | M08.1 | PostgreSQL 16, Docker Compose, SKIP LOCKED, SQLite → PostgreSQL transfer | P0 | — | **Done**: data cut over and verified 2026-10-22 |
 | 02 Sequences, threading, four-eyes | M09 | Sequence engine, tick, threaded send, approval policy, call tasks | P0 | 7–8 h | **Done** (see `05-m09-implementation-report.md`); live threading verified 2026-10-22 |
-| 03 Reply ingestion and classification | M10 | Gmail read, poll, classify, triage, health page | P0 | 6–7 h | **Next** |
-| 04 Promises, disputes, tasks | M11 | Promise lifecycle, dispute lock, all task kinds, daily promise check | P0 | 4–5 h | |
+| 03 Reply ingestion and classification | M10 | Gmail read, poll, classify, triage, health page | P0 | 6–7 h | **Done with mocked Gmail** (see `06-m10-implementation-report.md`); live read check awaits the owner's approval of `gmail.readonly` |
+| 04 Promises, disputes, tasks | M11 | Promise lifecycle, dispute lock, all task kinds, daily promise check | P0 | 4–5 h | **Next** (not started) |
 | 05 Closed-loop UI and P0 gate | M12 | Invoice detail, approvals, sequence editor, explicit unavailable states, P0 demo | P0 | 4–5 h | |
 | 06 Risk and worklist | M13 | Client metrics, risk score, Today page, `/clients` | P1 | 3–4 h | |
 | 07 Statements, analytics, forecast | M14 | Statement email, aging, DSO, CEI, attribution, forecast | P1 | 4–5 h | |
@@ -122,6 +122,10 @@ plan for the next phase is `03-phase-02-implementation-plan.md`.
 - **Exclusions:** replies, promises, disputes, statements, risk, the full sequence editor UX.
 
 ### Phase 03 — Gmail reply ingestion and classification (M10)
+
+> **Status:** implemented and tested against mocked Gmail and Gemini (2026-10-22). Differences from
+> this plan are listed in `06-m10-implementation-report.md` §3. Live mailbox verification is pending
+> the owner's separate approval of read access.
 
 - **Objective:** ingest replies in CollectFlow threads, classify them with Gemini and apply safe actions.
 - **Reuse:** the Gmail OAuth plumbing, `integrations/gemini.py`, the outbox, the timeline, tasks,

@@ -52,6 +52,7 @@ def enqueue(
     idempotency_key: str | None = None,
     max_attempts: int | None = None,
     created_by: Any = None,
+    run_after: dt.datetime | None = None,
 ) -> OutboxJob:
     """
     Records a job. Call it inside the transaction that makes the change the job depends on.
@@ -69,6 +70,7 @@ def enqueue(
                 idempotency_key=key,
                 max_attempts=max_attempts or settings.JOB_MAX_ATTEMPTS,
                 created_by=created_by if getattr(created_by, "is_authenticated", False) else None,
+                run_after=run_after or timezone.now(),
             )
     except IntegrityError:
         return OutboxJob.objects.get(idempotency_key=key)

@@ -1,7 +1,8 @@
 """
 Gemini spending guard for *automatic* drafting (sequence ticks and automation runs).
 
-Two checks, both read from GenerationAttempt rows (every call that reached Gemini records one):
+Two checks, both read from GenerationAttempt rows (every call that reached Gemini records one,
+including reply classifications since M10, which share the quota):
 
 - Daily budget: at most AI_DAILY_GENERATION_BUDGET attempts in the last 24 hours, counting manual
   drafts too, so scheduled work leaves room for people within the free tier (~20/day).
@@ -9,7 +10,8 @@ Two checks, both read from GenerationAttempt rows (every call that reached Gemin
   exponentially with each consecutive quota failure (AI_QUOTA_BACKOFF_MINUTES, doubling, capped at
   AI_RETRY_MAX_HOURS). A successful generation ends the cooldown.
 
-People can still draft manually at any time; their attempts count toward the budget.
+People can still draft manually at any time; their attempts count toward the budget. Reply
+classification is not blocked by the daily budget (it is safety work) but does wait out a cooldown.
 """
 
 import datetime as dt

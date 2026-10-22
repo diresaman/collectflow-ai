@@ -12,3 +12,12 @@ class HealthCheckView(APIView):
 
     def get(self, request: Request) -> Response:
         return Response({"status": "ok", "service": "collectflow-api"})
+
+
+class IntegrationStatusView(APIView):
+    """GET /api/integrations/status/: integration and worker health from local state only (no provider calls)."""
+
+    def get(self, request: Request) -> Response:
+        from .integrations import report
+
+        return Response(report())

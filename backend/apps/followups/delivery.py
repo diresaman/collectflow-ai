@@ -247,6 +247,13 @@ class FollowUpDeliveryService:
                 )
                 if reserved != 1:
                     raise DuplicateDelivery("This reminder is already being sent or is no longer approved.")
+                # Re-checked under the invoice lock, which a customer reply's chase hold also takes, so a
+                # reply stored before this point always prevents the reservation (raising rolls back the
+                # update above). Lock order follow-up -> invoice, as in approve().
+                invoice = Invoice.objects.select_for_update().get(pk=follow_up.invoice_id)
+                reasons = ineligibility_reasons(invoice)
+                if reasons:
+                    raise StaleInvoice(f"Invoice is no longer eligible: {' '.join(reasons)}")
                 # Message-ID chosen before the call, so it is known even if the outcome is not.
                 parent = follow_up.thread_reply_to
                 references = " ".join(

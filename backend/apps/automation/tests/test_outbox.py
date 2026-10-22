@@ -151,6 +151,7 @@ class RecoveryTests(OutboxTestCase):
 
 
 class WorkerCommandTests(OutboxTestCase):
+    @override_settings(GMAIL_READ_ENABLED=False)
     def test_once_runs_due_jobs_and_records_a_heartbeat(self) -> None:
         outbox.enqueue("test.ok", {"name": "a"})
         outbox.enqueue("test.ok", {"name": "b"})
@@ -158,9 +159,12 @@ class WorkerCommandTests(OutboxTestCase):
 
         call_command("run_worker", "--once", stdout=out)
 
-        # The two queued jobs plus the current 15-minute sequence tick slot.
-        self.assertIn("Ran 3 job(s).", out.getvalue())
+        # The two queued jobs plus the current 15-minute sequence tick slot and the daily reply-text
+        # purge (M10). No reply poll: GMAIL_READ_ENABLED is off.
+        self.assertIn("Ran 4 job(s).", out.getvalue())
         self.assertEqual(OutboxJob.objects.get(kind="sequences.tick").status, "SUCCEEDED")
+        self.assertEqual(OutboxJob.objects.get(kind="inbox.purge").status, "SUCCEEDED")
+        self.assertFalse(OutboxJob.objects.filter(kind="inbox.poll").exists())
         self.assertEqual(sorted(calls), ["a", "b"])
         self.assertTrue(outbox.worker_alive())
         WorkerHeartbeat.objects.update(last_seen_at=timezone.now() - dt.timedelta(minutes=5))

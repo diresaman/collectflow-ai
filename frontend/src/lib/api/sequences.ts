@@ -1,5 +1,5 @@
 import { backendGet, backendPost } from "./client";
-import type { EnrollmentStatus } from "./invoices";
+import { isHoldSummary, type EnrollmentStatus, type HoldSummary } from "./invoices";
 
 export type Tone = "FRIENDLY" | "PROFESSIONAL" | "FIRM";
 export type Channel = "EMAIL" | "TASK";
@@ -46,6 +46,8 @@ export type Enrollment = {
   generation_failures: number;
   retry_after: string | null;
   steps: StepState[];
+  /** Active chase holds from customer replies; chasing waits while any exists. */
+  holds: HoldSummary[];
 };
 
 type Rec = Record<string, unknown>;
@@ -96,7 +98,9 @@ function isEnrollment(v: unknown): v is Enrollment {
     isNum(v.generation_failures) &&
     (v.retry_after === null || isStr(v.retry_after)) &&
     Array.isArray(v.steps) &&
-    v.steps.every((step) => isStep(step) && ["done", "pending", "upcoming"].includes((step as Rec).state as string))
+    v.steps.every((step) => isStep(step) && ["done", "pending", "upcoming"].includes((step as Rec).state as string)) &&
+    Array.isArray(v.holds) &&
+    v.holds.every(isHoldSummary)
   );
 }
 

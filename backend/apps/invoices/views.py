@@ -1,14 +1,14 @@
 import datetime as dt
 
 from django.conf import settings
-from django.db.models import QuerySet, Sum
+from django.db.models import Prefetch, QuerySet, Sum
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AutomationRun, Invoice
+from .models import AutomationRun, ChaseHold, Invoice
 from .serializers import AutomationRunSerializer, InvoiceSerializer
 from .sheet_parser import EXPECTED_HEADERS
 from .sync import start_sync
@@ -27,7 +27,10 @@ class SyncView(APIView):
         )
 
 
-INVOICES = Invoice.objects.prefetch_related("enrollments__sequence__steps")
+INVOICES = Invoice.objects.prefetch_related(
+    "enrollments__sequence__steps",
+    Prefetch("chase_holds", queryset=ChaseHold.objects.filter(released_at__isnull=True), to_attr="active_chase_holds"),
+)
 
 
 class InvoiceListView(generics.ListAPIView):

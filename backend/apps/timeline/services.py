@@ -88,6 +88,32 @@ DROP_TRIGGER_SQL: dict[str, list[str]] = {
 }
 
 
+# Other append-only audit tables (PostgreSQL only), guarded the same way once they exist.
+AUDIT_TABLES = ("inbox_replyclassification",)
+AUDIT_FUNCTION_SQL = """
+    CREATE OR REPLACE FUNCTION audit_append_only() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+        RAISE EXCEPTION '% rows are append-only', TG_TABLE_NAME USING ERRCODE = 'restrict_violation';
+    END
+    $$
+"""
+
+
+def _audit_install_sql(table: str) -> list[str]:
+    return [
+        f"CREATE OR REPLACE TRIGGER {table}_no_update_delete BEFORE UPDATE OR DELETE ON {table} "
+        "FOR EACH ROW EXECUTE FUNCTION audit_append_only()",
+        f"CREATE OR REPLACE TRIGGER {table}_no_truncate BEFORE TRUNCATE ON {table} "
+        "FOR EACH STATEMENT EXECUTE FUNCTION audit_append_only()",
+    ]
+
+
+def _audit_drop_sql(table: str) -> list[str]:
+    return [f"DROP TRIGGER IF EXISTS {table}_no_update_delete ON {table}",
+            f"DROP TRIGGER IF EXISTS {table}_no_truncate ON {table}"]
+
+
 def _execute(statements: dict[str, list[str]], conn: Any = None) -> None:
     conn = conn or connection
     with conn.cursor() as cursor:
@@ -95,12 +121,41 @@ def _execute(statements: dict[str, list[str]], conn: Any = None) -> None:
             cursor.execute(statement)
 
 
+def _existing_audit_tables(conn: Any, tables: tuple[str, ...] | None = None) -> list[str]:
+    if conn.vendor != "postgresql":
+        return []
+    present = set(conn.introspection.table_names())
+    return [table for table in (tables or AUDIT_TABLES) if table in present]
+
+
 def install_triggers(conn: Any = None) -> None:
+    conn = conn or connection
     _execute(TRIGGER_SQL, conn)
+    install_audit_triggers(conn)
 
 
 def remove_triggers(conn: Any = None) -> None:
+    conn = conn or connection
     _execute(DROP_TRIGGER_SQL, conn)
+    remove_audit_triggers(conn)
+
+
+def install_audit_triggers(conn: Any, tables: tuple[str, ...] | None = None) -> None:
+    existing = _existing_audit_tables(conn, tables)
+    if not existing:
+        return
+    with conn.cursor() as cursor:
+        cursor.execute(AUDIT_FUNCTION_SQL)
+        for table in existing:
+            for statement in _audit_install_sql(table):
+                cursor.execute(statement)
+
+
+def remove_audit_triggers(conn: Any, tables: tuple[str, ...] | None = None) -> None:
+    with conn.cursor() as cursor:
+        for table in _existing_audit_tables(conn, tables):
+            for statement in _audit_drop_sql(table):
+                cursor.execute(statement)
 
 
 # Migration operations (timeline 0001): run for the database being migrated.

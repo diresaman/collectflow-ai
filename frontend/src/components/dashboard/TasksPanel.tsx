@@ -64,6 +64,7 @@ export function TasksPanel({ reloadKey, onOpenInvoice }: { reloadKey: number; on
                 <p className="text-xs text-slate-500">
                   {task.step ? `Sequence step ${task.step} · ` : ""}due {formatDate(task.due_at.slice(0, 10))}
                 </p>
+                {task.detail && <p className="text-xs text-slate-600">{task.detail}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {task.invoice && (

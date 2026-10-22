@@ -3,6 +3,8 @@ from typing import Any
 from django.db.models import Count
 from rest_framework import serializers
 
+from apps.invoices.serializers import active_holds_summary
+
 from . import engine
 from .models import Sequence, SequenceEnrollment, SequenceStep
 
@@ -40,6 +42,10 @@ class EnrollmentSerializer(serializers.ModelSerializer):
     sequence = serializers.SerializerMethodField()
     next_step = serializers.IntegerField(read_only=True)
     steps = serializers.SerializerMethodField()
+    holds = serializers.SerializerMethodField()
+
+    def get_holds(self, enrollment: SequenceEnrollment) -> list[dict[str, Any]]:
+        return active_holds_summary(enrollment.invoice)
 
     def get_sequence(self, enrollment: SequenceEnrollment) -> dict[str, Any]:
         return {"id": str(enrollment.sequence_id), "name": enrollment.sequence.name, "version": enrollment.sequence.version}
@@ -64,6 +70,6 @@ class EnrollmentSerializer(serializers.ModelSerializer):
             "id", "invoice_id", "invoice_external_id", "sequence", "status", "last_completed_step", "pending_step",
             "next_step", "next_action_at", "escalation_level", "blocked_reason", "pause_reason", "exit_reason",
             "generation_failures", "retry_after",
-            "review_required", "review_reason", "history", "steps", "created_at", "updated_at", "completed_at",
+            "review_required", "review_reason", "history", "steps", "holds", "created_at", "updated_at", "completed_at",
         ]
         read_only_fields = fields

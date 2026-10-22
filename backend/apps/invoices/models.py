@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
@@ -136,3 +137,57 @@ class AutomationRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.trigger} {self.kind.lower()} at {self.started_at:%Y-%m-%d %H:%M} ({self.status})"
+
+
+class ChaseHold(models.Model):
+    """
+    Stops all chasing of an invoice while it is active: no draft, approval, send reservation or
+    delivery (see followups.eligibility). Placed in the same transaction that stores a customer reply,
+    so a reply always wins against a sequence tick that is already running; released by a person or
+    by a confidently classified harmless reply (out of office, information request).
+
+    One active hold per (invoice, reply); chasing resumes only when every hold is released.
+    """
+
+    class Reason(models.TextChoices):
+        AWAITING_CLASSIFICATION = "AWAITING_CLASSIFICATION", "Reply awaiting classification"
+        NEEDS_REVIEW = "NEEDS_REVIEW", "Reply needs review"
+        PROMISE_TO_PAY = "PROMISE_TO_PAY", "Promise to pay"
+        DISPUTE = "DISPUTE", "Dispute"
+        CLAIMS_PAID = "CLAIMS_PAID", "Client says it is paid"
+        WRONG_CONTACT = "WRONG_CONTACT", "Wrong contact"
+
+    # Only an approver may resume chasing after a payment, promise or dispute signal.
+    PROTECTED_REASONS = (Reason.PROMISE_TO_PAY, Reason.DISPUTE, Reason.CLAIMS_PAID)
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="chase_holds")
+    reason = models.CharField(max_length=30, choices=Reason.choices)
+    # The inbound reply that caused the hold (inbox.InboundMessage); no FK so this app stays independent.
+    reply_id = models.UUIDField(null=True, blank=True)
+    detail = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    released_at = models.DateTimeField(null=True, blank=True)
+    released_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    release_note = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["invoice", "released_at"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invoice", "reply_id"], condition=Q(released_at__isnull=True),
+                name="one_active_hold_per_invoice_reply",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        state = "released" if self.released_at else "active"
+        return f"{self.reason} hold on {self.invoice_id} ({state})"
+
+    @property
+    def protected(self) -> bool:
+        return self.reason in self.PROTECTED_REASONS

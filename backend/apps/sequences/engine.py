@@ -153,11 +153,12 @@ def thread_parent(invoice: Invoice) -> DeliveryAttempt | None:
 
 
 def due_time(invoice: Invoice, step: SequenceStep, last_sent: dt.datetime | None,
-             not_before: dt.datetime | None = None) -> tuple[dt.datetime, str]:
+             not_before: dt.datetime | None = None, postponed: dt.datetime | None = None) -> tuple[dt.datetime, str]:
     """
     (when the step is due, the rule that decided it): due date + offset; never earlier than the
-    last send + cooldown; and, for history from before sequences, never earlier than a recent
-    rejection + cooldown (`not_before`), so a draft a person just rejected is not redrafted at once.
+    last send + cooldown; for history from before sequences, never earlier than a recent
+    rejection + cooldown (`not_before`), so a draft a person just rejected is not redrafted at once;
+    and never before an out-of-office postponement (`postponed`, M10).
     """
     day = invoice.due_date + dt.timedelta(days=step.offset_days)
     when, rule = timezone.make_aware(dt.datetime.combine(day, dt.time.min)), "offset"
@@ -167,11 +168,18 @@ def due_time(invoice: Invoice, step: SequenceStep, last_sent: dt.datetime | None
             when, rule = by_cooldown, "cooldown"
     if not_before is not None and not_before > when:
         when, rule = not_before, "recently_rejected"
+    if postponed is not None and postponed > when:
+        when, rule = postponed, "postponed"
     return when, rule
 
 
 def not_before(enrollment: SequenceEnrollment) -> dt.datetime | None:
     value = enrollment.history.get("not_before")
+    return dt.datetime.fromisoformat(value) if value else None
+
+
+def postponed_until(enrollment: SequenceEnrollment) -> dt.datetime | None:
+    value = enrollment.history.get("postponed_until")
     return dt.datetime.fromisoformat(value) if value else None
 
 
@@ -342,7 +350,8 @@ def _schedule_next(enrollment: SequenceEnrollment) -> None:
         enrollment.next_action_at = None
     else:
         enrollment.next_action_at, _ = due_time(
-            enrollment.invoice, step, last_sent_at(enrollment.invoice), not_before(enrollment)
+            enrollment.invoice, step, last_sent_at(enrollment.invoice), not_before(enrollment),
+            postponed_until(enrollment),
         )
     enrollment.save(update_fields=["next_action_at", "updated_at"])
 
@@ -496,10 +505,10 @@ def evaluate(enrollment: SequenceEnrollment, *, now: dt.datetime) -> Evaluation:
         events.append((EventType.ENROLLMENT_COMPLETED, {"last_step": last_completed}))
         return Evaluation(SKIP, "sequence_completed", "All steps are done.", updates=updates, events=events)
 
-    when, rule = due_time(invoice, step, last_sent_at(invoice), not_before(enrollment))
+    when, rule = due_time(invoice, step, last_sent_at(invoice), not_before(enrollment), postponed_until(enrollment))
     if when > now:
         updates["next_action_at"] = when
-        code = rule if rule in ("cooldown", "recently_rejected") else "not_due"
+        code = rule if rule in ("cooldown", "recently_rejected", "postponed") else "not_due"
         local = timezone.localtime(when).date().isoformat()
         return Evaluation(SKIP, code, f"Step {order} is due {local}.", step=step, updates=updates, events=events)
     return Evaluation(TASK if step.channel == Channel.TASK else DRAFT, "", f"Step {order} is due.", step=step,
@@ -764,6 +773,33 @@ def refresh(enrollment_id: Any, *, actor: Any, now: dt.datetime | None = None) -
             updates["next_action_at"] = now  # due now: the next tick starts it
         _apply(enrollment, Evaluation(evaluation.action, evaluation.reason, evaluation.detail,
                                       updates=updates, events=evaluation.events), actor)
+
+
+def postpone(invoice_id: Any, until: dt.datetime, *, actor: Any, reply_id: str = "") -> dict[str, Any]:
+    """
+    Out-of-office (M10): the next step of the invoice's live enrollment is not started before
+    `until`. Only ever moves the date later. A step already in progress (a draft awaiting review) is
+    left alone: people review it with the reply in view.
+    """
+    with transaction.atomic():
+        enrollment = (
+            SequenceEnrollment.objects.select_for_update(of=("self",)).select_related("invoice__client", "sequence")
+            .filter(invoice_id=invoice_id, status__in=SequenceEnrollment.LIVE_STATUSES).first()
+        )
+        if enrollment is None:
+            return {"postponed": False, "reason": "not_enrolled"}
+        current = postponed_until(enrollment)
+        if current is not None and current >= until:
+            return {"postponed": False, "reason": "already_later", "until": current.isoformat()}
+        enrollment.history = {**enrollment.history, "postponed_until": until.isoformat()}
+        enrollment.save(update_fields=["history", "updated_at"])
+        if enrollment.status == Status.ACTIVE and enrollment.pending_step is None:
+            _schedule_next(enrollment)
+        timeline.record(EventType.SEQUENCE_POSTPONED, actor=actor, invoice=enrollment.invoice,
+                        enrollment_id=str(enrollment.pk), until=until.isoformat(), reply_id=reply_id,
+                        next_action_at=enrollment.next_action_at.isoformat() if enrollment.next_action_at else None,
+                        step_in_progress=enrollment.pending_step)
+        return {"postponed": True, "until": until.isoformat(), "step_in_progress": enrollment.pending_step}
 
 
 def on_follow_up_outcome(follow_up: FollowUp) -> None:

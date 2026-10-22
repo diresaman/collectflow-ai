@@ -24,6 +24,18 @@ export type EnrollmentSummary = {
   retry_after: string | null;
 };
 
+/** An active chase hold (M10): a customer reply stopped chasing this invoice until it is reviewed. */
+export type HoldSummary = {
+  id: string;
+  reason: string;
+  reason_display: string;
+  /** Promise, dispute or payment claim: only an approver may resume chasing. */
+  protected: boolean;
+  reply_id: string | null;
+  detail: string;
+  created_at: string;
+};
+
 export type Invoice = {
   id: string;
   external_id: string;
@@ -40,6 +52,7 @@ export type Invoice = {
   last_synced_at: string;
   in_sheet: boolean;
   enrollment: EnrollmentSummary | null;
+  holds: HoldSummary[];
 };
 
 export type CurrencyAmount = {
@@ -122,6 +135,15 @@ export function isEnrollmentSummary(value: unknown): value is EnrollmentSummary 
   );
 }
 
+export function isHoldSummary(value: unknown): value is HoldSummary {
+  return (
+    isRecord(value) &&
+    ["id", "reason", "reason_display", "detail", "created_at"].every((key) => isString(value[key])) &&
+    typeof value.protected === "boolean" &&
+    isNullable(isString)(value.reply_id)
+  );
+}
+
 function isInvoice(value: unknown): value is Invoice {
   return (
     isRecord(value) &&
@@ -137,7 +159,8 @@ function isInvoice(value: unknown): value is Invoice {
     isNumber(value.days_overdue) &&
     isString(value.last_synced_at) &&
     typeof value.in_sheet === "boolean" &&
-    isNullable(isEnrollmentSummary)(value.enrollment)
+    isNullable(isEnrollmentSummary)(value.enrollment) &&
+    isArrayOf(isHoldSummary)(value.holds)
   );
 }
 

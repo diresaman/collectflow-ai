@@ -108,15 +108,23 @@ class FollowUp(models.Model):
 
 
 class GenerationAttempt(models.Model):
-    """Audit record of each AI generation attempt. Holds no prompts, keys or customer data."""
+    """
+    Audit record of each Gemini call: reminder drafts and (M10) reply classifications. The spending
+    guard (ai_budget) counts both, since they share one quota. Holds no prompts, keys or customer data.
+    """
 
     class Outcome(models.TextChoices):
         SUCCEEDED = "SUCCEEDED", "Succeeded"
         FAILED = "FAILED", "Failed"
 
+    class Purpose(models.TextChoices):
+        DRAFT = "DRAFT", "Reminder draft"
+        CLASSIFY = "CLASSIFY", "Reply classification"
+
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="generation_attempts")
     follow_up = models.ForeignKey(FollowUp, on_delete=models.SET_NULL, null=True, blank=True)
     outcome = models.CharField(max_length=10, choices=Outcome.choices)
+    purpose = models.CharField(max_length=10, choices=Purpose.choices, default=Purpose.DRAFT)
     error_code = models.CharField(max_length=50, blank=True)
     error_message = models.CharField(max_length=500, blank=True)
     ai_model = models.CharField(max_length=100, blank=True)

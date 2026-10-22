@@ -4,6 +4,8 @@ export type Task = {
   id: string;
   kind: "CALL" | "UPDATE_CONTACT" | "SEND_INFO" | "RECONCILE";
   title: string;
+  /** Facts from the customer reply that created the task (M10), e.g. a payment reference. */
+  detail?: string;
   invoice: string | null;
   invoice_external_id: string | null;
   client_name: string;

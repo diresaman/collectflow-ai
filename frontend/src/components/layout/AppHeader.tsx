@@ -3,12 +3,15 @@ import Link from "next/link";
 import { ApiStatus } from "@/components/ApiStatus";
 import { UserMenu } from "@/components/auth/UserMenu";
 
+import { InboxBadge } from "./InboxBadge";
 import { Logo } from "./Logo";
 
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/automation", label: "Automation" },
   { href: "/sequences", label: "Sequences" },
+  { href: "/inbox", label: "Inbox" },
+  { href: "/settings/integrations", label: "Integrations" },
 ] as const;
 
 export function AppHeader({ active }: { active: (typeof LINKS)[number]["href"] }) {
@@ -20,7 +23,7 @@ export function AppHeader({ active }: { active: (typeof LINKS)[number]["href"] }
             <Logo />
             <span className="hidden text-base font-semibold text-slate-900 sm:inline">CollectFlow AI</span>
           </Link>
-          <nav className="flex gap-1" aria-label="Main">
+          <nav className="flex flex-wrap gap-1" aria-label="Main">
             {LINKS.map((link) => (
               <Link
                 key={link.href}
@@ -31,6 +34,7 @@ export function AppHeader({ active }: { active: (typeof LINKS)[number]["href"] }
                 }`}
               >
                 {link.label}
+                {link.href === "/inbox" && <InboxBadge />}
               </Link>
             ))}
           </nav>

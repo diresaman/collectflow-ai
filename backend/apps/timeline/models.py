@@ -41,6 +41,14 @@ class EventType(models.TextChoices):
     STEP_COMPLETED = "STEP_COMPLETED", "Sequence step completed"
     TASK_CREATED = "TASK_CREATED", "Task created"
     TASK_DONE = "TASK_DONE", "Task done"
+    # Customer replies (M10). Payloads hold IDs, labels and confidence, never the reply text.
+    REPLY_RECEIVED = "REPLY_RECEIVED", "Customer reply received"
+    REPLY_CLASSIFIED = "REPLY_CLASSIFIED", "Reply classified"
+    REPLY_TRIAGED = "REPLY_TRIAGED", "Reply sent to review"
+    REPLY_REVIEWED = "REPLY_REVIEWED", "Reply reviewed by a person"
+    CHASE_HOLD_PLACED = "CHASE_HOLD_PLACED", "Chasing put on hold"
+    CHASE_HOLD_RELEASED = "CHASE_HOLD_RELEASED", "Chasing hold released"
+    SEQUENCE_POSTPONED = "SEQUENCE_POSTPONED", "Next step postponed"
 
 
 class TimelineEvent(models.Model):

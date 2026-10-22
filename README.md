@@ -302,6 +302,15 @@ records the acting user, or `SYSTEM` / `SCHEDULER`. A database trigger rejects `
 | `AI_QUOTA_BACKOFF_MINUTES`       | `30`                     | Pause of all automatic drafting after a quota error; doubles.  |
 | `AI_RETRY_BASE_MINUTES`          | `15`                     | Retry delay for a step after a transient AI failure; doubles.  |
 | `AI_RETRY_MAX_HOURS`             | `24`                     | Cap for both backoffs.                                         |
+| `GMAIL_READ_ENABLED`             | `false`                  | Poll replies (needs approved `gmail.readonly`, see "Customer replies"). |
+| `INBOX_POLL_MINUTES`             | `5`                      | Interval of the worker's reply poll.                           |
+| `INBOX_RESCAN_DAYS`              | `30`                     | Threads scanned directly on the first poll or an expired cursor. |
+| `INBOX_BODY_MAX_CHARS`           | `8000`                   | Stored reply text cap (after quotes/signatures are removed).   |
+| `INBOX_BODY_RETENTION_DAYS`      | `90`                     | Reply text older than this is purged daily.                    |
+| `REPLY_CONFIDENCE_THRESHOLD`     | `0.8`                    | AI labels below this go to human triage.                       |
+| `INBOX_CLASSIFY_MAX_ATTEMPTS`    | `3`                      | Automatic classification attempts after transient failures.   |
+| `OUT_OF_OFFICE_MAX_DAYS`         | `21`                     | Longest out-of-office postponement.                            |
+| `OUT_OF_OFFICE_DEFAULT_DAYS`     | `7`                      | Postponement when no return date is given.                     |
 
 ## Google Sheets setup
 
@@ -580,6 +589,63 @@ collection" v1, seeded by migration):
   strip, pause/resume and the history review (approvers). `/sequences` shows versions on a
   day timeline with enrollment counts, and admins can save a new version. Open call tasks appear
   on the dashboard.
+
+## Customer replies (M10)
+
+CollectFlow reads replies **only in Gmail conversations it started** (threads with a SENT
+CollectFlow reminder). Nothing else in the mailbox is fetched or stored. It needs the
+`gmail.readonly` scope, which is **off until the owner approves it**:
+
+1. Owner approval of read access (it changes what the Google account has granted).
+2. `python manage.py authorize_gmail --with-read-access` (same consent flow as sending, plus read).
+3. `GMAIL_READ_ENABLED=true` in `backend/.env`, then restart the worker.
+
+Until then no poll is scheduled, and `/settings/integrations` shows *Awaiting authorization*.
+
+- **Polling:** the worker queues an `inbox.poll` job every `INBOX_POLL_MINUTES` (5). It reads
+  `users.history.list` from a stored cursor (`MailboxCursor`), page by page. The cursor moves only
+  after every message up to it is stored, so a crash re-reads history and duplicates are ignored
+  (Gmail message ID is unique). On the first poll, or when Gmail's history has expired, it scans
+  the known threads of the last `INBOX_RESCAN_DAYS` (30) directly. A lease on the cursor row keeps
+  polls from overlapping. `python manage.py poll_replies` runs one poll by hand.
+- **What is stored:** sender, subject, received time, Gmail IDs, and the reply's own text: plain
+  text (HTML converted), attachments ignored, quoted history and signatures removed, capped at
+  `INBOX_BODY_MAX_CHARS`. Text older than `INBOX_BODY_RETENTION_DAYS` (90) is purged daily
+  (`purge_reply_bodies`). CollectFlow's own messages are skipped. The sender is checked against
+  the invoice contact (match / same domain / unknown).
+- **A reply stops chasing at once.** Storing it, putting the invoice on a **chase hold** and
+  queueing classification happen in one transaction. A hold blocks drafting (re-checked under the
+  invoice lock when the draft is saved), approval, send reservation and delivery, so a sequence tick
+  that is already running cannot send past a reply.
+- **Classification (`classify-v1`):** Gemini returns `{label, confidence, suspicious_instructions,
+  rationale, extracted}` against a strict schema; the reply sits in a `<client_reply>` block marked
+  as untrusted data. The backend validates it and applies a label **only** when confidence ≥
+  `REPLY_CONFIDENCE_THRESHOLD` (0.8), no injection is detected, the sender is known, the reply is
+  about this invoice only, and (for labels that resume chasing) the text has no payment or dispute
+  wording. Everything else goes to **triage** with the hold kept.
+
+| Label | Chasing | Also |
+| --- | --- | --- |
+| PROMISE_TO_PAY, DISPUTE | held; always reviewed by a person | (M11 adds promise and dispute records) |
+| CLAIMS_PAID | held | `RECONCILE` task. The invoice is never marked paid from an email |
+| WRONG_CONTACT | held | `UPDATE_CONTACT` task |
+| REQUESTS_INFO | resumes | `SEND_INFO` task |
+| OUT_OF_OFFICE | resumes | next step postponed to the return date + 1 day (at most `OUT_OF_OFFICE_MAX_DAYS`, 21; default `OUT_OF_OFFICE_DEFAULT_DAYS`, 7) |
+| OTHER | held for review (AI); resumes when a person confirms it | — |
+
+- **Gemini use:** classifications are recorded as `GenerationAttempt(purpose=CLASSIFY)`, so they
+  count toward the drafting budget and a quota error pauses drafting too. Classification itself is
+  not blocked by the daily drafting budget (it is safety work) but waits out a quota cooldown.
+  Transient failures retry automatically at most `INBOX_CLASSIFY_MAX_ATTEMPTS` (3) times in total.
+- **Triage (`/inbox`):** the reply, the AI's label, confidence, rationale and extracted fields, why
+  it needs review, holds, tasks and the full history. A person picks a label (keys 1–7, j/k to
+  move), edits extracted fields and applies it; the same deterministic action runs. **Resuming
+  chasing after a promise, dispute or payment claim needs an APPROVER and a note** (enforced in the
+  backend: `403 approver_required`). Every AI proposal and every human decision is kept in the
+  append-only `ReplyClassification` log (database triggers refuse changes) and on the timeline.
+- **Integration health (`/settings/integrations`):** Sheets sync, Gmail send, Gmail read, reply
+  polling, Gemini (budget, cooldown) and the worker, plus the scheduled jobs. Built from local
+  records only (no provider calls), with no tokens or message text.
 
 ## Proactive automation
 
@@ -902,6 +968,13 @@ provider queue a job and return `202`; poll `GET /api/jobs/{id}/`.
 | POST   | `/api/follow-ups/{id}/send/`    | Reserve and queue delivery. `202 {job_id, follow_up, delivery_attempt}` · `409` wrong state/stale/duplicate · `400` invalid content · `503` Gmail not configured. The outcome lands on the follow-up and attempt (see Delivery flow) |
 | GET    | `/api/follow-ups/{id}/delivery-attempts/` | Delivery attempts, newest first                                  |
 | GET    | `/api/integrations/gmail/status/` | Whether Gmail is configured, authorized and matches the sender           |
+| GET    | `/api/integrations/status/` | Health of Sheets, Gmail send/read, reply polling, Gemini, worker and scheduled jobs (local records only) |
+| GET    | `/api/replies/`          | Customer replies, newest first. `?triage=true`, `?state=ACTIONED`, `?invoice=<id>` |
+| GET    | `/api/replies/summary/`  | `{needs_review, invoices_on_hold, by_state}` |
+| GET    | `/api/replies/{id}/`     | Reply with text, classifications, holds, tasks, history and a Gmail link |
+| POST   | `/api/replies/{id}/classify/` | `{label, extracted?, note?}`: a person classifies or corrects; the label's action runs. `403 approver_required` when it would resume chasing after a promise, dispute or payment claim |
+| POST   | `/api/replies/{id}/release-hold/` | `{note}`: resume chasing (APPROVER and a note for protected holds) |
+| POST   | `/api/replies/{id}/retry-classification/` | `202 {job_id}`: one more AI attempt for an unclassified reply |
 
 Errors return `{"code": "...", "detail": "...", "fields"?: {...}}`; `401` means no session, `403` a
 missing role or CSRF token.
@@ -925,7 +998,8 @@ Consolidated from the sections above. See also [docs/FINAL_QA_REPORT.md](docs/FI
   enforced in code. Everything else (no invented fees, deadlines or payment claims, no bare
   domains such as `pay.example.com`) relies on the model's instructions plus mandatory human
   review before approval.
-- **Gmail.** Plain text only, one sender account, no reply tracking. "Sent" means Gmail accepted
+- **Gmail.** Plain text only, one sender account. Reply reading (M10) is built but stays off until
+  the owner approves `gmail.readonly`. "Sent" means Gmail accepted
   the message, not that it was delivered. Unknown outcomes are reconciled by CLI only. While the
   OAuth consent screen is in *Testing*, refresh tokens expire after 7 days.
 - **Interrupted runs** are shown as processing until their lease expires (up to

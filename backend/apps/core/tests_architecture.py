@@ -1,7 +1,9 @@
 """
-Architecture boundary (v2 §9): nothing scheduled may reach Gmail send. The sequence, inbox and
-automation apps must not import the delivery module or the Gmail client; only `followups` (behind a
-person's explicit confirmation) does. import-linter will enforce the same contract in CI (Phase 08).
+Architecture boundary (v2 §9): nothing scheduled may reach Gmail send. The sequence, inbox (including
+M10 reply polling and classification) and automation apps must not import the delivery module or the
+Gmail send client; only `followups` (behind a person's explicit confirmation) does. The Gmail read
+adapter (integrations.mailbox) must not import the send client either. import-linter will enforce the
+same contract in CI (Phase 08).
 """
 
 import ast
@@ -39,3 +41,9 @@ class BoundaryTests(SimpleTestCase):
                 with self.subTest(file=str(path.relative_to(apps_dir))):
                     self.assertEqual(bad, set())
         self.assertGreater(checked, 10)
+
+    def test_mailbox_reader_has_no_path_to_sending(self) -> None:
+        # M10: reply reading (integrations.mailbox) is separate from Gmail send.
+        path = Path(settings.BASE_DIR) / "integrations" / "mailbox.py"
+        bad = {m for m in imported_modules(path) if m.startswith(FORBIDDEN)}
+        self.assertEqual(bad, set())

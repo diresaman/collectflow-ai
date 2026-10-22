@@ -63,6 +63,15 @@ one tick moves each invoice forward by at most one step. Ticks and the daily run
 automation lease, so they never overlap. Without the worker, only the daily cron run advances
 sequences.
 
+## 1c. Reply polling and retention (M10)
+
+With `GMAIL_READ_ENABLED=true` (only after the owner approves Gmail read access), the worker also
+queues an `inbox.poll` job every 5 minutes (`INBOX_POLL_MINUTES`), keyed by slot like the tick. A
+lease on the mailbox cursor keeps polls from overlapping. Each stored reply queues one
+`inbox.classify` job. Neither job approves or sends anything; replies only put invoices on hold,
+create tasks or postpone the next step. A daily `inbox.purge` job clears reply text older than
+`INBOX_BODY_RETENTION_DAYS`. With read access off, no poll is queued.
+
 ## 2. Prerequisites
 
 1. Backend installed with its virtualenv at `backend/.venv`, and `python manage.py migrate` run.

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 
 import { useCurrentUser } from "@/components/auth/SessionGate";
@@ -116,7 +117,17 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
         ))}
       </ol>
 
-      {enrollment.status === "ACTIVE" && enrollment.pending_step === null && enrollment.next_action_at && (
+      {enrollment.holds.length > 0 && (
+        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <span className="font-semibold">Chasing on hold:</span>{" "}
+          {enrollment.holds.map((hold) => hold.reason_display.toLowerCase()).join(", ")}. A customer replied; no reminder is
+          drafted, approved or sent until the reply is reviewed.{" "}
+          <Link href="/inbox" className="font-medium underline">
+            Review in the Inbox
+          </Link>
+        </p>
+      )}
+      {enrollment.status === "ACTIVE" && enrollment.holds.length === 0 && enrollment.pending_step === null && enrollment.next_action_at && (
         <p className="text-sm text-slate-600">
           Step {enrollment.next_step} is due {formatDateTime(enrollment.next_action_at)}. The draft is prepared then
           and waits for your approval.

@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
 
-from apps.invoices.models import Invoice
+from apps.invoices.models import ChaseHold, Invoice
 
 from .models import Tone
 
@@ -18,6 +18,10 @@ def missing_from_sheet(invoice: Invoice) -> bool:
     that disappeared must not keep being treated as unpaid.
     """
     return not invoice.in_sheet
+
+
+def active_holds(invoice: Invoice) -> list[ChaseHold]:
+    return list(ChaseHold.objects.filter(invoice_id=invoice.pk, released_at__isnull=True).order_by("created_at"))
 
 
 def ineligibility(invoice: Invoice) -> list[tuple[str, str]]:
@@ -35,6 +39,12 @@ def ineligibility(invoice: Invoice) -> list[tuple[str, str]]:
         reasons.append(("invalid_recipient", "Client email address is invalid."))
     if invoice.amount is None or invoice.amount <= Decimal("0"):
         reasons.append(("invalid_amount", "Invoice amount must be positive."))
+    # A customer reply holds all chasing until it is classified or reviewed (M10). Checked wherever
+    # eligibility is: tick, drafting (again under the invoice lock), approval, send request and delivery.
+    holds = active_holds(invoice)
+    if holds:
+        reasons.append(("on_hold", f"Chasing is on hold: {holds[0].get_reason_display().lower()}. "
+                                   "Review the customer's reply in the inbox."))
     return reasons
 
 

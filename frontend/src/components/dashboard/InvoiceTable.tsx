@@ -79,6 +79,14 @@ function OverdueNote({ invoice, block = false }: { invoice: Invoice; block?: boo
 
 /** One line on where the invoice is in its collection sequence. */
 function SequenceNote({ invoice }: { invoice: Invoice }) {
+  const hold = invoice.holds[0];
+  if (hold) {
+    return (
+      <span className="mt-1 block text-xs font-medium text-amber-700">
+        On hold: {hold.reason_display.toLowerCase()} (see Inbox)
+      </span>
+    );
+  }
   const e = invoice.enrollment;
   if (!e) return null;
   let text: string;

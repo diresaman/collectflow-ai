@@ -284,3 +284,27 @@ AI_QUOTA_BACKOFF_MINUTES = int(os.environ.get("AI_QUOTA_BACKOFF_MINUTES", "30"))
 # After a transient Gemini failure a sequence step is retried after this long, doubling per failure.
 AI_RETRY_BASE_MINUTES = int(os.environ.get("AI_RETRY_BASE_MINUTES", "15"))
 AI_RETRY_MAX_HOURS = int(os.environ.get("AI_RETRY_MAX_HOURS", "24"))
+
+
+# Reply ingestion and classification (M10)
+# ------------------------------------------------------------------------------
+
+# Reading replies needs the gmail.readonly scope, granted with `authorize_gmail --with-read-access`.
+# Off until the owner explicitly approves read access: no poll is scheduled and no mailbox is read.
+GMAIL_READ_ENABLED = env_bool("GMAIL_READ_ENABLED", False)
+# Minutes between scheduled reply polls (enqueued by run_worker).
+INBOX_POLL_MINUTES = int(os.environ.get("INBOX_POLL_MINUTES", "5"))
+# On first start, and when Gmail's history cursor has expired, threads CollectFlow sent to in this
+# many days are scanned directly (duplicates are ignored).
+INBOX_RESCAN_DAYS = int(os.environ.get("INBOX_RESCAN_DAYS", "30"))
+# Stored reply text is capped (after quotes and signatures are stripped) and purged after this long.
+INBOX_BODY_MAX_CHARS = int(os.environ.get("INBOX_BODY_MAX_CHARS", "8000"))
+INBOX_BODY_RETENTION_DAYS = int(os.environ.get("INBOX_BODY_RETENTION_DAYS", "90"))
+# AI labels at or above this confidence are applied; anything lower goes to human triage.
+REPLY_CONFIDENCE_THRESHOLD = float(os.environ.get("REPLY_CONFIDENCE_THRESHOLD", "0.8"))
+# Automatic classification attempts per reply after transient Gemini failures (then triage only).
+INBOX_CLASSIFY_MAX_ATTEMPTS = int(os.environ.get("INBOX_CLASSIFY_MAX_ATTEMPTS", "3"))
+# Out-of-office: the next step waits until the return date (+1 day), at most this many days ahead;
+# without a return date it waits the default.
+OUT_OF_OFFICE_MAX_DAYS = int(os.environ.get("OUT_OF_OFFICE_MAX_DAYS", "21"))
+OUT_OF_OFFICE_DEFAULT_DAYS = int(os.environ.get("OUT_OF_OFFICE_DEFAULT_DAYS", "7"))
