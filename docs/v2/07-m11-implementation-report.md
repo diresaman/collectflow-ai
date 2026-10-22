@@ -5,9 +5,8 @@
 - **Plan:** roadmap Phase 04 (`02-implementation-roadmap.md`), gap items 14, 17 and 18
   (`01-gap-analysis.md`), and the M11 authorization
 - **Status:** implemented and tested on the development database (`collectflow_dev`) with mocked
-  providers. Migrations were also rehearsed on a restored copy of production. **Not deployed:** the
-  owner's `collectflow` database is unchanged, pending a verified backup and explicit deployment
-  approval (section 8).
+  providers, rehearsed on a restored copy of production, and **deployed to the owner's stack on
+  2026-10-22** after approval (section 8.1).
 
 ## 1. Behaviour
 
@@ -122,7 +121,7 @@ satisfied the owner constraint. The rehearsal database and dump were deleted aft
 - **Notifications:** the dispute-review task is how approvers learn of a case; there is no email or
   push alert.
 
-## 8. Deployment (not done; needs approval)
+## 8. Deployment
 
 1. Back up `collectflow` and verify the backup by restoring it into a scratch database (as in M10 Step 1).
 2. Tag the running images `pre-m11`.
@@ -132,3 +131,24 @@ satisfied the owner constraint. The rehearsal database and dump were deleted aft
 
 Rollback: reverse the migrations in the order in section 3 and redeploy the `pre-m11` images. This
 drops promises, disputes and the new task fields, so restore from the backup if any were recorded.
+
+### 8.1 Production deployment record (2026-10-22, approved)
+
+| Check | Result |
+| --- | --- |
+| Before | Stack at `0867f1c` code (M10); 0 pending or running outbox jobs; automation lease free; worker heartbeat live; data: 1 reply (INV-008, handled), 1 hold (released), 1 open task (INV-008 information request), 7 follow-ups (6 SENT, 1 REJECTED) |
+| Rollback images | `collectflow-{api,worker,web}:pre-m11` = the running containers' images (4cb6862b944c, 16b5bb5d50aa, bd03ab37e5b5) |
+| Build | New images built while the old stack kept serving; nothing restarted until the build succeeded |
+| Pause | Worker (scheduler) and web stopped for the migration window; 0 jobs in flight |
+| Backup | `backend/backups/collectflow-before-m11-20261022T200632.dump` (140 KB, mode 600, SHA-256 verified). Restored into a scratch database: 32/32 tables with identical row counts, 11 key tables byte-identical, append-only triggers present. Scratch database dropped |
+| Migrations | `invoices 0007`, `cases 0001`, `followups 0006`, `inbox 0003`, `timeline 0004` applied by the api on start; `manage.py check` clean |
+| Data integrity | Invoices, deliveries, enrollments, timeline, replies, classifications, users, generation attempts and the existing columns of holds and tasks: hashes identical before and after. Follow-ups identical on every original column (the whole-row hash differs only by the new empty `cancelled_reason`, proven against a fresh restore). Row counts differ only by the new empty tables and Django's migration, content-type and permission rows |
+| Existing records | M10 reply hold intact (reply-owned, released). INV-008 task preserved: same ID, title and details, `status=OPEN` from the data step. INV-008 reply unchanged |
+| API via web proxy | `me`, `invoices` (with `holds`, `open_promise`, `open_dispute`), `promises`, `disputes`, `users`, `tasks`, `replies`, `integrations/status`, `enrollments`, `follow-ups`, `dashboard`: 200. Refusals with nothing created: promise with a past date 400, dispute with a bad reason 400, cancel or resolve of an unknown case 404. Promise and dispute tables still empty afterwards |
+| Frontend | `/`, `/inbox`, `/settings/integrations`, `/sequences`: 200. The deployed bundle contains the drawer section and Inbox forms. No promises or disputes were created on real invoices |
+| Worker resumed | `cases.monitor` SUCCEEDED (no promises; flagged the overdue INV-008 task once: one `TASK_OVERDUE` event, internal only); `inbox.poll` ×2 SUCCEEDED (no new replies); `sequences.tick` SUCCEEDED (nothing due; 0 drafts) |
+| External providers | No Gmail sends (0 delivery attempts) and no Gemini calls (0 generation attempts) since the deploy. Only the scheduled read-only reply polls touched Gmail, as already enabled. Gmail token and `GMAIL_READ_ENABLED=true` unchanged |
+| Health | Sheets, Gmail send, Gmail read, reply polling, Gemini and worker healthy; all four scheduled jobs healthy |
+
+No errors. One verification adjustment: the follow-up whole-row hash comparison needed a column-aware
+re-check (above), because the migration adds a column.
