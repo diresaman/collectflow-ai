@@ -204,3 +204,27 @@ Development-only database changes: `invoices 0009`, `followups 0007` and `insigh
 to `collectflow_dev` only. The real database and the running stack were not touched by M14.
 
 No live Gemini call, Gmail send or Sheets read was made for M14.
+
+### 10.1 Production deployment record (2026-10-23): PARTIAL
+
+The deployment covered M13, M14 and the UX work (HEAD `96bedac`). The owner ran `backend/backups/deploy-m13.sh`;
+Claude verified the result read-only. Times are UTC.
+
+| Check | Result |
+| --- | --- |
+| Backup | `backend/backups/collectflow-before-m13-20261023T103338.dump`, checksum verified. The restored copy was identical to live. A migration rehearsal on that copy preserved all data |
+| Rollback images | `collectflow-{api,worker,web}:pre-m13` = `0edc57667052`, `137cc5023d76`, `1b514d58a643` (M12) |
+| New images | api `a96708d810f7` (running since 11:09:04), web `0cce2d611845` (running since 11:09:56), worker `ed158895c363` (built, **not started**) |
+| Migrations | `invoices 0008` and `0009`, `followups 0007`, `insights 0001` applied at 11:09:21–22; 51 migrations in total; `manage.py check` clean |
+| **Worker** | **Not running.** It was stopped cleanly at 11:08:42 (script step 3, 0 jobs in flight), and the script ended before step 6 ("resume the worker"). The container is exited and still on the M12 image. The cause (a failed check or an interrupted run) is not visible in the logs. Until it is started, scheduled syncs, reply polls, the sequence tick, the promise and task checks, and the first risk and analytics calculation are paused. Integrations correctly reports the worker as failed |
+| Record preservation | Follow-ups and clients are identical to the pre-deployment reference apart from the new columns (`670d87d3…`, `04ebcce0…`); all 9 follow-ups have kind INVOICE. All other content hashes and workflow states are identical. The only row differences are the new empty tables (`followups_statementline`, `insights_analyticssnapshot`), Django's migration, permission and content-type rows, and normal M12-worker activity between the backup and the pause (10 jobs, 2 sheet syncs, the mailbox cursor) |
+| Providers | 7 delivery attempts (unchanged; the last is the 06:10 live test email). 0 Gemini calls since the backup. 0 statements. No duplicate jobs |
+| Configuration | `.env`, the Gmail token and credential files, `GMAIL_READ_ENABLED=true`, the sender and the recipient allowlist are all unchanged |
+| Pages (signed out) | All 12 pages return 200, including `/approvals`. New API routes return 401 when signed out; an unknown route 404; a cross-origin write 403 |
+| API (signed in, in-process, rolled back) | Today, worklist, clients and client detail (paid history, communications), analytics (`not_computed`, as expected while the worker is stopped), forecast, follow-ups (`kind`, `statement`), replies, tasks, disputes and integrations: 200. Statement preview works; nothing is eligible yet. No role: 403. CSRF enforced on the recompute and statement writes. Risk and analytics computed correctly on production data inside the rolled-back transaction |
+
+**Status: API and web deployed and verified; worker pending.** To complete it, the owner runs
+`docker compose up -d --no-deps --no-build worker`. Claude then checks that the worker runs `ed158895c363`,
+that the first `insights.recompute` succeeds (risk scores and 5 analytics snapshots), that the scheduled jobs
+are healthy, and that there are still no sends or Gemini calls.
+Rollback stays available through the `pre-m13` images; the new columns have database defaults.
