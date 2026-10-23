@@ -6,7 +6,7 @@
 - **Scope:** frontend presentation only.
   - No backend file changed; `git diff -- backend` is empty.
   - No migration, no new API, no business rule changed.
-  - No live provider used and no deployment.
+  - No live provider used. Deployed with the final release on 2026-10-23 (`12-m15-release-readiness-report.md` §13).
 
 ## 1. Research findings and references
 

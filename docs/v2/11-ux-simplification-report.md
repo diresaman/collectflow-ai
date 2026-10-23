@@ -213,7 +213,7 @@ words):
   backend release and its tests.
 - **Automation Settings:** the label follows the request. The page is a run-and-review workspace rather than a
   settings form; its description says so.
-- **Deployment:** not deployed. Until it is, production shows the older names.
+- **Deployment:** deployed with the final release on 2026-10-23 (`12-m15-release-readiness-report.md` §13).
 
 ## 6. Known usability gaps
 

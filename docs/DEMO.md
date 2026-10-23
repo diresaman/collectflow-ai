@@ -37,9 +37,7 @@ API_BASE_URL=http://127.0.0.1:8002 npx next start -p 3002 -H 127.0.0.1
 
 ## The walkthrough
 
-Menu names are those of the current code (sidebar groups Workspace, Customers & Payments, Reports, Settings). Until
-the navigation update is deployed, the real deployment (A) still shows the older names: Today, Inbox, Clients,
-Analytics, Sequences, Automation and Integrations.
+Menu names: sidebar groups Workspace, Customers & Payments, Reports and Settings (the same on the real deployment).
 
 | # | Topic | Where | What to show |
 | --- | --- | --- | --- |

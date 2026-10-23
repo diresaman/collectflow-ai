@@ -14,12 +14,10 @@
 | M12.1 live-provider acceptance | **PASSED** (`a6ace03`; `09-m12-live-provider-acceptance-report.md` §8) |
 | Live 120-case AI evaluation | **NOT RUN.** The owner excluded it from the assignment scope. Not a release requirement |
 | M16 reconciliation | **OUT OF SCOPE** |
-| M15 deployment | **PENDING** until deployed and verified (section 10) |
+| M15 deployment (with the navigation update and the complete UX redesign) | **PASSED**, deployed and verified 2026-10-23 (section 13) |
 | M14 analytics parameters | Kept unchanged as an assignment demonstration, pending the owner's final review (section 11) |
 
-**Recommendation:** ready for assignment submission. The one release blocker for production is deploying
-M15, which fixes F4: links between screens currently open the page but not the record. Deployment needs the
-owner's separate approval.
+**Recommendation:** released. Everything is deployed and verified (section 13); no release blocker remains.
 
 ## 1. Summary
 
@@ -36,7 +34,7 @@ owner's separate approval.
 | CI pipeline (`.github/workflows/ci.yml`) | **NOT TESTED** remotely: the repository has no remote. Every step was run locally |
 | Security and operational verification | **PASS** (section 7) |
 | M12.1 live-provider acceptance | **PASS** (2026-10-23, after M15; see `09-m12-live-provider-acceptance-report.md` §8) |
-| Production deployment (M13, M14, UX) | **PASS** (`14f40ab`). The M15 changes are **not deployed** |
+| Production deployment (M13, M14, UX) | **PASS** (`14f40ab`). Final release with M15 and the redesign: **PASS** (section 13) |
 | Re-run on the release commit (code identical to `7e46f80`) | **PASS**: `check`, `makemigrations --check`, `lint-imports` (2 kept), deterministic and simulated evaluations, type-check, lint. The demo stack was started and signed in to. The full suite and Playwright were not repeated: no code changed since they passed |
 
 *Superseded by section 0:* the original M15 recommendation ("not yet ready for a full release") depended on
@@ -192,7 +190,7 @@ python manage.py run_ai_evals --mode live --confirm-live --max-requests 120  # w
 
 | Issue | Severity | Status |
 | --- | --- | --- |
-| M15 fixes not in production: deep links (F4), the Integrations job row, the statement reconciliation event | **Medium, the only release blocker** | Deployment prepared (section 10), awaiting the owner's approval. F4 is live in production: an action link opens the page but not the record |
+| M15 fixes (deep links F4, Integrations job row, statement reconciliation event) | Closed | Deployed and verified 2026-10-23 (section 13) |
 | Live AI quality not measured on the 120 cases | — | **Not run, by the owner's decision** for the assignment. Evidence: deterministic and simulated harness runs, and the M12.1 live test |
 | Free Gemini quota too small for daily use (F3) | Low (for the assignment) | Open. A paid key is recommended for real use |
 | M12.1 live acceptance | Closed | **Passed** 2026-10-23, findings F1–F4 recorded |
@@ -218,7 +216,7 @@ defects found in M15 and in M12.1 are fixed. Their deployment status is shown ab
 | Client risk and worklist (M13) | Yes | Suite + browser | Computed on production data | Yes |
 | Statements, analytics, forecast (M14) | Yes | Suite + browser | Analytics computed on production data; no live statement sent | Yes |
 | UX shell, Approvals (UX) | Yes | Browser | Used in M12.1 | Yes |
-| Deep-link fix, Integrations job row, statement reconciliation event (M15) | Yes | Suite + browser | — | **No: pending deployment** |
+| Deep-link fix, Integrations job row, statement reconciliation event (M15) | Yes | Suite + browser | — | **Yes** (final release) |
 | Browser suite, evaluation harness, import contracts, CI (M15) | Yes | Run locally | — | Development and CI only |
 
 ## 9. M12.1 live acceptance: closed
@@ -315,3 +313,37 @@ The deterministic M14 analytics stay as they are, as an **assignment demonstrati
 | Testing summary | `docs/TESTING.md` |
 | Demonstration walkthrough (existing live evidence plus a fake-provider demo stack; no new live email) | `docs/DEMO.md` |
 | Known limitations | `README.md` "Known limitations", and section 8 here |
+
+## 13. Final production deployment record (2026-10-23): PASSED
+
+**What was deployed:** M15, the navigation and terminology update (`6b49eb4`) and the complete UX redesign
+(`877bea9`).
+- **Code:** commit `67344ad`, whose code is identical to HEAD; later commits change documentation only.
+- **Run:** the owner ran `backend/backups/deploy-final.sh`, the section 10 procedure updated for the final code.
+  Claude cannot run production deployments. Claude verified the result read-only. Times are UTC.
+
+| Check | Result |
+| --- | --- |
+| Backup | `backend/backups/collectflow-before-final-20261023T182130.dump` (permissions 600), taken with the worker paused. The checksum verified. The script restored it into a scratch database and compared 10 key tables with live before replacing anything |
+| Rollback images | `collectflow-{api,worker,web}:pre-final` = `a96708d810f7`, `ed158895c363`, `0cce2d611845` (the M13, M14 and UX release) |
+| New images | api `9e025f80b5b7` (running since 18:25:36), web `d807bfe8b4cf` (since 18:25:58), worker `dc62e4ac19aa` (since 18:26:05), each with 0 restarts |
+| Migrations | 51 before and after; no migration applied |
+| Records | Identical to the pre-deployment reference (18:15): 10 invoices, 9 follow-ups, 7 delivery attempts, 18 generation attempts, 69 timeline events, 4 replies, 2 tasks, 1 promise, 0 disputes |
+| Providers | Gmail: 7 delivery attempts, unchanged. Gemini: no call since 15:43 (before the deployment) |
+| Pages, signed out | All 12 return 200. `/` → 307 to `/today`. `/?invoice=x` → 307 to `/invoices?invoice=x` |
+| API, signed out | `today`, `worklist`, `invoices`, `follow-ups`, `replies`, `tasks`, `disputes`, `analytics`, `integrations/status` and `timeline`: 401. A cross-origin write: 403. An unknown route: 404. Health: 200 |
+| API, signed in (in process, in-memory users, rolled back; no session created) | 15 routes, including the client timeline and the statement preview: 200 for an operator and an approver, 403 without a role. The temporary users were rolled back (0 left) |
+| Health | Services: Sheets, Gmail sending, Gmail reading, reply polling, Gemini and the worker are all healthy. Scheduled jobs: `sequences.tick`, `inbox.poll`, `inbox.purge`, `cases.monitor` and `insights.recompute` are all healthy |
+| Worker | Started 18:26:05; reply polls succeed; no errors in the log; nothing failed or stuck; no duplicate idempotency keys |
+| Web bundle | Contains the redesign (for example "Effectiveness (CEI)", "Chasing is stopped", "Prepare due reminders") and the deep-link fix. No test artefacts are in the image (`.dockerignore`, `67344ad`) |
+
+**Rollback** (no database change is involved):
+```
+docker compose stop worker
+for c in api worker web; do docker tag collectflow-$c:pre-final collectflow-$c:latest; done
+docker compose up -d --no-deps --no-build api web worker
+```
+
+**Final status: PASSED.** Everything built for the assignment is in production. Scope exclusions decided by the
+owner: the live 120-case AI evaluation (not run) and M16 reconciliation (out of scope).
+

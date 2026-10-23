@@ -13,7 +13,8 @@ approved it and confirmed that specific send.
 >   promises, disputes and tasks, roles with four-eyes approval, client risk, statements, analytics and the
 >   forecast, and final QA.
 > - **Live acceptance:** passed on real Sheets, Gmail and Gemini (M12.1).
-> - **Production:** runs M13, M14 and the UX work; the M15 fixes are pending deployment.
+> - **Production:** everything is deployed and verified (2026-10-23): M13–M15, the navigation update and the
+>   complete UX redesign.
 > - **Release report:** [docs/v2/12-m15-release-readiness-report.md](docs/v2/12-m15-release-readiness-report.md).
 > - **Use:** local Docker Compose deployment for a small team.
 
@@ -1201,8 +1202,8 @@ missing role or CSRF token.
 
 Consolidated from the sections above.
 
-- **Release state.** The M15 fixes are not yet deployed. In production, links between screens open the page
-  but not the record (finding F4, fixed in M15).
+- **Release state.** Everything is deployed (2026-10-23). The live 120-case AI evaluation was not run (owner
+  decision), and M16 payment reconciliation is out of scope.
 - **AI quality not measured at scale.** The 120-case live evaluation was not run, by the owner's decision for
   the assignment. Evidence is the deterministic and simulated harness runs plus the M12.1 live acceptance test.
   The free Gemini tier (about 20 calls a day) is too small for daily use.
