@@ -1033,13 +1033,41 @@ If you run the frontend on a port other than 3000, add that origin to
 # Backend (from backend/, with the virtualenv active and PostgreSQL running: docker compose up -d db)
 python manage.py check
 python manage.py makemigrations --check --dry-run   # models and committed migrations agree
-python manage.py test        # creates and drops a test_<POSTGRES_DB> database (the user needs CREATEDB)
+python manage.py test --noinput --parallel 1   # one process: it creates and drops test_<POSTGRES_DB>
+lint-imports                                   # import contracts (pip install -r requirements-dev.txt)
+python manage.py run_ai_evals --mode deterministic   # AI eval datasets and screens, no model calls
 
 # Frontend (from frontend/)
 npm run lint
 npm run typecheck
 npm run build
+npm run test:e2e   # Playwright: starts a throwaway backend (collectflow_e2e) with fake Gemini/Gmail
 ```
+
+Never start a second backend test command while one is running: both use the same `test_<POSTGRES_DB>`
+database, and `--noinput` makes the second drop the first one's database. CI (`.github/workflows/ci.yml`)
+runs the same steps in separate jobs, each with its own PostgreSQL service, and never uses Google
+credentials.
+
+**Browser tests** (`frontend/e2e/`) cover sign-in and navigation, Today, client risk, invoice blockers,
+reply review, editing, approving and sending a reminder (fake Gmail), four-eyes approval, disputes,
+promises, tasks, analytics, statements (including a stale one), unknown delivery outcomes, integrations,
+CSRF, role refusals and the phone layout. `backend/scripts/e2e_backend.sh` recreates the `*_e2e` database,
+seeds one fictional record set per journey (`apps/core/e2e.py`) and runs the API and a worker with fake
+providers; the e2e commands refuse any database that does not end in `_e2e`.
+
+**AI evaluations** (`backend/evals/`, design §11): 80 labelled replies and 40 drafting scenarios.
+`--mode deterministic` checks the datasets and safety screens; `--mode recorded --responses FILE` scores
+saved model answers (the bundled `recorded/simulated-*.json` are hand-written and only exercise the harness);
+`--mode live --confirm-live --max-requests N` calls Gemini, about 120 requests in total. It needs the owner's
+approval, is capped and resumable (cache in `evals/results/`), and stops without using up a case while Gemini
+is paused or out of quota.
+
+**Unknown delivery outcome.** A reminder whose Gmail result was lost is `DELIVERY_UNKNOWN` and is never
+resent. An admin checks the sender's Sent folder and records the result:
+`python manage.py reconcile_delivery` (lists them), then `reconcile_delivery <id> --sent [--message-id …]`
+or `--failed`. Only SENDING or DELIVERY_UNKNOWN reminders can be reconciled; the result is written to the
+history of every invoice involved.
 
 Tests mock the Google Sheets, Gemini and Gmail APIs; they never make network calls or send email.
 The automation tests replace `GmailClient.send` with a function that fails the test if called,

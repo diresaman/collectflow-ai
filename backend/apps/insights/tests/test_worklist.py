@@ -117,7 +117,9 @@ class WorklistTests(SessionApiTestCase):
         self.assertEqual([s["key"] for s in after["sections"]], [key for key, _ in today.SECTIONS])
         self.assertEqual(len(after["sections"]), 11)
         self.assertEqual(before["sections"], after["sections"])  # scoring adds or reorders nothing
-        self.assertNotIn("risk", json.dumps(after).lower())
+        # No risk scoring in Today (the "Risk and analytics" job may appear as an integration item, M15).
+        for field in ("risk_score", "risk_factors", "top_factors", "priority", "low_confidence"):
+            self.assertNotIn(f'"{field}"', json.dumps(after))
 
 
 @override_settings(**SETTINGS)

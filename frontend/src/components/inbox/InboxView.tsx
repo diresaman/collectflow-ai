@@ -26,7 +26,7 @@ import {
 } from "@/lib/api/replies";
 import { formatDateTime } from "@/lib/format";
 import { REPLY_STATE } from "@/lib/status";
-import { links, queryParam } from "@/lib/url";
+import { links, useUrlParam } from "@/lib/url";
 
 const FILTERS: { key: ReplyFilter; label: string }[] = [
   { key: "triage", label: "Needs review" },
@@ -593,9 +593,18 @@ function ReplyPanel({
 
 export function InboxView() {
   // Other screens link here with ?reply=<id>; that reply may already be handled, so show all replies.
-  const [filter, setFilter] = useState<ReplyFilter>(() => (queryParam("reply") ? "all" : "triage"));
+  const replyParam = useUrlParam("reply");
+  const [filter, setFilter] = useState<ReplyFilter>(replyParam ? "all" : "triage");
   const [rows, setRows] = useState<ReplyRow[] | null>(null);
-  const [selected, setSelected] = useState<string | null>(() => queryParam("reply"));
+  const [selected, setSelected] = useState<string | null>(replyParam);
+  const [seenReplyParam, setSeenReplyParam] = useState(replyParam);
+  if (replyParam !== seenReplyParam) {
+    setSeenReplyParam(replyParam);
+    if (replyParam) {
+      setSelected(replyParam);
+      setFilter("all");
+    }
+  }
   const [detail, setDetail] = useState<ReplyDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);

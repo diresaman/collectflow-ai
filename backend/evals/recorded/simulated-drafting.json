@@ -1,0 +1,278 @@
+{
+ "note": "SIMULATED: hand-written oracle answers that exercise the harness; not model output and not a quality measurement.",
+ "responses": {
+  "draft-001": {
+   "subject": "Reminder: invoice DR-101",
+   "tone": "FRIENDLY",
+   "body": "Hello,\n\nInvoice DR-101 for 475.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-002": {
+   "subject": "Reminder: invoice DR-102",
+   "tone": "FRIENDLY",
+   "body": "Hello,\n\nInvoice DR-102 for 600.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-003": {
+   "subject": "Reminder: invoice DR-103",
+   "tone": "FRIENDLY",
+   "body": "Hello,\n\nInvoice DR-103 for 725.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-004": {
+   "subject": "Reminder: invoice DR-104",
+   "tone": "FRIENDLY",
+   "body": "Hello,\n\nInvoice DR-104 for 850.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-005": {
+   "subject": "Reminder: invoice DR-105",
+   "tone": "FRIENDLY",
+   "body": "Hello,\n\nInvoice DR-105 for 975.00 EUR was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-006": {
+   "subject": "Reminder: invoice DR-106",
+   "tone": "FRIENDLY",
+   "body": "Hello,\n\nInvoice DR-106 for 1100.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-007": {
+   "subject": "Reminder: invoice DR-107",
+   "tone": "FRIENDLY",
+   "body": "Hello,\n\nInvoice DR-107 for 1225.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-008": {
+   "subject": "Reminder: invoice DR-108",
+   "tone": "FRIENDLY",
+   "body": "Hello,\n\nInvoice DR-108 for 1350.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-009": {
+   "subject": "Reminder: invoice DR-109",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice DR-109 for 1475.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-010": {
+   "subject": "Reminder: invoice DR-110",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice DR-110 for 1600.00 EUR was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-011": {
+   "subject": "Reminder: invoice DR-111",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice DR-111 for 1725.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-012": {
+   "subject": "Reminder: invoice DR-112",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice DR-112 for 1850.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-013": {
+   "subject": "Reminder: invoice DR-113",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice DR-113 for 1975.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-014": {
+   "subject": "Reminder: invoice DR-114",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice DR-114 for 2100.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-015": {
+   "subject": "Reminder: invoice DR-115",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice DR-115 for 2225.00 EUR was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-016": {
+   "subject": "Reminder: invoice DR-116",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice DR-116 for 2350.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-017": {
+   "subject": "Reminder: invoice DR-117",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice DR-117 for 2475.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-018": {
+   "subject": "Reminder: invoice DR-118",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice DR-118 for 2600.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-019": {
+   "subject": "Reminder: invoice DR-119",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice DR-119 for 2725.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-020": {
+   "subject": "Reminder: invoice DR-120",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice DR-120 for 2850.00 EUR was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-021": {
+   "subject": "Reminder: invoice DR-121",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice DR-121 for 2975.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-022": {
+   "subject": "Reminder: invoice DR-122",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice DR-122 for 3100.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-023": {
+   "subject": "Reminder: invoice DR-123",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice DR-123 for 3225.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-024": {
+   "subject": "Reminder: invoice DR-124",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice DR-124 for 3350.00 USD was due on 2026-09-15 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-025": {
+   "subject": "Reminder: invoice BP-201",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice BP-201 for 950.00 USD was due on 2026-09-10 and is still open. You had planned to pay by 2026-10-11, and we have not yet received it.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-026": {
+   "subject": "Reminder: invoice BP-202",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice BP-202 for 1000.00 USD was due on 2026-09-10 and is still open. You had planned to pay by 2026-10-12, and we have not yet received it.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-027": {
+   "subject": "Reminder: invoice BP-203",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice BP-203 for 1050.00 USD was due on 2026-09-10 and is still open. You had planned to pay by 2026-10-13, and we have not yet received it.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-028": {
+   "subject": "Reminder: invoice BP-204",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice BP-204 for 1100.00 USD was due on 2026-09-10 and is still open. You had planned to pay by 2026-10-14, and we have not yet received it.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-029": {
+   "subject": "Reminder: invoice BP-205",
+   "tone": "FIRM",
+   "body": "Hello,\n\nInvoice BP-205 for 1150.00 USD was due on 2026-09-10 and is still open. You had planned to pay by 2026-10-15, and we have not yet received it.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-030": {
+   "subject": "Reminder: invoice BP-206",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice BP-206 for 1200.00 USD was due on 2026-09-10 and is still open. You had planned to pay by 2026-10-16, and we have not yet received it.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-031": {
+   "subject": "Reminder: invoice AD-301",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice AD-301 for 1200.00 USD was due on 2026-09-20 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-032": {
+   "subject": "Reminder: invoice AD-302",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice AD-302 for 1200.00 USD was due on 2026-09-20 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-033": {
+   "subject": "Reminder: invoice AD-303",
+   "tone": "PROFESSIONAL",
+   "body": "Hello,\n\nInvoice AD-303 for 1200.00 USD was due on 2026-09-20 and is still open.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer.",
+   "recommended_action": "Review and approve."
+  },
+  "draft-034": {
+   "subject": "Statement of account: 2 outstanding invoices",
+   "opening": "Hello Bright Labs, here is a summary of your open invoices.",
+   "closing": "Please arrange payment or reply if anything looks wrong.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer."
+  },
+  "draft-035": {
+   "subject": "Statement of account: 3 outstanding invoices",
+   "opening": "Hello Nova Digital, here is a summary of your open invoices.",
+   "closing": "Please arrange payment or reply if anything looks wrong.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer."
+  },
+  "draft-036": {
+   "subject": "Statement of account: 3 outstanding invoices",
+   "opening": "Hello Kestrel Labs, here is a summary of your open invoices.",
+   "closing": "Please arrange payment or reply if anything looks wrong.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer."
+  },
+  "draft-037": {
+   "subject": "Statement of account: 4 outstanding invoices",
+   "opening": "Hello Orbit Retail, here is a summary of your open invoices.",
+   "closing": "Please arrange payment or reply if anything looks wrong.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer."
+  },
+  "draft-038": {
+   "subject": "Statement of account: 5 outstanding invoices",
+   "opening": "Hello Pixel Foundry, here is a summary of your open invoices.",
+   "closing": "Please arrange payment or reply if anything looks wrong.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer."
+  },
+  "draft-039": {
+   "subject": "Statement of account: 2 outstanding invoices",
+   "opening": "Hello Harbor Analytics, here is a summary of your open invoices.",
+   "closing": "Please arrange payment or reply if anything looks wrong.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer."
+  },
+  "draft-040": {
+   "subject": "Statement of account: 4 outstanding invoices",
+   "opening": "Hello Elm Studio, here is a summary of your open invoices.",
+   "closing": "Please arrange payment or reply if anything looks wrong.\n\nAccounts Receivable Team",
+   "reasoning": "Simulated oracle answer."
+  }
+ }
+}

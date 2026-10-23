@@ -412,11 +412,15 @@ def reconcile(
             attempt.error_code = "manually_reconciled"
             attempt.error_summary = (f"Manually reconciled as {outcome}. {note}".strip())[:500]
             attempt.save()
-        timeline.record(
-            EventType.DELIVERY_RECONCILED, actor=actor, invoice=follow_up.invoice,
-            follow_up_id=str(follow_up.pk), attempt_id=str(attempt.pk) if attempt else None,
-            outcome=outcome, gmail_message_id=message_id[:100],
-        )
+        # Like delivery outcomes, a statement's reconciliation is recorded on every invoice it lists (M15).
+        covered = ([line.invoice for line in lines_of(follow_up)]
+                   if follow_up.kind == FollowUp.Kind.STATEMENT else [follow_up.invoice])
+        for invoice in covered:
+            timeline.record(
+                EventType.DELIVERY_RECONCILED, actor=actor, invoice=invoice,
+                follow_up_id=str(follow_up.pk), attempt_id=str(attempt.pk) if attempt else None,
+                outcome=outcome, gmail_message_id=message_id[:100],
+            )
     follow_up.refresh_from_db()
     notify_outcome(follow_up)
     return follow_up

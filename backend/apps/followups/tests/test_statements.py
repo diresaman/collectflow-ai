@@ -363,3 +363,19 @@ class WorklistSuggestionTests(SessionApiTestCase):
         row = self.client.get("/api/worklist/").json()["groups"][0]["rows"][0]
         self.assertEqual(row["next_action"]["code"], "drafts")
         self.assertIn(IN_STATEMENT, [b["code"] for b in row["blockers"]])
+
+
+@isolated
+class StatementReconciliationTests(TestCase):
+    def test_an_unknown_statement_is_reconciled_on_every_invoice(self) -> None:
+        from apps.followups.delivery import reconcile
+
+        a, b = invoices(2)
+        statement = approve(prepare())
+        outcome = FollowUpDeliveryService(gmail=FakeGmail(error=GmailDeliveryUnknown("timeout"))).send(
+            statement.pk, actor=user("sender"))
+        self.assertEqual(outcome.follow_up.status, FollowUp.Status.DELIVERY_UNKNOWN)
+        reconcile(statement.pk, outcome=FollowUp.Status.FAILED, note="not in Sent")
+        events = TimelineEvent.objects.filter(type=EventType.DELIVERY_RECONCILED)
+        self.assertEqual({e.invoice_id for e in events}, {a.pk, b.pk})
+        self.assertNotIn(IN_STATEMENT, [code for code, _ in ineligibility(a)])  # the lock ends with the outcome

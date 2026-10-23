@@ -17,7 +17,13 @@ from django.utils import timezone
 
 from apps.automation import outbox
 from apps.automation.models import OutboxJob
-from apps.automation.scheduling import CASES_MONITOR_KIND, INBOX_POLL_KIND, INBOX_PURGE_KIND, SEQUENCE_TICK_KIND
+from apps.automation.scheduling import (
+    CASES_MONITOR_KIND,
+    INBOX_POLL_KIND,
+    INBOX_PURGE_KIND,
+    INSIGHTS_RECOMPUTE_KIND,
+    SEQUENCE_TICK_KIND,
+)
 from apps.followups import ai_budget
 from apps.followups.models import DeliveryAttempt, GenerationAttempt
 from apps.inbox.ingestion import CURSOR_NAME
@@ -185,6 +191,8 @@ SCHEDULED = [
     (INBOX_POLL_KIND, "Reply poll", lambda: settings.INBOX_POLL_MINUTES, lambda: settings.GMAIL_READ_ENABLED),
     (INBOX_PURGE_KIND, "Reply text purge", lambda: 24 * 60, lambda: True),
     (CASES_MONITOR_KIND, "Promise and task check", lambda: settings.CASES_MONITOR_MINUTES, lambda: True),
+    # M13/M14: client risk scores and analytics (hourly, and after relevant changes).
+    (INSIGHTS_RECOMPUTE_KIND, "Risk and analytics", lambda: settings.INSIGHTS_REFRESH_MINUTES, lambda: True),
 ]
 
 

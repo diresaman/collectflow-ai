@@ -10,7 +10,7 @@ import { getUsers, listDisputes, type AppUser, type DisputeCase, type DisputeFil
 import { ApiError } from "@/lib/api/client";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { DISPUTE_STATUS, labelFor } from "@/lib/status";
-import { links, queryParam, setQueryParam } from "@/lib/url";
+import { links, setQueryParam, useUrlParam } from "@/lib/url";
 
 const FILTERS: { key: DisputeFilter; label: string }[] = [
   { key: "open", label: "Open cases" },
@@ -69,9 +69,18 @@ function DisputeDetails({ dispute, users, onChanged }: { dispute: DisputeCase; u
 }
 
 export function DisputesView() {
-  const [filter, setFilter] = useState<DisputeFilter>(() => (queryParam("case") ? "all" : "open"));
+  const caseParam = useUrlParam("case");
+  const [filter, setFilter] = useState<DisputeFilter>(caseParam ? "all" : "open");
   const [rows, setRows] = useState<DisputeCase[] | null>(null);
-  const [selected, setSelected] = useState<string | null>(() => queryParam("case"));
+  const [selected, setSelected] = useState<string | null>(caseParam);
+  const [seenCaseParam, setSeenCaseParam] = useState(caseParam);
+  if (caseParam !== seenCaseParam) {
+    setSeenCaseParam(caseParam);
+    if (caseParam) {
+      setSelected(caseParam);
+      setFilter("all");
+    }
+  }
   const [users, setUsers] = useState<AppUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);

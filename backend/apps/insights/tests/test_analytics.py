@@ -247,3 +247,27 @@ class AnalyticsApiTests(SessionApiTestCase):
         self.assertEqual(data["communications"][0]["type"], "sent")
         self.assertEqual(data["promise_summary"], {"kept": 0, "broken": 0, "open": 0, "cancelled": 0})
         self.assertIsNone(data["promise_kept_rate"])  # no settled promise: no rate, not 0%
+
+
+class ForecastLagTests(TestCase):
+    """M15: the optional overdue lag (off by default, awaiting approval)."""
+
+    def test_default_keeps_overdue_invoices_on_today(self) -> None:
+        inv("A", days=40, amount="100.00")
+        row = {r["external_id"]: r for r in analytics.forecast(NOW)["invoices"]}["A"]
+        self.assertEqual(row["expected_date"], timezone.localdate(NOW).isoformat())
+
+    @override_settings(FORECAST_OVERDUE_LAG_DAYS={"1_30": 7, "31_60": 14, "61_90": 21, "90_plus": 28})
+    def test_configured_lag_spreads_overdue_invoices_and_says_so(self) -> None:
+        inv("A", days=10, amount="100.00")
+        inv("B", days=45, amount="100.00")
+        inv("C", days=-5, amount="100.00")  # not yet due: unchanged (due date)
+        data = analytics.forecast(NOW)
+        rows = {r["external_id"]: r for r in data["invoices"]}
+        today = timezone.localdate(NOW)
+        self.assertEqual(rows["A"]["expected_date"], (today + dt.timedelta(days=7)).isoformat())
+        self.assertEqual(rows["B"]["expected_date"], (today + dt.timedelta(days=14)).isoformat())
+        self.assertEqual(rows["C"]["expected_date"], (today + dt.timedelta(days=5)).isoformat())
+        self.assertTrue(any("Already past its expected date" in e for e in rows["A"]["explanation"]))
+        self.assertEqual(sum(Decimal(w) for w in by_currency(data)["weeks"]), Decimal(by_currency(data)["expected"]))
+        self.assertEqual(data["assumptions"]["overdue_lag_days"]["31_60"], 14)

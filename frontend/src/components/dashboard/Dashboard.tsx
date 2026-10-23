@@ -16,7 +16,7 @@ import {
 } from "@/lib/api/invoices";
 
 import { AutomationPanel } from "./AutomationPanel";
-import { queryParam, setQueryParam } from "@/lib/url";
+import { setQueryParam, useUrlParam } from "@/lib/url";
 
 import { FollowUpDrawer, type GenerationState } from "./FollowUpDrawer";
 import { FollowUpHistory } from "./FollowUpHistory";
@@ -49,7 +49,14 @@ export function Dashboard() {
   const [followUps, setFollowUps] = useState<Loadable<FollowUp[]>>({ kind: "loading" });
   const [followUpsKey, setFollowUpsKey] = useState(0);
   // Other screens link here with ?invoice=<id> to open that invoice's drawer.
-  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(() => queryParam("invoice"));
+  const invoiceParam = useUrlParam("invoice");
+  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(invoiceParam);
+  // Follow ?invoice= when another screen links here (same mounted layout, no page reload).
+  const [seenInvoiceParam, setSeenInvoiceParam] = useState(invoiceParam);
+  if (invoiceParam !== seenInvoiceParam) {
+    setSeenInvoiceParam(invoiceParam);
+    setOpenInvoiceId(invoiceParam);
+  }
   const [generation, setGeneration] = useState<(GenerationState & { invoiceId: string }) | null>(null);
 
   useEffect(() => {

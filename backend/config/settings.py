@@ -357,5 +357,8 @@ FORECAST_BUCKET_P = {"current": "0.80", "1_30": "0.60", "31_60": "0.40", "61_90"
 FORECAST_BEYOND_FACTOR = "0.25"
 FORECAST_BROKEN_PROMISE_FACTOR = "0.5"
 FORECAST_PROMISE_DEFAULT = "0.5"
+# M15 proposal awaiting owner approval (off = {}): days ahead to place an already-overdue invoice whose
+# expected date has passed, by aging bucket, e.g. {"1_30": 7, "31_60": 14, "61_90": 21, "90_plus": 28}.
+FORECAST_OVERDUE_LAG_DAYS: dict[str, int] = {}
 # Minutes between scheduled recomputes (time moves scores even when nothing changes).
 INSIGHTS_REFRESH_MINUTES = int(os.environ.get("INSIGHTS_REFRESH_MINUTES", "60"))

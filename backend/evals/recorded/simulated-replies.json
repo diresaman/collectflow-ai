@@ -1,0 +1,1609 @@
+{
+ "note": "SIMULATED: hand-written oracle answers that exercise the harness; not model output and not a quality measurement.",
+ "responses": {
+  "reply-001": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1001"
+    ]
+   }
+  },
+  "reply-002": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1002"
+    ]
+   }
+  },
+  "reply-003": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1003"
+    ]
+   }
+  },
+  "reply-004": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1004"
+    ]
+   }
+  },
+  "reply-005": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1005"
+    ]
+   }
+  },
+  "reply-006": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1006"
+    ]
+   }
+  },
+  "reply-007": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1007"
+    ]
+   }
+  },
+  "reply-008": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1008"
+    ]
+   }
+  },
+  "reply-009": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1009"
+    ]
+   }
+  },
+  "reply-010": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1010"
+    ]
+   }
+  },
+  "reply-011": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1011"
+    ]
+   }
+  },
+  "reply-012": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1012"
+    ]
+   }
+  },
+  "reply-013": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1013"
+    ]
+   }
+  },
+  "reply-014": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1014"
+    ]
+   }
+  },
+  "reply-015": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1015"
+    ]
+   }
+  },
+  "reply-016": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1016"
+    ]
+   }
+  },
+  "reply-017": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1017"
+    ]
+   }
+  },
+  "reply-018": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1018"
+    ]
+   }
+  },
+  "reply-019": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1019"
+    ]
+   }
+  },
+  "reply-020": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1020"
+    ]
+   }
+  },
+  "reply-021": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1021"
+    ]
+   }
+  },
+  "reply-022": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1022"
+    ]
+   }
+  },
+  "reply-023": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1023"
+    ]
+   }
+  },
+  "reply-024": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1024"
+    ]
+   }
+  },
+  "reply-025": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1025"
+    ]
+   }
+  },
+  "reply-026": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1026"
+    ]
+   }
+  },
+  "reply-027": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1027"
+    ]
+   }
+  },
+  "reply-028": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1028"
+    ]
+   }
+  },
+  "reply-029": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1029"
+    ]
+   }
+  },
+  "reply-030": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1030"
+    ]
+   }
+  },
+  "reply-031": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1031"
+    ]
+   }
+  },
+  "reply-032": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1032"
+    ]
+   }
+  },
+  "reply-033": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1033"
+    ]
+   }
+  },
+  "reply-034": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1034"
+    ]
+   }
+  },
+  "reply-035": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1035"
+    ]
+   }
+  },
+  "reply-036": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1036"
+    ]
+   }
+  },
+  "reply-037": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1037"
+    ]
+   }
+  },
+  "reply-038": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1038"
+    ]
+   }
+  },
+  "reply-039": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1039"
+    ]
+   }
+  },
+  "reply-040": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1040"
+    ]
+   }
+  },
+  "reply-041": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1041"
+    ]
+   }
+  },
+  "reply-042": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1042"
+    ]
+   }
+  },
+  "reply-043": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1043"
+    ]
+   }
+  },
+  "reply-044": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1044"
+    ]
+   }
+  },
+  "reply-045": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1045"
+    ]
+   }
+  },
+  "reply-046": {
+   "label": "OUT_OF_OFFICE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1046"
+    ]
+   }
+  },
+  "reply-047": {
+   "label": "OUT_OF_OFFICE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1047"
+    ]
+   }
+  },
+  "reply-048": {
+   "label": "OUT_OF_OFFICE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1048"
+    ]
+   }
+  },
+  "reply-049": {
+   "label": "OUT_OF_OFFICE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1049"
+    ]
+   }
+  },
+  "reply-050": {
+   "label": "OUT_OF_OFFICE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1050"
+    ]
+   }
+  },
+  "reply-051": {
+   "label": "OUT_OF_OFFICE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1051"
+    ]
+   }
+  },
+  "reply-052": {
+   "label": "OUT_OF_OFFICE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1052"
+    ]
+   }
+  },
+  "reply-053": {
+   "label": "OUT_OF_OFFICE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1053"
+    ]
+   }
+  },
+  "reply-054": {
+   "label": "WRONG_CONTACT",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1054"
+    ]
+   }
+  },
+  "reply-055": {
+   "label": "WRONG_CONTACT",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1055"
+    ]
+   }
+  },
+  "reply-056": {
+   "label": "WRONG_CONTACT",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1056"
+    ]
+   }
+  },
+  "reply-057": {
+   "label": "WRONG_CONTACT",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1057"
+    ]
+   }
+  },
+  "reply-058": {
+   "label": "WRONG_CONTACT",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1058"
+    ]
+   }
+  },
+  "reply-059": {
+   "label": "WRONG_CONTACT",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1059"
+    ]
+   }
+  },
+  "reply-060": {
+   "label": "WRONG_CONTACT",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1060"
+    ]
+   }
+  },
+  "reply-061": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1061"
+    ]
+   }
+  },
+  "reply-062": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1062"
+    ]
+   }
+  },
+  "reply-063": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1063"
+    ]
+   }
+  },
+  "reply-064": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1064"
+    ]
+   }
+  },
+  "reply-065": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1065"
+    ]
+   }
+  },
+  "reply-066": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1066"
+    ]
+   }
+  },
+  "reply-067": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1067"
+    ]
+   }
+  },
+  "reply-068": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1068"
+    ]
+   }
+  },
+  "reply-069": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": true,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1069"
+    ]
+   }
+  },
+  "reply-070": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": true,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1070"
+    ]
+   }
+  },
+  "reply-071": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": true,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1071"
+    ]
+   }
+  },
+  "reply-072": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": true,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1072"
+    ]
+   }
+  },
+  "reply-073": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": true,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1073"
+    ]
+   }
+  },
+  "reply-074": {
+   "label": "OTHER",
+   "confidence": 0.95,
+   "suspicious_instructions": true,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1074"
+    ]
+   }
+  },
+  "reply-075": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": true,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1075"
+    ]
+   }
+  },
+  "reply-076": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": true,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1076"
+    ]
+   }
+  },
+  "reply-077": {
+   "label": "CLAIMS_PAID",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1077",
+     "INV-2044"
+    ]
+   }
+  },
+  "reply-078": {
+   "label": "PROMISE_TO_PAY",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1078",
+     "INV-2045"
+    ]
+   }
+  },
+  "reply-079": {
+   "label": "DISPUTE",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1079",
+     "INV-2046"
+    ]
+   }
+  },
+  "reply-080": {
+   "label": "REQUESTS_INFO",
+   "confidence": 0.95,
+   "suspicious_instructions": false,
+   "rationale": "Simulated oracle answer.",
+   "extracted": {
+    "promised_date": "",
+    "promised_amount": "",
+    "paid_date": "",
+    "paid_amount": "",
+    "payment_reference": "",
+    "dispute_reason": "",
+    "requested_info": "",
+    "return_date": "",
+    "new_contact_email": "",
+    "invoice_numbers": [
+     "EV-1080",
+     "INV-2047"
+    ]
+   }
+  }
+ }
+}

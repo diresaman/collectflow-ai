@@ -259,8 +259,10 @@ def forecast(now: dt.datetime) -> dict[str, Any]:
                                            none at all: FORECAST_PROMISE_DEFAULT), on the promised date
       otherwise                         -> P = FORECAST_BUCKET_P[aging bucket], on due date + the client's
                                            average days late (fewer than FORECAST_MIN_HISTORY payments:
-                                           portfolio average; none: 0). Expected after the window:
-                                           P x FORECAST_BEYOND_FACTOR, placed in the last week
+                                           portfolio average; none: 0), but not before today (or, if
+                                           FORECAST_OVERDUE_LAG_DAYS is set, today + the bucket's lag).
+                                           Expected after the window: P x FORECAST_BEYOND_FACTOR, in the
+                                           last week
       a promise broken in the last 180 days -> P x FORECAST_BROKEN_PROMISE_FACTOR
     An unconfirmed payment claim is not cash: it changes nothing. An estimate, not guaranteed cash.
     """
@@ -327,7 +329,14 @@ def forecast(now: dt.datetime) -> dict[str, Any]:
                 low_confidence = True
                 avg = portfolio_avg if portfolio_avg is not None else Decimal(0)
             p, source = bucket_p[bucket], "aging"
-            when = max(invoice.due_date + dt.timedelta(days=int(avg.to_integral_value(ROUND_HALF_UP))), today)
+            expected = invoice.due_date + dt.timedelta(days=int(avg.to_integral_value(ROUND_HALF_UP)))
+            when = max(expected, today)
+            lag = (settings.FORECAST_OVERDUE_LAG_DAYS or {}).get(bucket)
+            if expected < today and lag:
+                # M15 proposal, off unless configured: an invoice already past its expected date is placed
+                # `lag` days ahead (by aging bucket) instead of all on today, which piled them into week 1.
+                when = today + dt.timedelta(days=int(lag))
+                flags.append(f"Already past its expected date: assumed in about {lag} days (aging bucket {bucket}).")
             if when > end:
                 p = p * Decimal(str(settings.FORECAST_BEYOND_FACTOR))
                 flags.append(f"Expected around {when.isoformat()}, after the window: reduced chance.")
@@ -370,6 +379,7 @@ def forecast(now: dt.datetime) -> dict[str, Any]:
             "broken_promise_factor": str(settings.FORECAST_BROKEN_PROMISE_FACTOR),
             "promise_default_rate": str(settings.FORECAST_PROMISE_DEFAULT),
             "min_history": min_history,
+            "overdue_lag_days": settings.FORECAST_OVERDUE_LAG_DAYS or None,
             "portfolio_avg_days_late": str(portfolio_avg.quantize(Decimal("0.1"))) if portfolio_avg is not None else None,
             "portfolio_promise_kept_rate": str(portfolio_kept.quantize(Decimal("0.0001"))) if portfolio_kept is not None else None,
         },

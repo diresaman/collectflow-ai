@@ -8,7 +8,7 @@ import { Card, ErrorMessage, Skeleton } from "@/components/dashboard/ui";
 import { getUsers, type AppUser } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
 import { listTasks, type Task, type TaskFilter } from "@/lib/api/tasks";
-import { links, queryParam } from "@/lib/url";
+import { links, useUrlParam } from "@/lib/url";
 
 const FILTERS: { key: TaskFilter; label: string }[] = [
   { key: "open", label: "To do" },
@@ -28,8 +28,13 @@ function ordered(tasks: Task[]): Task[] {
 }
 
 export function TasksView() {
-  const [filter, setFilter] = useState<TaskFilter>(() => (queryParam("task") ? "all" : "open"));
-  const [highlight] = useState<string | null>(() => queryParam("task"));
+  const highlight = useUrlParam("task");
+  const [filter, setFilter] = useState<TaskFilter>(highlight ? "all" : "open");
+  const [seenTaskParam, setSeenTaskParam] = useState(highlight);
+  if (highlight !== seenTaskParam) {
+    setSeenTaskParam(highlight);
+    if (highlight) setFilter("all");
+  }
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [error, setError] = useState<string | null>(null);

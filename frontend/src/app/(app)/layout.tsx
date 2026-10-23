@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 
 import { SessionGate } from "@/components/auth/SessionGate";
 import { AppShell } from "@/components/layout/AppShell";
@@ -10,7 +10,10 @@ import { AppShell } from "@/components/layout/AppShell";
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <SessionGate>
-      <AppShell>{children}</AppShell>
+      <AppShell>
+        {/* Pages read deep-link parameters with useSearchParams, which needs a Suspense boundary. */}
+        <Suspense fallback={null}>{children}</Suspense>
+      </AppShell>
     </SessionGate>
   );
 }

@@ -18,7 +18,7 @@ import {
 } from "@/lib/api/clients";
 import { jobError, waitForJob } from "@/lib/api/jobs";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
-import { queryParam, setQueryParam } from "@/lib/url";
+import { setQueryParam, useUrlParam } from "@/lib/url";
 
 function errorText(err: unknown): string {
   return err instanceof ApiError ? err.message : "Unexpected error.";
@@ -445,8 +445,17 @@ function ClientDetailLoader({ clientId, row }: { clientId: string; row: Worklist
 export function ClientsView() {
   const [data, setData] = useState<Worklist | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(() => queryParam("client"));
+  const clientParam = useUrlParam("client");
+  const [selected, setSelected] = useState<string | null>(clientParam);
   const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
+  const [seenClientParam, setSeenClientParam] = useState(clientParam);
+  if (clientParam !== seenClientParam) {
+    setSeenClientParam(clientParam);
+    if (clientParam) {
+      setSelected(clientParam);
+      setSelectedCurrency(null);
+    }
+  }
   const [reload, setReload] = useState(0);
   const [queued, setQueued] = useState<string | null>(null);
   const [queueing, setQueueing] = useState(false);

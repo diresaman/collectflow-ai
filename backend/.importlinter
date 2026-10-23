@@ -1,0 +1,42 @@
+[importlinter]
+root_packages =
+    apps
+    integrations
+include_external_packages = False
+
+# Design §9: nothing scheduled or automatic may reach Gmail send. Only apps.followups (behind a person's
+# explicit confirmation) imports the delivery service and the Gmail send client.
+[importlinter:contract:no-scheduled-sending]
+name = Scheduled and automatic code cannot reach Gmail send
+type = forbidden
+source_modules =
+    apps.sequences
+    apps.inbox
+    apps.automation
+    apps.insights
+    apps.cases
+forbidden_modules =
+    apps.followups.delivery
+    integrations.gmail
+allow_indirect_imports = False
+unmatched_ignore_imports_alerting = none
+ignore_imports =
+    # Tests use the Gmail fakes and drive delivery on purpose.
+    apps.*.tests.** -> **
+    apps.core.tests_architecture -> **
+    apps.core.tests_p0_acceptance -> **
+    apps.core.tests_sqlite_transfer -> **
+    apps.core.tests_today -> **
+    # The integration health report only reads Gmail's configuration (check_configured); it never sends.
+    apps.core.integrations -> integrations.gmail
+
+# M10: reading replies is separate from sending.
+[importlinter:contract:mailbox-read-only]
+name = The Gmail reply reader cannot import the Gmail send client
+type = forbidden
+source_modules =
+    integrations.mailbox
+forbidden_modules =
+    integrations.gmail
+    apps.followups.delivery
+allow_indirect_imports = False
