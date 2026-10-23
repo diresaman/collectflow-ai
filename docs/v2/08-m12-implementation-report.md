@@ -4,7 +4,14 @@
 - **Baseline:** `151ccfe` (M11 deployed to the owner's stack)
 - **Plan:** roadmap Phase 05 (`02-implementation-roadmap.md`) and the M12 authorization
 - **Status:** implemented and tested on the development database with mocked Google Sheets, Gmail and
-  Gemini. **No database migrations.** **Not deployed** (section 8).
+  Gemini. **No database migrations.** **Deployed** to the owner's stack on 2026-10-23 after approval
+  (section 8.1).
+
+| Gate | Result |
+| --- | --- |
+| Mocked P0 acceptance | **PASSED** (section 4) |
+| Real-stack M12 deployment | **PASSED** (section 8.1) |
+| Live provider end-to-end acceptance | **NOT YET COMPLETED** |
 
 ## 1. What changed
 
@@ -104,7 +111,7 @@ the fakes.
 | Browser end-to-end tests (Playwright) | Planned for M15 (QA); M12 verification is API-level plus typecheck, lint and the production build |
 | Partial payments, dispute notifications by email | Unchanged (M11 limitations) |
 
-## 8. Deployment plan (not done; needs approval)
+## 8. Deployment plan
 
 M12 has **no migrations**, so deployment is a rebuild of the api, worker and web images:
 
@@ -115,3 +122,34 @@ M12 has **no migrations**, so deployment is a rebuild of the api, worker and web
    `/disputes` and `/tasks` pages, and the existing pages; confirm no sends and no Gemini calls.
 
 Rollback: redeploy the `pre-m12` images (no schema change to reverse).
+
+### 8.1 Production deployment record (2026-10-23, approved)
+
+Commit `0235e2d`. Worker paused 05:43:05Z, api and web swapped, worker resumed 05:46:29Z (UTC).
+
+| Check | Result |
+| --- | --- |
+| Before | HEAD `0235e2d`, clean tree; no migration files changed since M11 (`151ccfe`). Stack on the M11 images; 0 pending or running outbox jobs; automation lease free. Data: 8 invoices (7 unpaid, 1 paid), 7 follow-ups (6 SENT, 1 REJECTED), 6 delivery attempts (last 2026-10-22 17:22Z), 10 generation attempts (last 2026-10-22 19:00Z), 6 active enrollments, 1 reply (INV-008, ACTIONED), 1 hold (released), 1 open task (INV-008 information request), 0 promises, 0 disputes, 19 timeline events |
+| Backup | `backend/backups/collectflow-before-m12-20261023T052134.dump` (164 KB, mode 600, SHA-256 in `.sha256`, verified). Restored into a scratch database: 36/36 tables with identical row counts, 19 key tables with identical content hashes, the 4 append-only triggers present. Scratch database dropped |
+| Rollback images | `collectflow-{api,worker,web}:pre-m12` = the running M11 images (`2d146d67fe11`, `4febf38d6307`, `2eaa75a114d0`) |
+| Configuration recorded | Fingerprints of `backend/.env`, the compose service configuration, the worker's Gmail, recipient and automation settings (`GMAIL_READ_ENABLED=true`) and the credential files, including the Gmail token. Identical after deployment |
+| Build | New images built while the old stack served: api `0edc57667052`, worker `137cc5023d76`, web `1b514d58a643`. The first attempt failed on a PyPI download timeout (the base image had to be pulled again); the retry succeeded. The images contain the `/today`, `/disputes` and `/tasks` pages and `apps/core/today.py` |
+| Swap | Worker stopped with 0 jobs in flight; `up -d --no-deps --no-build api web`; api healthy; "No migrations to apply" (still 47 applied); `manage.py check` clean |
+| Pages (web) | `/`, `/today` (title "Today · CollectFlow AI"), `/disputes`, `/tasks`, `/inbox`, `/sequences`, `/settings/integrations`, `/login` and the deep links `/?invoice=`, `/tasks?task=`, `/inbox?reply=` for the real INV-008 records: 200 |
+| Proxy | `today`, `disputes` (`status=RESOLVED`, `unassigned=true`), `tasks?open=true`, `invoices`, `replies`, `promises`, `me` reach the backend (401 signed out, so allowlisted); an unknown route 404; a cross-origin write 403 |
+| API (signed-in user) | Run inside the api container by passing requests straight to the views with the real user attached in memory (no session or login created), in a transaction that was rolled back. `/api/today/`, all dispute and task filters, invoices, replies, promises, integrations, enrollments, follow-ups, dashboard, users, me: 200. Today listed the INV-008 information-request task (overdue) linking to `/tasks?task=…`. During the pause it also showed the stopped worker as an integration problem; that cleared after the resume |
+| Two-way links | Task → invoice INV-008 and → its reply; the invoice's task list → the task; reply → invoice. INV-008: UNPAID, no active holds, no promise or dispute |
+| Permissions | A user without a role: `/api/today/` 403. An operator: `/api/today/` 200; resolving a dispute and cancelling a promise 403 `approver_required` (refused before any lookup) |
+| CSRF | Authenticated writes without a token to `/api/tasks/`, `/api/disputes/`, `/api/promises/`, dispute resolve and promise cancel: 403 `csrf_failed`. All aimed at nonexistent records; dispute, promise and task counts unchanged (0, 0, 1) |
+| Record preservation | Before and after (and before the worker resumed): identical row counts and content hashes for invoices, clients, holds, follow-ups, delivery and generation attempts, enrollments, sequences and steps, replies, classifications, tasks, promises, disputes, dispute notes, timeline, users and profiles; identical workflow states. The only changes are scheduler records: 7 outbox jobs, 2 sheet-sync runs, the mailbox cursor and the worker heartbeat |
+| Worker | During the build the M11 worker ran 4 reply polls (0 ingested) and 1 tick (0 drafts). After the resume, the M12 worker: `sequences.tick` SUCCEEDED (0 generated), `inbox.poll` SUCCEEDED (0 ingested). No duplicate idempotency keys, nothing pending or stuck, no errors in the log |
+| External providers | 0 Gmail sends (no delivery attempts) and 0 Gemini calls (no generation attempts) since before the deployment. Only the read-only scheduled reply polls touched Gmail, as already enabled |
+| Health | Sheets, Gmail sending, Gmail read, reply polling, Gemini and worker healthy; all four scheduled jobs healthy |
+
+Not exercised on real records, to avoid manufacturing activity: approver-only refusal on an existing
+dispute or promise (none exist; covered by the API tests and the P0 suite), and the dispute detail view
+(no disputes). No drafts were approved, no emails sent, and no promises or disputes created or changed.
+
+**Final status:** deployed and verified. Rollback stays ready: pause the worker, retag the `pre-m12`
+images as `latest`, then `docker compose up -d --no-deps --no-build api web worker`. No database restore
+is needed (M12 changed no schema).
