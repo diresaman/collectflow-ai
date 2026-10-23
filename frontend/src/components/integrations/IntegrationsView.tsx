@@ -11,8 +11,8 @@ const REFRESH_MS = 30_000;
 
 const BADGES: Record<HealthStatus, { text: string; className: string }> = {
   healthy: { text: "Healthy", className: "border-emerald-200 bg-emerald-50 text-emerald-800" },
-  stale: { text: "Stale", className: "border-amber-300 bg-amber-50 text-amber-900" },
-  failed: { text: "Failed", className: "border-rose-200 bg-rose-50 text-rose-800" },
+  stale: { text: "Not running lately", className: "border-amber-300 bg-amber-50 text-amber-900" },
+  failed: { text: "Not working", className: "border-rose-200 bg-rose-50 text-rose-800" },
   not_configured: { text: "Not configured", className: "border-slate-300 bg-slate-50 text-slate-700" },
   awaiting_authorization: { text: "Awaiting authorization", className: "border-sky-200 bg-sky-50 text-sky-800" },
 };
@@ -72,10 +72,9 @@ export function IntegrationsView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Integrations</h1>
-        <p className="text-sm text-slate-600">
-          What each connection and the background worker last did. Built from CollectFlow&apos;s own records; this page never
-          contacts Google or Gemini.
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Integrations</h1>
+        <p className="mt-1 text-sm text-slate-600">
+          Whether Google Sheets, Gmail, Gemini and the background worker are working, and what to do if not.
         </p>
       </div>
       {error && <ErrorMessage message={`Could not load integration health: ${error}`} />}
@@ -86,8 +85,26 @@ export function IntegrationsView() {
         </div>
       ) : (
         <>
+          {(() => {
+            const problems = [...report.integrations, ...report.scheduled_jobs].filter(
+              (item) => item.status === "failed" || item.status === "stale",
+            );
+            return problems.length === 0 ? (
+              <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                <span className="font-semibold">Everything is working.</span> Nothing needs fixing.
+              </p>
+            ) : (
+              <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                <span className="font-semibold">{problems.length} problem(s):</span>{" "}
+                {problems.map((item) => item.name).join(", ")}. Each one below says what to do. Problems with the background
+                worker stop scheduled syncs, reply checks and drafting until it runs again.
+              </p>
+            );
+          })()}
           <div className="grid gap-4 md:grid-cols-2">
-            {report.integrations.map((item) => (
+            {[...report.integrations]
+              .sort((a, b) => Number(b.status === "failed" || b.status === "stale") - Number(a.status === "failed" || a.status === "stale"))
+              .map((item) => (
               <Card key={item.key} className="space-y-2 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="text-base font-semibold text-slate-900">{item.name}</h2>

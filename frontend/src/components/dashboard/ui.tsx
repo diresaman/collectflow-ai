@@ -44,3 +44,53 @@ export function Spinner({ className = "h-4 w-4" }: { className?: string }) {
     />
   );
 }
+
+/** Consistent page header: title, one short purpose line, and the page's actions (primary first). */
+export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
+        {description && <p className="mt-1 max-w-3xl text-sm text-slate-600">{description}</p>}
+      </div>
+      {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+/** What an empty list means, and (optionally) what to do about it. */
+export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="px-5 py-8 text-center">
+      <p className="text-sm font-medium text-slate-800">{title}</p>
+      {children && <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">{children}</p>}
+    </div>
+  );
+}
+
+const PILL_TONES = {
+  neutral: "bg-slate-100 text-slate-700 ring-slate-500/20",
+  info: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
+  good: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  warn: "bg-amber-50 text-amber-800 ring-amber-600/30",
+  bad: "bg-rose-50 text-rose-700 ring-rose-600/20",
+} as const;
+
+export type PillTone = keyof typeof PILL_TONES;
+
+/** A status shown the same way everywhere (labels come from lib/status). */
+export function StatusPill({ label, tone = "neutral" }: { label: string; tone?: PillTone }) {
+  return (
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${PILL_TONES[tone]}`}>
+      {label}
+    </span>
+  );
+}
+
+export const buttonStyles = {
+  primary:
+    "inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60",
+  secondary:
+    "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60",
+  link: "text-sm font-medium text-indigo-600 hover:underline",
+};

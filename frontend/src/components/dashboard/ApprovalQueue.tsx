@@ -13,13 +13,13 @@ export function ApprovalQueue({ state, onOpen }: { state: Loadable<FollowUp[]>; 
     <Card className="overflow-hidden">
       <div className="border-b border-slate-200 px-5 py-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-semibold text-slate-900">Approval queue</h2>
+          <h2 className="text-base font-semibold text-slate-900">Waiting for approval</h2>
           {drafts.length > 0 && (
             <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-xs font-semibold text-white">{drafts.length}</span>
           )}
         </div>
         <p className="mt-0.5 text-sm text-slate-500">
-          Drafts generated — awaiting approval. Nothing is sent until you approve and send it.
+          Reminders waiting for a person. Approving does not send: sending is a separate step in the invoice.
         </p>
       </div>
 
@@ -35,7 +35,7 @@ export function ApprovalQueue({ state, onOpen }: { state: Loadable<FollowUp[]>; 
         </div>
       )}
       {state.kind === "ready" && drafts.length === 0 && (
-        <p className="px-5 py-8 text-center text-sm text-slate-500">No drafts awaiting approval.</p>
+        <p className="px-5 py-8 text-center text-sm text-slate-500">Nothing is waiting for approval. New drafts appear here when a sequence step is due.</p>
       )}
       {drafts.length > 0 && (
         <ul className="divide-y divide-slate-100">
@@ -64,11 +64,11 @@ export function ApprovalQueue({ state, onOpen }: { state: Loadable<FollowUp[]>; 
                       className="rounded-md bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-800"
                       title={draft.approval.reasons.join("; ")}
                     >
-                      Needs approver
+                      Approver needed
                     </span>
                   )}
                   <ToneBadge tone={draft.tone} />
-                  <span className="text-xs font-medium text-indigo-600">Review →</span>
+                  <span className="text-xs font-medium text-indigo-600">Review draft →</span>
                 </div>
               </button>
             </li>

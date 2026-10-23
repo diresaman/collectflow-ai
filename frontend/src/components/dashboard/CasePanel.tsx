@@ -414,16 +414,16 @@ function NewDisputeForm({ invoice, users, onDone }: { invoice: Invoice; users: A
   );
 }
 
-export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser[]; onChanged: () => void }) {
+export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser[]; onChanged: (message?: string) => void }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const act = async (action: () => Promise<Task>) => {
+  const act = async (action: () => Promise<Task>, message?: string) => {
     setBusy(true);
     setError(null);
     try {
       await action();
-      onChanged();
+      onChanged(message);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -448,7 +448,7 @@ export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser
             value={task.assignee?.id ?? null}
             disabled={busy}
             label="Assignee"
-            onChange={(id) => void act(() => assignTask(task.id, id))}
+            onChange={(id) => void act(() => assignTask(task.id, id), `"${task.title}" ${id === null ? "is now unassigned" : "was assigned"}.`)}
           />
         ) : (
           <span className="text-xs text-slate-500">
@@ -459,23 +459,41 @@ export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser
       {task.detail && <p className="text-xs text-slate-600">{task.detail}</p>}
       {task.completion_note && <p className="text-xs text-slate-600">Note: {task.completion_note}</p>}
       {open && (
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder={task.step ? "Note (optional)" : "Note (required to cancel)"}
-            aria-label="Task note"
-            className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-900"
-          />
-          <button type="button" disabled={busy} onClick={() => void act(() => markTaskDone(task.id, note))} className={buttonClass}>
-            {busy && <Spinner className="h-3 w-3" />}
-            Mark done
-          </button>
-          {!task.step && (
-            <button type="button" disabled={busy || !note.trim()} onClick={() => void act(() => cancelTask(task.id, note))} className={buttonClass}>
-              Cancel task
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="What was done? e.g. Called; they will pay Friday"
+              aria-label="Task note"
+              className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-900"
+            />
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void act(() => markTaskDone(task.id, note), `"${task.title}" marked complete.${task.step ? " The sequence moves on to its next step." : ""}`)}
+              className={buttonClass}
+            >
+              {busy && <Spinner className="h-3 w-3" />}
+              Mark task complete
             </button>
-          )}
+            {!task.step && (
+              <button
+                type="button"
+                disabled={busy || !note.trim()}
+                onClick={() => void act(() => cancelTask(task.id, note), `"${task.title}" cancelled.`)}
+                className={buttonClass}
+              >
+                Cancel task
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500">
+            The note is optional when completing and kept in the history.
+            {task.step
+              ? " Completing this call task completes its sequence step; it cannot be cancelled."
+              : " To cancel, write why (required). Completing a task never resumes chasing by itself."}
+          </p>
         </div>
       )}
       {error && <ErrorMessage message={error} />}

@@ -754,6 +754,15 @@ kept, reminders answered) and links to invoices, replies, disputes, promises and
 drafts, approves, sends or releases a hold. APIs: `GET /api/worklist/`, `GET /api/clients/`,
 `GET /api/clients/{id}/`.
 
+## Using the app
+
+Start on **Today**: it groups everything that needs a person into *Needs your attention*, *Waiting for
+approval or sending*, *Blocked or at risk* and *Due now and coming up*, and every item has one clear
+action. The menu holds daily work (Today, Inbox, Invoices, Clients, Tasks, Disputes, Analytics); Sequences,
+Automation and Integrations are under **Setup**. Statuses use the same words everywhere (Awaiting approval,
+Approved, not sent, Sent, Delivery unknown, Disputed, Promise due, …); approving never sends, and sending is
+always a separate, confirmed step. See `docs/v2/11-ux-simplification-report.md`.
+
 ## Statements, analytics and forecast (M14)
 
 - **Consolidated statements:** on a client's panel, "Prepare statement draft" lists every invoice that

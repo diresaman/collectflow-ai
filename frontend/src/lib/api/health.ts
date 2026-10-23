@@ -1,4 +1,4 @@
-import { apiGet } from "./client";
+import { backendGet } from "./client";
 
 export type HealthResponse = {
   status: "ok";
@@ -11,6 +11,7 @@ function isHealthResponse(data: unknown): data is HealthResponse {
   return record.status === "ok" && typeof record.service === "string";
 }
 
+/** Through the same-origin proxy, like every other call, so it reflects what the app can actually reach. */
 export function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
-  return apiGet("/api/health/", isHealthResponse, { signal });
+  return backendGet("/health/", isHealthResponse, { signal });
 }

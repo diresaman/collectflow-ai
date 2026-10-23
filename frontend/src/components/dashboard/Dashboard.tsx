@@ -22,7 +22,6 @@ import { FollowUpDrawer, type GenerationState } from "./FollowUpDrawer";
 import { FollowUpHistory } from "./FollowUpHistory";
 import { InvoiceTable, type FollowUpActions } from "./InvoiceTable";
 import { SummaryCards } from "./SummaryCards";
-import { TasksPanel } from "./TasksPanel";
 import { SyncButton, SyncStatus } from "./SyncStatus";
 import type { Loadable } from "./types";
 
@@ -150,9 +149,10 @@ export function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Accounts receivable</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Invoices</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Invoices synchronized from Google Sheets. See what is outstanding and what is overdue.
+            Every invoice from your Google Sheet. The sheet decides what is paid. Click an invoice to see its reminders,
+            holds, promises and history.
           </p>
         </div>
         {/* Wrapper keeps the button at its natural height inside the flex row. */}
@@ -180,11 +180,25 @@ export function Dashboard() {
         </p>
       )}
       <SummaryCards state={summary} />
-      <AutomationPanel onRunFinished={() => setReloadKey((key) => key + 1)} onOpenInvoice={followUpActions.onOpen} />
       <ApprovalQueue state={followUps} onOpen={followUpActions.onOpen} />
-      <TasksPanel reloadKey={reloadKey} onOpenInvoice={followUpActions.onOpen} />
       <InvoiceTable state={invoices} expectedColumns={expectedColumns} followUps={followUpActions} />
-      <FollowUpHistory state={followUps} onOpen={followUpActions.onOpen} />
+      {/* Secondary: open tasks live on Tasks and Today; these stay one click away. */}
+      <details className="group rounded-xl border border-slate-200 bg-white shadow-sm">
+        <summary className="cursor-pointer list-none px-5 py-3 text-sm font-semibold text-slate-800">
+          Run automation now <span className="font-normal text-slate-500">(sync the sheet and draft due reminders; never sends)</span>
+        </summary>
+        <div className="border-t border-slate-100">
+          <AutomationPanel onRunFinished={() => setReloadKey((key) => key + 1)} onOpenInvoice={followUpActions.onOpen} />
+        </div>
+      </details>
+      <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <summary className="cursor-pointer list-none px-5 py-3 text-sm font-semibold text-slate-800">
+          All reminders <span className="font-normal text-slate-500">(every draft and email with its status)</span>
+        </summary>
+        <div className="border-t border-slate-100">
+          <FollowUpHistory state={followUps} onOpen={followUpActions.onOpen} />
+        </div>
+      </details>
 
       {openInvoice && (
         <FollowUpDrawer

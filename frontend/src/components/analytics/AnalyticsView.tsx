@@ -130,7 +130,7 @@ export function AnalyticsView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Analytics</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Analytics</h1>
         <p className="max-w-3xl text-sm text-slate-600">
           Receivables from the synced sheet, per currency (never added across currencies). Paid dates are when a sync
           first saw PAID, not the bank date. Figures are recalculated after each change and every hour; nothing here

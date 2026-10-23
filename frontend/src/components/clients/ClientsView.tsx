@@ -57,6 +57,7 @@ function RowButton({ row, selected, onSelect }: { row: WorklistRow; selected: bo
         </span>
         <ScoreBadge score={row.risk_score} lowConfidence={row.low_confidence} />
       </div>
+      <p className="truncate text-xs text-slate-500">{row.client_email}</p>
       <p className="mt-0.5 text-xs text-slate-500">
         {formatMoney(row.outstanding, row.currency)} outstanding · priority {Number(row.priority).toLocaleString()} ·{" "}
         {row.oldest_days_overdue > 0 ? `oldest ${row.oldest_days_overdue} days overdue` : "nothing overdue"}
@@ -489,11 +490,10 @@ export function ClientsView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Clients</h1>
-          <p className="max-w-3xl text-sm text-slate-600">
-            Who to look at first: risk score (0–100, from records only, no AI) × amount outstanding, ranked separately in
-            each currency. The score is decision support. It never sends anything or overrides a hold, a dispute or an
-            approval rule.
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Clients</h1>
+          <p className="mt-1 max-w-3xl text-sm text-slate-600">
+            Clients ranked by who most needs attention: risk score (0–100, worked out from their records) × amount owed,
+            in each currency. The score only helps you prioritise; it never sends anything or overrides a hold.
           </p>
         </div>
         <div className="flex gap-2">

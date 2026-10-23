@@ -9,12 +9,13 @@ import { Card, ErrorMessage, Skeleton } from "@/components/dashboard/ui";
 import { getUsers, listDisputes, type AppUser, type DisputeCase, type DisputeFilter } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { DISPUTE_STATUS, labelFor } from "@/lib/status";
 import { links, queryParam, setQueryParam } from "@/lib/url";
 
 const FILTERS: { key: DisputeFilter; label: string }[] = [
-  { key: "open", label: "Open" },
-  { key: "unassigned", label: "Open, no owner" },
-  { key: "mine", label: "Mine" },
+  { key: "open", label: "Open cases" },
+  { key: "unassigned", label: "No owner yet" },
+  { key: "mine", label: "Owned by me" },
   { key: "resolved", label: "Resolved" },
   { key: "all", label: "All" },
 ];
@@ -108,10 +109,10 @@ export function DisputesView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Disputes</h1>
-          <p className="text-sm text-slate-600">
-            While a dispute is open, nothing is drafted, approved or sent for its invoice. Anyone can add notes or set the
-            owner; only an approver resolves it, with a written resolution.
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Disputes</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            While a dispute is open its invoice is not chased at all. Anyone can add notes or take ownership; an approver
+            resolves it.
           </p>
         </div>
         <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter">
@@ -140,7 +141,7 @@ export function DisputesView() {
               <Skeleton className="h-14" />
             </div>
           ) : rows.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-slate-500">No disputes here.</p>
+            <p className="px-4 py-6 text-sm text-slate-500">No disputes here. A dispute is opened from a customer reply in the Inbox or from an invoice.</p>
           ) : (
             <ul className="divide-y divide-slate-100" role="listbox" aria-label="Disputes">
               {rows.map((d) => (
@@ -159,7 +160,7 @@ export function DisputesView() {
                           d.status === "OPEN" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-slate-200 bg-slate-50 text-slate-600"
                         }`}
                       >
-                        {d.status === "OPEN" ? "Open" : d.status === "RESOLVED_VALID" ? "Customer right" : "Invoice stands"}
+                        {labelFor(DISPUTE_STATUS, d.status).label}
                       </span>
                     </div>
                     <p className="mt-0.5 text-xs text-slate-500">

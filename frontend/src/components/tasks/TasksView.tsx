@@ -11,9 +11,9 @@ import { listTasks, type Task, type TaskFilter } from "@/lib/api/tasks";
 import { links, queryParam } from "@/lib/url";
 
 const FILTERS: { key: TaskFilter; label: string }[] = [
-  { key: "open", label: "Open" },
-  { key: "mine", label: "Mine" },
-  { key: "done", label: "Done" },
+  { key: "open", label: "To do" },
+  { key: "mine", label: "Assigned to me" },
+  { key: "done", label: "Completed" },
   { key: "cancelled", label: "Cancelled" },
   { key: "all", label: "All" },
 ];
@@ -34,6 +34,7 @@ export function TasksView() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -60,11 +61,8 @@ export function TasksView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Tasks</h1>
-          <p className="text-sm text-slate-600">
-            Work done outside email. Marking a call task done completes its sequence step; finishing any other task never
-            resumes chasing on its own. Cancelling needs a note; call tasks cannot be cancelled.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Tasks</h1>
+          <p className="mt-1 text-sm text-slate-600">Things to do outside email, such as calls and sending information.</p>
         </div>
         <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter">
           {FILTERS.map((item) => (
@@ -84,6 +82,11 @@ export function TasksView() {
         </div>
       </div>
       {error && <ErrorMessage message={`Could not load tasks: ${error}`} />}
+      {notice && (
+        <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
+          {notice}
+        </p>
+      )}
       <Card className="px-5 py-2">
         {tasks === null ? (
           <div className="space-y-2 py-3">
@@ -91,7 +94,11 @@ export function TasksView() {
             <Skeleton className="h-12" />
           </div>
         ) : tasks.length === 0 ? (
-          <p className="py-4 text-sm text-slate-500">No tasks here.</p>
+          <p className="py-6 text-center text-sm text-slate-500">
+            {filter === "open" || filter === "mine"
+              ? "Nothing to do. Tasks appear when a reply asks for information, a dispute needs review, or a sequence reaches a call step."
+              : "No tasks here."}
+          </p>
         ) : (
           <div className="divide-y divide-slate-100">
             {tasks.map((task) => (
@@ -103,9 +110,17 @@ export function TasksView() {
                     </Link>
                   ) : null}
                   {` · ${task.client_name}`}
+                  {task.assignee ? ` · assigned to ${task.assignee.display_name}` : " · unassigned"}
                 </p>
                 <ul>
-                  <TaskRow task={task} users={users} onChanged={() => setReload((n) => n + 1)} />
+                  <TaskRow
+                    task={task}
+                    users={users}
+                    onChanged={(message) => {
+                      setNotice(message ?? null);
+                      setReload((n) => n + 1);
+                    }}
+                  />
                 </ul>
               </div>
             ))}

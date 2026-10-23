@@ -15,8 +15,8 @@ export function FollowUpHistory({
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-slate-200 px-5 py-4">
-        <h2 className="text-base font-semibold text-slate-900">Follow-up history</h2>
-        <p className="mt-0.5 text-sm text-slate-500">AI-drafted reminders and their review status.</p>
+        <h2 className="text-base font-semibold text-slate-900">Reminder history</h2>
+        <p className="mt-0.5 text-sm text-slate-500">Newest first. Status shows whether each one was approved, sent or not sent.</p>
       </div>
 
       {state.kind === "loading" && (

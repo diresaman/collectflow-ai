@@ -58,16 +58,28 @@ def _item(*, key: str, title: str, detail: str, since: dt.datetime | None, link:
     }
 
 
+# Plain words for integration health (UX milestone; the statuses themselves are unchanged).
+HEALTH_WORDS = {"failed": "not working", "stale": "has not run recently"}
+
+
+def _when(value: Any) -> str:
+    if not value:
+        return "never"
+    moment = dt.datetime.fromisoformat(value) if isinstance(value, str) else value
+    return timezone.localtime(moment).strftime("%b %d, %H:%M")
+
+
 def integration_issues(now: dt.datetime) -> list[dict[str, Any]]:
     report = integrations.report(now)
     items = [
-        _item(key=f"integration:{i['key']}", title=f"{i['name']}: {i['status'].replace('_', ' ')}", detail=i["detail"],
+        _item(key=f"integration:{i['key']}", title=f"{i['name']} {HEALTH_WORDS[i['status']]}", detail=i["detail"],
               since=i["last_attempt_at"], link="/settings/integrations", who="Admin", action=i["action"])
         for i in report["integrations"] if i["status"] in ("failed", "stale")
     ]
     items += [
-        _item(key=f"job:{j['kind']}", title=f"Scheduled job {j['name']}: {j['status']}",
-              detail=f"Last finished {j['last_completed_at'] or 'never'}" + (f" ({j['last_error_code']})" if j["last_error_code"] else ""),
+        _item(key=f"job:{j['kind']}", title=f"Scheduled job \"{j['name']}\" {HEALTH_WORDS[j['status']]}",
+              detail=f"Last ran {_when(j['last_completed_at'])}" + (f" (error: {j['last_error_code']})" if j["last_error_code"] else "")
+              + ". Usually the background worker is stopped; see Integrations.",
               since=j["last_completed_at"], link="/settings/integrations", who="Admin")
         for j in report["scheduled_jobs"] if j["status"] in ("failed", "stale")
     ]
@@ -119,7 +131,8 @@ def deliveries_to_reconcile(now: dt.datetime) -> list[dict[str, Any]]:
     return [
         _item(key=f"delivery:{f.pk}", invoice=f.invoice, since=f.updated_at, link=_invoice_link(f.invoice_id),
               title=f"Delivery outcome unknown: {f.subject}",
-              detail="Check the sent folder in Gmail, then reconcile with `manage.py reconcile_delivery`. It is never resent automatically.",
+              detail=("Gmail may or may not have sent it, so it is never resent automatically. Check the Sent folder in Gmail; "
+                      "an admin then records the result (reconcile_delivery command)."),
               who="Admin", follow_up_id=str(f.pk))
         for f in rows.select_related("invoice").order_by("updated_at", "id")
     ]

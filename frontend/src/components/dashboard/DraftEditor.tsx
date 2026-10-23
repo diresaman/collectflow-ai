@@ -155,7 +155,7 @@ export function DraftEditor({
               className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy === "approve" && <Spinner />}
-              Approve
+              {followUp.kind === "STATEMENT" ? "Approve statement" : "Approve reminder"}
             </button>
             <button
               type="button"
@@ -164,7 +164,7 @@ export function DraftEditor({
               className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy === "reject" && <Spinner />}
-              Reject
+              Reject draft
             </button>
             <button
               type="button"
@@ -173,18 +173,20 @@ export function DraftEditor({
               className="ml-auto inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {regenerating ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />}
-              Regenerate
+              Rewrite with AI
             </button>
           </>
         )}
       </div>
       {approvalBlocked && !dirty && (
         <p id={`${fieldId}-approval-blocked`} className="text-sm text-slate-700">
-          <span className="font-medium">You can&apos;t approve this:</span> {approvalBlocked.detail}
+          <span className="font-medium">You can&apos;t approve this:</span> {approvalBlocked.detail} An approver can find it
+          on Today under &quot;Waiting for approval&quot;.
         </p>
       )}
       <p className="text-xs text-slate-500">
-        Approving marks this reminder as ready. It does <span className="font-medium">not</span> send an email.
+        Approving marks it as ready. It does <span className="font-medium">not</span> send anything: sending is the next,
+        separate step.
       </p>
     </div>
   );

@@ -15,6 +15,7 @@ const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
   GET: [
     /^auth\/csrf$/,
+    /^health$/,
     /^me$/,
     /^invoices$/,
     new RegExp(`^invoices/${UUID}$`),

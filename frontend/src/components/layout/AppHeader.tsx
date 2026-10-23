@@ -1,56 +1,27 @@
 import Link from "next/link";
 
-import { ApiStatus } from "@/components/ApiStatus";
+import { ConnectionNotice } from "@/components/ApiStatus";
 import { UserMenu } from "@/components/auth/UserMenu";
 
-import { InboxBadge } from "./InboxBadge";
 import { Logo } from "./Logo";
+import { MainNav, type NavHref } from "./MainNav";
 
-const LINKS = [
-  { href: "/today", label: "Today" },
-  { href: "/clients", label: "Clients" },
-  { href: "/analytics", label: "Analytics" },
-  { href: "/", label: "Invoices" },
-  { href: "/inbox", label: "Inbox" },
-  { href: "/disputes", label: "Disputes" },
-  { href: "/tasks", label: "Tasks" },
-  { href: "/sequences", label: "Sequences" },
-  { href: "/automation", label: "Automation" },
-  { href: "/settings/integrations", label: "Integrations" },
-] as const;
-
-export function AppHeader({ active }: { active: (typeof LINKS)[number]["href"] }) {
+export function AppHeader({ active }: { active: NavHref }) {
   return (
-    <header className="border-b border-slate-200 bg-white">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-6">
-          <Link href="/" className="flex items-center gap-3">
-            <Logo />
-            <span className="hidden text-base font-semibold text-slate-900 sm:inline">CollectFlow AI</span>
-          </Link>
-          <nav className="flex flex-wrap gap-1" aria-label="Main">
-            {LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                aria-current={active === link.href ? "page" : undefined}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                  active === link.href ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                {link.label}
-                {link.href === "/inbox" && <InboxBadge />}
-              </Link>
-            ))}
-          </nav>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="hidden md:block">
-            <ApiStatus />
+    <>
+      <header className="relative border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-5">
+            <Link href="/today" className="flex shrink-0 items-center gap-2.5">
+              <Logo />
+              <span className="hidden text-base font-semibold text-slate-900 sm:inline">CollectFlow AI</span>
+            </Link>
+            <MainNav active={active} />
           </div>
           <UserMenu />
         </div>
-      </div>
-    </header>
+      </header>
+      <ConnectionNotice />
+    </>
   );
 }

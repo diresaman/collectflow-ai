@@ -83,7 +83,8 @@ function SequenceNote({ invoice }: { invoice: Invoice }) {
   if (hold) {
     return (
       <span className="mt-1 block text-xs font-medium text-amber-700">
-        On hold: {hold.reason_display.toLowerCase()} (see Inbox)
+        On hold: {hold.reason_display.toLowerCase()}
+        {hold.source === "reply" ? " (see Inbox)" : hold.source === "dispute" ? " (see Disputes)" : ""}
       </span>
     );
   }
@@ -127,7 +128,7 @@ function FollowUpAction({ invoice, actions }: { invoice: Invoice; actions: Follo
     return (
       <span className="inline-flex items-center gap-2 text-xs font-medium text-indigo-600">
         <Spinner className="h-3.5 w-3.5" />
-        Analyzing…
+        Drafting…
       </span>
     );
   }
@@ -144,6 +145,18 @@ function FollowUpAction({ invoice, actions }: { invoice: Invoice; actions: Follo
       </button>
     );
   }
+  // A hold, dispute or promise blocks drafting in the backend: say so instead of offering a button it would refuse.
+  if (invoice.is_overdue && invoice.holds.length > 0) {
+    return (
+      <button
+        type="button"
+        onClick={() => actions.onOpen(invoice.id)}
+        className="text-xs font-medium text-amber-800 underline-offset-2 hover:underline"
+      >
+        {invoice.open_dispute ? "Disputed: see why" : invoice.open_promise ? "Promise due: see details" : "On hold: see why"}
+      </button>
+    );
+  }
   const enrollment = invoice.enrollment;
   const sequenceHeld = enrollment !== null && (enrollment.status === "PAUSED" || enrollment.status === "COMPLETED");
   if (invoice.is_overdue && sequenceHeld) {
@@ -153,7 +166,7 @@ function FollowUpAction({ invoice, actions }: { invoice: Invoice; actions: Follo
         onClick={() => actions.onOpen(invoice.id)}
         className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline"
       >
-        Open
+        {enrollment?.status === "COMPLETED" ? "Sequence finished: view" : "Sequence paused: see why"}
       </button>
     );
   }
@@ -166,7 +179,7 @@ function FollowUpAction({ invoice, actions }: { invoice: Invoice; actions: Follo
         className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Icon name="sparkles" className="h-3.5 w-3.5" />
-        Draft step {enrollment ? (enrollment.pending_step ?? enrollment.next_step) : 1}
+        Draft reminder (step {enrollment ? (enrollment.pending_step ?? enrollment.next_step) : 1})
       </button>
     );
   }

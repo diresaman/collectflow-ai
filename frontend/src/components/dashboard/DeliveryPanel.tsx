@@ -316,7 +316,7 @@ export function DeliveryPanel({
               className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {sending && <Spinner />}
-              {sending ? "Sending…" : "Send Email"}
+              {sending ? "Sending…" : "Send email…"}
             </button>
             {secondaryActions}
             <button
