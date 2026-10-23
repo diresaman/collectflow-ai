@@ -8,6 +8,8 @@ import { Card, ErrorMessage, PageHeader, Skeleton, Spinner, buttonStyles } from 
 import { ApiError } from "@/lib/api/client";
 import { getToday, type TodayItem, type TodayReport, type TodaySection } from "@/lib/api/today";
 import { formatDateTime } from "@/lib/format";
+import { SECTION_TITLES } from "@/lib/status";
+import { appLink } from "@/lib/url";
 
 const REFRESH_MS = 60_000;
 
@@ -48,18 +50,20 @@ const GROUPS: { key: string; title: string; intro: string; sections: string[]; t
 
 /** Per section: the button wording, and what doing it leads to. */
 const SECTION_COPY: Record<string, { action: string; next: string }> = {
-  integrations: { action: "Check integration", next: "Other work may depend on this; fix it first." },
+  integrations: { action: "Check service", next: "Other work may depend on this; fix it first." },
   replies: { action: "Review reply", next: "Chasing this invoice resumes only after a person reviews the reply." },
   deliveries: { action: "Check delivery", next: "Never resent automatically: check Gmail, then record what happened." },
   disputes: { action: "Review dispute", next: "Nothing is drafted, approved or sent until an approver resolves it." },
   drafts: { action: "Review draft", next: "After approval it still has to be sent." },
   approved: { action: "Review and send", next: "Approved but not sent yet." },
   broken_promises: { action: "Review invoice", next: "The next reminder will be one tone firmer and mention the missed date." },
-  sequence_blocks: { action: "Fix sequence", next: "The sequence waits until a person acts." },
+  sequence_blocks: { action: "Fix schedule", next: "Reminders for this invoice wait until a person acts." },
   held: { action: "See why", next: "Shows who can end the hold." },
   tasks: { action: "Open task", next: "Mark it complete when done." },
   promises_due: { action: "View invoice", next: "Settled automatically from the sheet within 2 days of the date." },
 };
+
+const sectionTitle = (section: TodaySection) => SECTION_TITLES[section.key] ?? section.title;
 
 const RANK: Record<string, number> = { OPERATOR: 1, APPROVER: 2, ADMIN: 3 };
 
@@ -104,7 +108,7 @@ function ItemRow({ item, section }: { item: TodayItem; section: string }) {
           <p className="text-xs text-slate-500">Who can act: {item.who_can_act}</p>
         )}
       </div>
-      <Link href={item.link} className={`${forOthers ? buttonStyles.secondary : buttonStyles.primary} shrink-0 !px-3 !py-1.5 text-xs`}>
+      <Link href={appLink(item.link)} className={`${forOthers ? buttonStyles.secondary : buttonStyles.primary} shrink-0 !px-3 !py-1.5 text-xs`}>
         {forOthers ? "View" : copy?.action ?? "View"}
       </Link>
     </li>
@@ -119,7 +123,7 @@ function SectionBlock({ section }: { section: TodaySection }) {
       <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div>
           <p className="text-sm font-medium text-slate-900">
-            {section.items.length} integration problem(s){" "}
+            {section.items.length} connected service problem(s){" "}
             <span className="ml-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-800">For an admin</span>
           </p>
           <p className="text-xs text-slate-600">{section.items.map((i) => i.title).join(" · ")}</p>
@@ -136,7 +140,7 @@ function SectionBlock({ section }: { section: TodaySection }) {
     return (
       <details className="border-t border-slate-100">
         <summary className="cursor-pointer px-4 py-2 text-sm font-semibold text-slate-800 sm:px-5">
-          {section.title} <span className="font-normal text-slate-500">({section.items.length}) · why each one is paused and who can end it</span>
+          {sectionTitle(section)} <span className="font-normal text-slate-500">({section.items.length}) · why each one is paused and who can end it</span>
         </summary>
         <ul className="divide-y divide-slate-100">
           {section.items.map((item) => (
@@ -150,7 +154,7 @@ function SectionBlock({ section }: { section: TodaySection }) {
     <div>
       <div className="flex items-baseline justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-2 sm:px-5">
         <h3 className="text-sm font-semibold text-slate-800">
-          {section.title} <span className="font-normal text-slate-500">({section.items.length})</span>
+          {sectionTitle(section)} <span className="font-normal text-slate-500">({section.items.length})</span>
         </h3>
         <span className="hidden text-xs text-slate-500 sm:inline">{SECTION_COPY[section.key]?.next}</span>
       </div>
@@ -208,7 +212,7 @@ export function TodayView() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Today"
+        title="Today's Work"
         description="Everything that needs a person, most urgent first. It comes straight from your records and refreshes every minute."
         actions={
           <button type="button" onClick={refresh} disabled={loading} className={buttonStyles.secondary}>

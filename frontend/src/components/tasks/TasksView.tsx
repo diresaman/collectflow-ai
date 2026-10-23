@@ -101,7 +101,7 @@ export function TasksView() {
         ) : tasks.length === 0 ? (
           <p className="py-6 text-center text-sm text-slate-500">
             {filter === "open" || filter === "mine"
-              ? "Nothing to do. Tasks appear when a reply asks for information, a dispute needs review, or a sequence reaches a call step."
+              ? "Nothing to do. Tasks appear when a reply asks for information, a dispute needs review, or a reminder schedule reaches a call step."
               : "No tasks here."}
           </p>
         ) : (

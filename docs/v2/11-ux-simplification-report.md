@@ -120,6 +120,101 @@ Sources: [Upflow Actions list view](https://docs.upflow.io/en-us/core-entities/a
 Approvals link. Frontend type-check, lint and production build are clean. Screenshots:
 `docs/v2/ux/today-after.png`, `approvals.png`, `mobile-menu.png` and `today-mobile-after.png`.
 
+## 5b. Third pass: navigation and terminology (2026-10-23)
+
+Owner request: a first-time user should know where to go without training. Wording and navigation only: no new
+feature, no backend change, no migration, no new page or dashboard, and no collection safety rule touched. The
+screenshot mentioned in the request was not attached, so the baseline is the second-pass sidebar
+(Today / Collections / Receivables / Insights / Setup).
+
+**Sidebar (four groups):**
+
+| Group | Item | Route (unchanged unless noted) | Count shown |
+| --- | --- | --- | --- |
+| Workspace | Today's Work | `/today` | Everything actionable on Today's Work |
+| | Customer Replies | `/inbox` | Replies to review |
+| | Approvals | `/approvals` | Drafts awaiting approval plus approved, not sent |
+| | Tasks | `/tasks` | Tasks due today or overdue |
+| | Disputes | `/disputes` | Open disputes |
+| Customers & Payments | Customers | `/clients` | — |
+| | Invoices | **`/invoices`** (was `/`) | — |
+| Reports | Reports & Insights | `/analytics` | — |
+| Settings | Reminder Schedule | `/sequences` | — |
+| | Automation Settings | `/automation` | — |
+| | Connected Services | `/settings/integrations` | "!" when a service or scheduled job has a problem |
+
+- **Counts:** they come from Today's open sections, as before. Completed, cancelled, resolved and sent items are
+  never in them. Broken promises, promises due, holds and schedule blocks are not counted in the menu.
+- **Routes:**
+  - `/` now redirects to `/today`, so Today's Work is the landing page. Before this pass, signing in without a
+    return path landed on Invoices.
+  - Sign-in goes to `/today`.
+  - The older `/?invoice=<id>` still works: it redirects to `/invoices?invoice=<id>` (`next.config.ts`). The API and
+    stored analytics snapshots still return that older form. In the app, `appLink()` (`lib/url.ts`) maps it before
+    linking, so there is no extra round-trip.
+  - No backend route, endpoint, model or table was renamed.
+
+**Terminology** (display only; API names stay):
+
+| Before | After | Where |
+| --- | --- | --- |
+| Today | Today's Work | Menu, page heading, tab title, "Open Today's Work" links |
+| Inbox | Customer Replies | Menu, heading, tab title, "(see Customer Replies)", "Review in Customer Replies", the Disputes empty state |
+| Clients / client | Customers / customer | Menu, heading, tab title, description, empty state, list label, the invoice table column, error text, a note placeholder, "the customer's page" |
+| Analytics | Reports & Insights | Menu, heading, tab title, error text |
+| Sequences / sequence | Reminder Schedule / reminders | Menu, heading, tab title. Invoice status ("Reminders paused", "Reminders finished", "Reminders stopped (paid)"), "Pause reminders", "Resume reminders", "reminder step N", the empty states on Approvals and Tasks, the dispute outcome "Customer is right (stop reminders)", the task completion notes |
+| Automation | Automation Settings | Menu, heading, tab title. The description still says what the page does: sync, draft, review and confirm sends |
+| Integrations / integration | Connected Services / service | Menu, heading, tab title, error text. Today's "Check service" and "connected service problem(s)". Today's section titles via `SECTION_TITLES` ("Connected service problems", "Reminder schedules that need a person"), also used in the urgent line on Customers |
+
+Technical words are kept where accuracy needs them, for example "Gmail", "Gemini", "sheet", "statement" and
+"approver".
+
+**Visual and accessibility:**
+- **Group headings:** small uppercase labels, with more space between groups and no dividers. Each group's list
+  is named by its heading for screen readers.
+- **Items:** at least 40 px tall, with 20 px icons throughout. Long labels truncate, and the full text is in the
+  link's title.
+- **Active state:** the indigo active state and `aria-current="page"` are unchanged.
+- **Keyboard:** visible focus rings on menu items, the logo link and Sign out.
+- **Unchanged:** the user's name, role and Sign out, the phone drawer, and the persistent shell (no remount
+  between pages).
+
+**First-time user check** (each answer is one click from the sidebar, and the page heading repeats the menu
+words):
+
+| Task | Where |
+| --- | --- |
+| 1. Start daily work | Workspace → Today's Work (also the home page) |
+| 2. Review a customer email | Workspace → Customer Replies |
+| 3. Approve a reminder | Workspace → Approvals |
+| 4. Find an invoice | Customers & Payments → Invoices |
+| 5. Find a customer | Customers & Payments → Customers |
+| 6. Review collection performance | Reports → Reports & Insights |
+| 7. Configure reminder timing | Settings → Reminder Schedule |
+| 8. Check connected Google services | Settings → Connected Services (Google Sheets, Gmail, Gemini, worker) |
+
+**Verification:**
+- **Static checks:** `npm run typecheck`, `npm run lint` and the production build (`next build`, run by the suite)
+  pass.
+- **Playwright:** 24 passed (fake providers, throwaway `collectflow_e2e` database).
+- **Updated tests:**
+  - journey 1 now clicks every one of the 11 menu items. It checks that each page's heading matches the menu
+    words, that the item is highlighted, and that no session check flashes between pages;
+  - a new test checks that `/` opens Today's Work and that `/?invoice=<id>` opens the invoice on `/invoices`, with
+    Invoices highlighted;
+  - the phone test uses the new group name.
+- **Journey 5:** it no longer races the Inbox's existing auto-advance to the next reply after a decision. It opens
+  the handled reply under "All replies" and checks the decision there. App behaviour is unchanged.
+- **Providers:** no live provider was used.
+
+**Not changed:**
+- **Backend wording:** some API text still says "sequence", for example Today's item titles "Sequence step 2 held"
+  and "Sequence position needs review", and the worklist's "step N of <schedule name>". Changing it means a
+  backend release and its tests.
+- **Automation Settings:** the label follows the request. The page is a run-and-review workspace rather than a
+  settings form; its description says so.
+- **Deployment:** not deployed. Until it is, production shows the older names.
+
 ## 6. Known usability gaps
 
 - Resolving a **delivery with an unknown outcome** still needs an admin command (`reconcile_delivery`);

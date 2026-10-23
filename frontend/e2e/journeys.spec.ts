@@ -18,16 +18,33 @@ test.describe("1 sign-in and role-specific navigation", () => {
     const page = await as(browser, "operator");
     await page.goto("/today");
     const nav = sidebar(page);
-    for (const group of ["Collections", "Receivables", "Insights", "Setup"]) await expect(nav.getByText(group, { exact: true })).toBeVisible();
-    for (const item of ["Today", "Inbox", "Approvals", "Tasks", "Disputes", "Clients", "Invoices", "Analytics", "Sequences", "Automation", "Integrations"]) {
-      await expect(nav.getByRole("link", { name: new RegExp(`^${item}`) })).toBeVisible();
+    for (const group of ["Workspace", "Customers & Payments", "Reports", "Settings"]) {
+      await expect(nav.getByText(group, { exact: true })).toBeVisible();
     }
     await expect(page.getByText("Operator", { exact: true }).first()).toBeVisible();
-    // Navigating keeps the shell: no session check screen between pages.
-    await nav.getByRole("link", { name: /^Approvals/ }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Approvals" })).toBeVisible();
-    await expect(page.getByText("Checking your session")).toHaveCount(0);
-    await expect(nav.locator('[aria-current="page"]')).toContainText("Approvals");
+    await expect(nav.getByRole("list", { name: "Workspace" })).toBeVisible(); // groups are named for screen readers
+    // Every menu item opens a page whose heading uses the same words, is highlighted, and keeps the shell.
+    for (const item of [
+      "Today's Work", "Customer Replies", "Approvals", "Tasks", "Disputes", "Customers", "Invoices",
+      "Reports & Insights", "Reminder Schedule", "Automation Settings", "Connected Services",
+    ]) {
+      await nav.getByRole("link", { name: new RegExp(`^${item.replace(/[&']/g, ".")}`) }).click();
+      await expect(page.getByRole("heading", { level: 1, name: item, exact: true })).toBeVisible();
+      await expect(nav.locator('[aria-current="page"]')).toContainText(item);
+      await expect(page.getByText("Checking your session")).toHaveCount(0);
+    }
+  });
+
+  test("the home address opens Today's Work, and older invoice links still open the invoice", async ({ browser }) => {
+    const page = await as(browser, "operator");
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/today$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Today's Work" })).toBeVisible();
+    const id = await invoiceId(page, "EL-400");
+    await page.goto(`/?invoice=${id}`);
+    await expect(page).toHaveURL(new RegExp(`/invoices\\?invoice=${id}$`));
+    await expect(page.getByRole("dialog").first()).toBeVisible();
+    await expect(sidebar(page).locator('[aria-current="page"]')).toContainText("Invoices");
   });
 });
 
@@ -40,7 +57,7 @@ test("2 Today shows what needs attention and the next action", async ({ browser 
   await expect(page.getByText("For an approver").first()).toBeVisible(); // the firm draft
   // Following an action link inside the app opens the right record (deep link without a page reload).
   await page.getByRole("link", { name: "Review reply" }).first().click();
-  await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Customer Replies" })).toBeVisible();
   await expect(page.getByText("What the customer wrote")).toBeVisible();
 });
 
@@ -71,6 +88,10 @@ test("5 reviewing and classifying a customer reply", async ({ browser }) => {
   await expect(page.getByText("Requested information")).toBeVisible();
   await expect(page.getByText("Payment reference")).toHaveCount(0); // only the fields for this label
   await page.getByRole("button", { name: "Save decision: Requests info" }).click();
+  // The handled reply leaves "Needs review" and the list moves on to the next one; the decision is on the reply.
+  await expect(page.getByRole("option", { name: /RB-300/ })).toHaveCount(0);
+  await page.getByRole("tab", { name: "All replies" }).click();
+  await page.getByRole("option", { name: /RB-300/ }).click();
   await expect(page.getByText("Decided by a person")).toBeVisible();
 });
 

@@ -174,7 +174,7 @@ export function Dashboard() {
           {summary.data.last_successful_sync_at
             ? `the last successful sync was more than ${summary.data.stale_after_hours} hours ago.`
             : "there has been no successful sync yet."}{" "}
-          Sequences keep using the last synced data until the next successful sync.
+          Reminder schedules keep using the last synced data until the next successful sync.
         </p>
       )}
       {summary.kind === "ready" && summary.data.ai_budget.automatic_drafting_blocked && (

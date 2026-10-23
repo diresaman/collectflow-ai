@@ -141,8 +141,8 @@ export function AttentionList({ items }: { items: AttentionItem[] }) {
           <span className="font-mono text-xs text-slate-600">{item.invoice_external_id}</span>
           <span className="font-medium text-amber-800">{ATTENTION_LABELS[item.reason_code] ?? item.reason_code}</span>
           <span className="text-xs text-slate-500">{item.detail}</span>
-          <Link href="/" className="ml-auto text-xs font-medium text-indigo-600 hover:underline">
-            Open dashboard →
+          <Link href="/invoices" className="ml-auto text-xs font-medium text-indigo-600 hover:underline">
+            Open Invoices →
           </Link>
         </div>
       ))}

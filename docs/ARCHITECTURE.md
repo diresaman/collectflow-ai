@@ -19,8 +19,9 @@ it reads, including an email saying "we paid", marks an invoice paid.
 ```
  Browser ─▶ Next.js 16 web app (127.0.0.1:3000)
              ├─ (app) route group: one SessionGate + AppShell kept mounted across pages
-             │   Today · Inbox · Approvals · Tasks · Disputes · Clients · Invoices · Analytics
-             │   Sequences · Automation · Integrations
+             │   Workspace: Today's Work · Customer Replies · Approvals · Tasks · Disputes
+             │   Customers & Payments: Customers · Invoices    Reports: Reports & Insights
+             │   Settings: Reminder Schedule · Automation Settings · Connected Services
              └─ /api/backend/* proxy: route allowlist, same-origin check, forwards only the
                 session and CSRF cookies and X-CSRFToken (holds no secret)
                     │

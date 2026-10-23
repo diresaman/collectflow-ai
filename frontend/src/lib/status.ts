@@ -64,3 +64,9 @@ export const REPLY_LABEL: Record<string, string> = {
 export function labelFor(map: Record<string, Label>, state: string): Label {
   return map[state] ?? { label: state.toLowerCase().replace(/_/g, " "), tone: "neutral" };
 }
+
+/** Display titles for Today sections whose API title uses internal names (the API keeps its own wording). */
+export const SECTION_TITLES: Record<string, string> = {
+  integrations: "Connected service problems",
+  sequence_blocks: "Reminder schedules that need a person",
+};

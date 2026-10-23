@@ -72,12 +72,12 @@ export function IntegrationsView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Integrations</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Connected Services</h1>
         <p className="mt-1 text-sm text-slate-600">
           Whether Google Sheets, Gmail, Gemini and the background worker are working, and what to do if not.
         </p>
       </div>
-      {error && <ErrorMessage message={`Could not load integration health: ${error}`} />}
+      {error && <ErrorMessage message={`Could not load the service status: ${error}`} />}
       {report === null ? (
         <div className="grid gap-4 md:grid-cols-2">
           <Skeleton className="h-40" />

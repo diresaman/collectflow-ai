@@ -21,7 +21,7 @@ const TABS: readonly { key: Tab; label: string; status: FollowUp["status"]; empt
     key: "waiting",
     label: "Waiting for approval",
     status: "DRAFT",
-    empty: "Nothing is waiting for approval. Drafts appear here when a sequence step is due or someone drafts a reminder.",
+    empty: "Nothing is waiting for approval. Drafts appear here when a scheduled reminder is due or someone drafts a reminder.",
     action: "Review draft",
   },
   {
@@ -62,7 +62,7 @@ function Row({ followUp, action }: { followUp: FollowUp; action: string }) {
         <p className="truncate text-sm text-slate-600">{followUp.subject}</p>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
           <span>{followUp.tone.charAt(0) + followUp.tone.slice(1).toLowerCase()} tone</span>
-          {followUp.step && <span>· sequence step {followUp.step.order}</span>}
+          {followUp.step && <span>· reminder step {followUp.step.order}</span>}
           <span>· {followUp.status === "APPROVED" && followUp.approved_at ? `approved ${formatDateTime(followUp.approved_at)}` : `drafted ${formatDateTime(followUp.generated_at)}`}</span>
           {followUp.approved_by && <span>by {followUp.approved_by}</span>}
         </div>

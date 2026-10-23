@@ -18,7 +18,8 @@ import {
 } from "@/lib/api/clients";
 import { jobError, waitForJob } from "@/lib/api/jobs";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
-import { setQueryParam, useUrlParam } from "@/lib/url";
+import { SECTION_TITLES } from "@/lib/status";
+import { appLink, setQueryParam, useUrlParam } from "@/lib/url";
 
 function errorText(err: unknown): string {
   return err instanceof ApiError ? err.message : "Unexpected error.";
@@ -105,7 +106,7 @@ function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientP
             </p>
           )}
           {row.next_action.link && (
-            <Link href={row.next_action.link} className="inline-block text-sm font-medium text-indigo-600 hover:underline">
+            <Link href={appLink(row.next_action.link)} className="inline-block text-sm font-medium text-indigo-600 hover:underline">
               Open
             </Link>
           )}
@@ -161,7 +162,7 @@ function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientP
           {detail.invoices.map((i) => (
             <li key={i.id} className="py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Link href={i.link} className="font-medium text-indigo-600 hover:underline">
+                <Link href={appLink(i.link)} className="font-medium text-indigo-600 hover:underline">
                   {i.external_id}
                 </Link>
                 <span className="text-slate-700">
@@ -197,7 +198,7 @@ function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientP
               <ul className="space-y-1 text-sm">
                 {detail.open_tasks.map((t) => (
                   <li key={t.id}>
-                    <Link href={t.link} className="text-indigo-600 hover:underline">
+                    <Link href={appLink(t.link)} className="text-indigo-600 hover:underline">
                       {t.title}
                     </Link>{" "}
                     <span className="text-xs text-slate-500">due {formatDateTime(t.due_at)}</span>
@@ -212,7 +213,7 @@ function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientP
               <ul className="space-y-1 text-sm">
                 {detail.disputes.map((d) => (
                   <li key={d.id}>
-                    <Link href={d.link} className="text-indigo-600 hover:underline">
+                    <Link href={appLink(d.link)} className="text-indigo-600 hover:underline">
                       {d.invoice_external_id}
                     </Link>{" "}
                     <span className="text-xs text-slate-500">{d.status.toLowerCase().replace(/_/g, " ")}</span>
@@ -227,7 +228,7 @@ function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientP
               <ul className="space-y-1 text-sm">
                 {detail.promises.map((p) => (
                   <li key={p.id}>
-                    <Link href={p.link} className="text-indigo-600 hover:underline">
+                    <Link href={appLink(p.link)} className="text-indigo-600 hover:underline">
                       {p.invoice_external_id}
                     </Link>{" "}
                     <span className="text-xs text-slate-500">
@@ -244,7 +245,7 @@ function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientP
               <ul className="space-y-1 text-sm">
                 {detail.replies.map((r) => (
                   <li key={r.id}>
-                    <Link href={r.link} className="text-indigo-600 hover:underline">
+                    <Link href={appLink(r.link)} className="text-indigo-600 hover:underline">
                       {r.invoice_external_id}
                     </Link>{" "}
                     <span className="text-xs text-slate-500">
@@ -278,7 +279,7 @@ function PaymentHistory({ detail }: { detail: ClientProfile }) {
         <ul className="space-y-1 text-sm">
           {detail.paid_history.map((p) => (
             <li key={p.id}>
-              <Link href={p.link} className="text-indigo-600 hover:underline">
+              <Link href={appLink(p.link)} className="text-indigo-600 hover:underline">
                 {p.external_id}
               </Link>{" "}
               <span className="text-xs text-slate-600">
@@ -303,7 +304,7 @@ function PaymentHistory({ detail }: { detail: ClientProfile }) {
               <span className="font-medium text-slate-800">{formatDateTime(c.at)}</span> ·{" "}
               {c.type === "sent" ? (c.kind === "STATEMENT" ? "statement sent" : `reminder sent (${c.tone.toLowerCase()})`) : "reply received"}{" "}
               ·{" "}
-              <Link href={c.link} className="text-indigo-600 hover:underline">
+              <Link href={appLink(c.link)} className="text-indigo-600 hover:underline">
                 {c.invoice_external_id}
               </Link>{" "}
               · {c.subject}
@@ -410,7 +411,7 @@ function StatementSection({ clientId, statements }: { clientId: string; statemen
         <ul className="space-y-1 border-t border-slate-100 pt-2 text-xs text-slate-600">
           {statements.map((s) => (
             <li key={s.id}>
-              <Link href={s.link} className="font-medium text-indigo-600 hover:underline">
+              <Link href={appLink(s.link)} className="font-medium text-indigo-600 hover:underline">
                 {s.subject}
               </Link>{" "}
               · {s.lines} invoices · {s.status.toLowerCase().replace(/_/g, " ")} ·{" "}
@@ -437,7 +438,7 @@ function ClientDetailLoader({ clientId, row }: { clientId: string; row: Worklist
     return () => controller.abort();
   }, [clientId]);
 
-  if (error) return <div className="p-5"><ErrorMessage message={`Could not load the client: ${error}`} /></div>;
+  if (error) return <div className="p-5"><ErrorMessage message={`Could not load the customer: ${error}`} /></div>;
   if (!detail) return <div className="space-y-2 p-5"><Skeleton className="h-8" /><Skeleton className="h-40" /></div>;
   return <ClientPanel row={row} detail={detail} />;
 }
@@ -499,9 +500,9 @@ export function ClientsView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Clients</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Customers</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            Clients ranked by who most needs attention: risk score (0–100, worked out from their records) × amount owed,
+            Customers ranked by who most needs attention: risk score (0–100, worked out from their records) × amount owed,
             in each currency. The score only helps you prioritise; it never sends anything or overrides a hold.
           </p>
         </div>
@@ -528,9 +529,9 @@ export function ClientsView() {
       {data && data.urgent.length > 0 && (
         <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <span className="font-semibold">Handle these first, whatever the ranking:</span>{" "}
-          {data.urgent.map((u) => `${u.title.toLowerCase()} (${u.count})`).join(", ")}.{" "}
+          {data.urgent.map((u) => `${(SECTION_TITLES[u.key] ?? u.title).toLowerCase()} (${u.count})`).join(", ")}.{" "}
           <Link href="/today" className="font-medium underline">
-            Open Today
+            Open Today&apos;s Work
           </Link>
         </p>
       )}
@@ -543,14 +544,14 @@ export function ClientsView() {
               <Skeleton className="h-16" />
             </div>
           ) : data.groups.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-slate-500">No client has an unpaid invoice in the sheet.</p>
+            <p className="px-4 py-6 text-sm text-slate-500">No customer has an unpaid invoice in the sheet.</p>
           ) : (
             data.groups.map((group) => (
               <div key={group.currency}>
                 <h2 className="sticky top-0 border-b border-slate-200 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {group.currency} · ranked within {group.currency} only
                 </h2>
-                <ul className="divide-y divide-slate-100" role="listbox" aria-label={`Clients owing ${group.currency}`}>
+                <ul className="divide-y divide-slate-100" role="listbox" aria-label={`Customers owing ${group.currency}`}>
                   {group.rows.map((r) => (
                     <li key={`${r.client_id}:${r.currency}`}>
                       <RowButton row={r} selected={row === r} onSelect={() => select(r)} />
@@ -567,7 +568,7 @@ export function ClientsView() {
           )}
           {data && data.unscored.length > 0 && (
             <p className="border-t border-slate-100 px-4 py-2 text-xs text-amber-800">
-              {data.unscored.length} client(s) not scored yet; they rank last until the next calculation.
+              {data.unscored.length} customer(s) not scored yet; they rank last until the next calculation.
             </p>
           )}
         </Card>

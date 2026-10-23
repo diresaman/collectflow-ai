@@ -114,10 +114,10 @@ export function FollowUpDrawer({
   const draftBlocked =
     enrollment?.status === "PAUSED"
       ? enrollment.pause_reason === "history_review"
-        ? "An approver must confirm this invoice's sequence position first (see above)."
-        : "The sequence is paused. Resume it to draft the next step."
+        ? "An approver must confirm where this invoice stands in its reminder schedule first (see above)."
+        : "Reminders are paused. Resume them to draft the next step."
       : enrollment?.status === "COMPLETED"
-        ? "All steps of this invoice's sequence are done."
+        ? "All steps of this invoice's reminder schedule are done."
         : enrollment?.blocked_reason === "delivery_unknown"
           ? BLOCKED_REASONS.delivery_unknown
           : null;
@@ -190,7 +190,7 @@ export function FollowUpDrawer({
                 <>
                   <p className="text-sm font-medium text-slate-900">No active reminder</p>
                   <p className="mt-1 text-sm text-slate-500">
-                    Gemini drafts the next sequence step from the invoice facts, in the tone the step sets. You review
+                    Gemini drafts the next reminder step from the invoice facts, in the tone the step sets. You review
                     it before anything happens.
                   </p>
                   {draftBlocked ? (
@@ -292,7 +292,7 @@ function StatementLines({ statement }: { statement: StatementInfo }) {
       <ul className="divide-y divide-slate-100 text-sm">
         {statement.lines.map((line) => (
           <li key={line.invoice_id} className="flex justify-between gap-3 py-1.5">
-            <Link href={`/?invoice=${line.invoice_id}`} className="font-medium text-indigo-600 hover:underline">
+            <Link href={`/invoices?invoice=${line.invoice_id}`} className="font-medium text-indigo-600 hover:underline">
               {line.external_id}
             </Link>
             <span className="text-slate-700">
@@ -310,7 +310,7 @@ function StatementLines({ statement }: { statement: StatementInfo }) {
       {changed.length > 0 && (
         <p role="alert" className="text-sm text-amber-900">
           {changed.map((line) => line.external_id).join(", ")} changed since the statement was prepared: it cannot be
-          approved or sent. Reject it and prepare a new one from the client page.
+          approved or sent. Reject it and prepare a new one from the customer&apos;s page.
         </p>
       )}
       <p className="text-xs text-slate-500">

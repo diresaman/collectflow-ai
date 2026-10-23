@@ -186,14 +186,14 @@ export function SequencesView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Sequences</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Reminder Schedule</h1>
         <p className="mt-1 text-sm text-slate-500">
           When each reminder is drafted, in which tone, and which steps need an approver. Drafts always wait for a person;
           nothing is sent automatically.
         </p>
       </div>
       {state.kind === "loading" && <Skeleton className="h-40 w-full rounded-xl" />}
-      {state.kind === "error" && <ErrorMessage message={`Could not load sequences: ${state.message}`} />}
+      {state.kind === "error" && <ErrorMessage message={`Could not load the reminder schedules: ${state.message}`} />}
       {state.kind === "ready" &&
         state.data.map((sequence) => (
           <Card key={sequence.id} className="space-y-4 p-5">
@@ -218,7 +218,7 @@ export function SequencesView() {
       {user.role === "ADMIN" ? (
         <NewVersionForm onCreated={() => setReload((n) => n + 1)} />
       ) : (
-        <p className="text-sm text-slate-500">Only admins can create new sequence versions.</p>
+        <p className="text-sm text-slate-500">Only admins can create new schedule versions.</p>
       )}
     </div>
   );

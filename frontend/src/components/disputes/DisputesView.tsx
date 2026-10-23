@@ -150,7 +150,7 @@ export function DisputesView() {
               <Skeleton className="h-14" />
             </div>
           ) : rows.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-slate-500">No disputes here. A dispute is opened from a customer reply in the Inbox or from an invoice.</p>
+            <p className="px-4 py-6 text-sm text-slate-500">No disputes here. A dispute is opened from a reply in Customer Replies or from an invoice.</p>
           ) : (
             <ul className="divide-y divide-slate-100" role="listbox" aria-label="Disputes">
               {rows.map((d) => (

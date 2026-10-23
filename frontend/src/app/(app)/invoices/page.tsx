@@ -4,6 +4,6 @@ import { Dashboard } from "@/components/dashboard/Dashboard";
 
 export const metadata: Metadata = { title: "Invoices · CollectFlow AI" };
 
-export default function Home() {
+export default function InvoicesPage() {
   return <Dashboard />;
 }

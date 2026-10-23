@@ -60,11 +60,11 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
     return () => controller.abort();
   }, [invoiceId, refreshKey]);
 
-  if (enrollment === undefined) return error ? <ErrorMessage message={`Could not load the sequence: ${error}`} /> : null;
+  if (enrollment === undefined) return error ? <ErrorMessage message={`Could not load the reminder schedule: ${error}`} /> : null;
   if (enrollment === null) {
     return (
       <p className="rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-600">
-        Not in a collection sequence yet. Overdue unpaid invoices are enrolled automatically after the next sync.
+        Not on a reminder schedule yet. Overdue unpaid invoices are enrolled automatically after the next sync.
       </p>
     );
   }
@@ -123,7 +123,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
           {enrollment.holds.map((hold) => hold.reason_display.toLowerCase()).join(", ")}. A customer replied; no reminder is
           drafted, approved or sent until the reply is reviewed.{" "}
           <Link href="/inbox" className="font-medium underline">
-            Review in the Inbox
+            Review in Customer Replies
           </Link>
         </p>
       )}
@@ -188,7 +188,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
               </button>
             </div>
           ) : (
-            <p className="text-xs">An approver must confirm where this invoice stands in the sequence.</p>
+            <p className="text-xs">An approver must confirm where this invoice stands in its reminder schedule.</p>
           )}
         </div>
       )}
@@ -212,7 +212,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
                 onClick={() => void act(() => pauseEnrollment(enrollment.id, pauseReason))}
                 className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
               >
-                Pause sequence
+                Pause reminders
               </button>
             </>
           ) : (
@@ -222,7 +222,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
               onClick={() => void act(() => resumeEnrollment(enrollment.id))}
               className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
             >
-              Resume sequence
+              Resume reminders
             </button>
           )}
         </div>

@@ -12,8 +12,9 @@ import { getToday } from "@/lib/api/today";
 import { Logo } from "./Logo";
 
 /**
- * The application frame: a grouped sidebar (daily collections work first, then receivables, insights
- * and setup, as in established AR tools) with live counts, and a drawer on small screens.
+ * The application frame: a sidebar in four groups named for what people do there (daily work first, then
+ * customers and payments, reports and settings), with live counts, and a drawer on small screens. Labels are
+ * display wording only; routes and API names stay as they are (e.g. /clients for Customers).
  */
 const ICONS = {
   today: "M2.25 12l8.954-8.955a1.126 1.126 0 0 1 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75",
@@ -31,39 +32,39 @@ const ICONS = {
 
 type Item = { href: string; label: string; icon: keyof typeof ICONS; count?: string };
 
-export const NAV_GROUPS: { title: string | null; items: Item[] }[] = [
-  { title: null, items: [{ href: "/today", label: "Today", icon: "today", count: "today" }] },
+export const NAV_GROUPS: { title: string; items: Item[] }[] = [
   {
-    title: "Collections",
+    title: "Workspace",
     items: [
-      { href: "/inbox", label: "Inbox", icon: "inbox", count: "replies" },
+      { href: "/today", label: "Today's Work", icon: "today", count: "today" },
+      { href: "/inbox", label: "Customer Replies", icon: "inbox", count: "replies" },
       { href: "/approvals", label: "Approvals", icon: "approvals", count: "approvals" },
       { href: "/tasks", label: "Tasks", icon: "tasks", count: "tasks" },
       { href: "/disputes", label: "Disputes", icon: "disputes", count: "disputes" },
     ],
   },
   {
-    title: "Receivables",
+    title: "Customers & Payments",
     items: [
-      { href: "/clients", label: "Clients", icon: "clients" },
-      { href: "/", label: "Invoices", icon: "invoices" },
+      { href: "/clients", label: "Customers", icon: "clients" },
+      { href: "/invoices", label: "Invoices", icon: "invoices" },
     ],
   },
-  { title: "Insights", items: [{ href: "/analytics", label: "Analytics", icon: "analytics" }] },
+  { title: "Reports", items: [{ href: "/analytics", label: "Reports & Insights", icon: "analytics" }] },
   {
-    title: "Setup",
+    title: "Settings",
     items: [
-      { href: "/sequences", label: "Sequences", icon: "sequences" },
-      { href: "/automation", label: "Automation", icon: "automation" },
-      { href: "/settings/integrations", label: "Integrations", icon: "integrations", count: "integrations" },
+      { href: "/sequences", label: "Reminder Schedule", icon: "sequences" },
+      { href: "/automation", label: "Automation Settings", icon: "automation" },
+      { href: "/settings/integrations", label: "Connected Services", icon: "integrations", count: "integrations" },
     ],
   },
 ];
 
-/** The menu item for the current URL ("/" is Invoices; nested settings pages match their section). */
+/** The menu item for the current URL (nested pages match their section). */
 function activeHref(pathname: string): string {
-  const hrefs = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href)).filter((href) => href !== "/");
-  return hrefs.find((href) => pathname === href || pathname.startsWith(`${href}/`)) ?? (pathname === "/" ? "/" : "");
+  const hrefs = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href));
+  return hrefs.find((href) => pathname === href || pathname.startsWith(`${href}/`)) ?? "";
 }
 
 /** Live counts from the Today report (one request a minute), keyed like Item.count. */
@@ -116,54 +117,63 @@ function Sidebar({ active, counts, onNavigate }: { active: string; counts: Recor
   };
   return (
     <div className="flex h-full flex-col">
-      <Link href="/today" onClick={onNavigate} className="flex items-center gap-2.5 px-5 py-5">
+      <Link
+        href="/today"
+        onClick={onNavigate}
+        aria-label="CollectFlow AI, Today's Work"
+        className="flex items-center gap-2.5 rounded-lg px-5 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+      >
         <Logo />
         <span className="text-base font-semibold text-slate-900">CollectFlow AI</span>
       </Link>
-      <nav aria-label="Main" className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.title ?? "home"}>
-            {group.title && (
-              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{group.title}</p>
-            )}
-            <ul className="space-y-0.5">
-              {group.items.map((item) => {
-                const isActive = active === item.href;
-                const count = item.count ? (counts[item.count] ?? 0) : 0;
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      onClick={onNavigate}
-                      aria-current={isActive ? "page" : undefined}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${
-                        isActive ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                      }`}
-                    >
-                      <NavIcon name={item.icon} />
-                      <span className="flex-1">{item.label}</span>
-                      {count > 0 &&
-                        (item.count === "integrations" ? (
-                          <span className="rounded-full bg-rose-100 px-1.5 text-xs font-semibold text-rose-700" aria-label={`${count} problem(s)`}>
-                            !
-                          </span>
-                        ) : (
-                          <span
-                            className={`min-w-5 rounded-full px-1.5 text-center text-xs font-semibold ${
-                              isActive ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-700"
-                            }`}
-                            aria-label={`${count} waiting`}
-                          >
-                            {count}
-                          </span>
-                        ))}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+      <nav aria-label="Main" className="flex-1 space-y-6 overflow-y-auto px-3 pb-4">
+        {NAV_GROUPS.map((group) => {
+          const headingId = `nav-${group.title.toLowerCase().replace(/[^a-z]+/g, "-")}`;
+          return (
+            <div key={group.title}>
+              <p id={headingId} className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                {group.title}
+              </p>
+              <ul className="space-y-0.5" aria-labelledby={headingId}>
+                {group.items.map((item) => {
+                  const isActive = active === item.href;
+                  const count = item.count ? (counts[item.count] ?? 0) : 0;
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        onClick={onNavigate}
+                        aria-current={isActive ? "page" : undefined}
+                        title={item.label}
+                        className={`flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                          isActive ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        <NavIcon name={item.icon} />
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                        {count > 0 &&
+                          (item.count === "integrations" ? (
+                            <span className="rounded-full bg-rose-100 px-1.5 text-xs font-semibold text-rose-700" aria-label={`${count} problem(s)`}>
+                              !
+                            </span>
+                          ) : (
+                            <span
+                              className={`min-w-5 rounded-full px-1.5 text-center text-xs font-semibold ${
+                                isActive ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-700"
+                              }`}
+                              aria-label={`${count} waiting`}
+                            >
+                              {count}
+                            </span>
+                          ))}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
       </nav>
       <div className="border-t border-slate-200 px-5 py-4">
         <p className="truncate text-sm font-medium text-slate-900">{user.display_name}</p>
@@ -173,7 +183,7 @@ function Sidebar({ active, counts, onNavigate }: { active: string; counts: Recor
             type="button"
             onClick={() => void signOut()}
             disabled={signingOut}
-            className="text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-60"
+            className="rounded px-1 py-0.5 text-xs font-medium text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-60"
           >
             {signingOut ? "Signing out…" : "Sign out"}
           </button>

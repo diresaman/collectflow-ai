@@ -288,7 +288,7 @@ export function DisputeCard({
               </label>
               <label className="flex items-center gap-1">
                 <input type="radio" checked={outcome === "VALID"} onChange={() => setOutcome("VALID")} />
-                Customer is right (stop the sequence)
+                Customer is right (stop reminders)
               </label>
             </div>
             <textarea
@@ -471,7 +471,7 @@ export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser
             <button
               type="button"
               disabled={busy}
-              onClick={() => void act(() => markTaskDone(task.id, note), `"${task.title}" marked complete.${task.step ? " The sequence moves on to its next step." : ""}`)}
+              onClick={() => void act(() => markTaskDone(task.id, note), `"${task.title}" marked complete.${task.step ? " The reminder schedule moves on to its next step." : ""}`)}
               className={buttonClass}
             >
               {busy && <Spinner className="h-3 w-3" />}
@@ -491,7 +491,7 @@ export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser
           <p className="text-[11px] text-slate-500">
             The note is optional when completing and kept in the history.
             {task.step
-              ? " Completing this call task completes its sequence step; it cannot be cancelled."
+              ? " Completing this call task completes its reminder step; it cannot be cancelled."
               : " To cancel, write why (required). Completing a task never resumes chasing by itself."}
           </p>
         </div>

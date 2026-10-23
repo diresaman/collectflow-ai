@@ -84,7 +84,7 @@ function SequenceNote({ invoice }: { invoice: Invoice }) {
     return (
       <span className="mt-1 block text-xs font-medium text-amber-700">
         On hold: {hold.reason_display.toLowerCase()}
-        {hold.source === "reply" ? " (see Inbox)" : hold.source === "dispute" ? " (see Disputes)" : ""}
+        {hold.source === "reply" ? " (see Customer Replies)" : hold.source === "dispute" ? " (see Disputes)" : ""}
       </span>
     );
   }
@@ -92,10 +92,10 @@ function SequenceNote({ invoice }: { invoice: Invoice }) {
   if (!e) return null;
   let text: string;
   let tone = "text-slate-500";
-  if (e.status === "COMPLETED") text = "Sequence done";
-  else if (e.status === "EXITED") text = `Sequence ended (${e.exit_reason.replace(/_/g, " ")})`;
+  if (e.status === "COMPLETED") text = "Reminders finished";
+  else if (e.status === "EXITED") text = `Reminders stopped (${e.exit_reason.replace(/_/g, " ")})`;
   else if (e.status === "PAUSED") {
-    text = e.pause_reason === "history_review" ? "Paused: needs history review" : "Sequence paused";
+    text = e.pause_reason === "history_review" ? "Paused: needs history review" : "Reminders paused";
     tone = "text-amber-700";
   } else if (e.blocked_reason) {
     text = `Step ${e.pending_step ?? e.next_step} held: ${e.blocked_reason.replace(/_/g, " ")}`;
@@ -166,7 +166,7 @@ function FollowUpAction({ invoice, actions }: { invoice: Invoice; actions: Follo
         onClick={() => actions.onOpen(invoice.id)}
         className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline"
       >
-        {enrollment?.status === "COMPLETED" ? "Sequence finished: view" : "Sequence paused: see why"}
+        {enrollment?.status === "COMPLETED" ? "Reminders finished: view" : "Reminders paused: see why"}
       </button>
     );
   }
@@ -321,7 +321,7 @@ export function InvoiceTable({
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <th scope="col" className="px-5 py-3">Client</th>
+                <th scope="col" className="px-5 py-3">Customer</th>
                 <th scope="col" className="px-5 py-3">Invoice</th>
                 <th scope="col" className="px-5 py-3">Due date</th>
                 <th scope="col" className="px-5 py-3 text-right">Amount</th>

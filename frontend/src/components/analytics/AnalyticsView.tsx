@@ -7,6 +7,7 @@ import { Card, ErrorMessage, Skeleton } from "@/components/dashboard/ui";
 import { getAnalytics, type AnalyticsOverview, type Forecast } from "@/lib/api/analytics";
 import { ApiError } from "@/lib/api/client";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { appLink } from "@/lib/url";
 
 function errorText(err: unknown): string {
   return err instanceof ApiError ? err.message : "Unexpected error.";
@@ -82,7 +83,7 @@ function ForecastSection({ forecast }: { forecast: Forecast & { computed_at: str
               {rows.map((r) => (
                 <tr key={r.invoice_id}>
                   <td className="py-1.5 pr-3 align-top">
-                    <Link href={r.link} className="font-medium text-indigo-600 hover:underline">
+                    <Link href={appLink(r.link)} className="font-medium text-indigo-600 hover:underline">
                       {r.external_id}
                     </Link>
                     <div className="text-slate-500">{r.client_name}</div>
@@ -130,14 +131,14 @@ export function AnalyticsView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Analytics</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Reports &amp; Insights</h1>
         <p className="max-w-3xl text-sm text-slate-600">
           Receivables from the synced sheet, per currency (never added across currencies). Paid dates are when a sync
           first saw PAID, not the bank date. Figures are recalculated after each change and every hour; nothing here
           sends anything.
         </p>
       </div>
-      {error && <ErrorMessage message={`Could not load analytics: ${error}`} />}
+      {error && <ErrorMessage message={`Could not load the reports: ${error}`} />}
       {data === null && !error && (
         <div className="space-y-3">
           <Skeleton className="h-20" />
@@ -146,8 +147,8 @@ export function AnalyticsView() {
       )}
       {data && !data.computed && (
         <p className="text-sm text-slate-600">
-          Not calculated yet. The worker calculates analytics within the hour or after the next change; you can also use
-          &quot;Recalculate scores&quot; on the Clients page.
+          Not calculated yet. The worker calculates these figures within the hour or after the next change; you can also use
+          &quot;Recalculate scores&quot; on the Customers page.
         </p>
       )}
 
@@ -260,7 +261,7 @@ export function AnalyticsView() {
             <ul className="divide-y divide-slate-100 text-sm">
               {attribution.payments.map((p) => (
                 <li key={p.invoice_id} className="flex flex-wrap justify-between gap-2 py-1.5">
-                  <Link href={p.link} className="font-medium text-indigo-600 hover:underline">
+                  <Link href={appLink(p.link)} className="font-medium text-indigo-600 hover:underline">
                     {p.external_id}
                   </Link>
                   <span className="text-xs text-slate-600">

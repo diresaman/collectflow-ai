@@ -28,7 +28,7 @@ export async function invoiceId(page: Page, externalId: string): Promise<string>
 }
 
 export async function openInvoice(page: Page, externalId: string): Promise<void> {
-  await page.goto(`/?invoice=${await invoiceId(page, externalId)}`);
+  await page.goto(`/invoices?invoice=${await invoiceId(page, externalId)}`);
   await expect(page.getByRole("dialog").first()).toBeVisible();
 }
 

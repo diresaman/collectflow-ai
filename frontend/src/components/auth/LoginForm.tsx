@@ -10,7 +10,7 @@ import { ApiError } from "@/lib/api/client";
 
 /** Only same-app paths are allowed as a post-login destination. */
 function safeNext(value: string | null): string {
-  return value && value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/login") ? value : "/";
+  return value && value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/login") ? value : "/today";
 }
 
 export function LoginForm() {

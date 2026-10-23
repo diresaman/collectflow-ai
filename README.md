@@ -731,7 +731,7 @@ hold is left.
 
 The screens form one loop: **Invoice → Sequence → Draft → Approval → Delivery → Customer reply →
 Classification → Promise, dispute or task → Resolution**. Every screen links to the related record
-through deep links: `/?invoice=<id>` opens the invoice drawer, `/inbox?reply=<id>`,
+through deep links: `/invoices?invoice=<id>` opens the invoice drawer (the older `/?invoice=<id>` redirects there), `/inbox?reply=<id>`,
 `/disputes?case=<id>` and `/tasks?task=<id>`.
 
 - **Today (`/today`):** what needs a person now, from existing records only, with no scores or
@@ -791,12 +791,21 @@ drafts, approves, sends or releases a hold. APIs: `GET /api/worklist/`, `GET /ap
 
 ## Using the app
 
-Start on **Today**: it groups everything that needs a person into *Needs your attention*, *Waiting for
-approval or sending*, *Blocked or at risk* and *Due now and coming up*, and every item has one clear
-action. The sidebar is grouped by purpose: **Today**; **Collections** (Inbox, Approvals, Tasks, Disputes, each with a
-live count); **Receivables** (Clients, Invoices); **Insights** (Analytics); **Setup** (Sequences, Automation,
-Integrations). **Approvals** lists every reminder and statement waiting for approval or sending, and who can act. Statuses use the same words everywhere (Awaiting approval,
-Approved, not sent, Sent, Delivery unknown, Disputed, Promise due, …); approving never sends, and sending is
+Start on **Today's Work** (the home page; `/` opens it): it groups everything that needs a person into *Needs
+your attention*, *Waiting for approval or sending*, *Blocked or at risk* and *Due now and coming up*, and every item
+has one clear action. The sidebar has four groups:
+
+| Group | Menu items (route) |
+| --- | --- |
+| **Workspace** | Today's Work (`/today`), Customer Replies (`/inbox`), Approvals, Tasks, Disputes. Each shows a live count of what is waiting |
+| **Customers & Payments** | Customers (`/clients`), Invoices (`/invoices`) |
+| **Reports** | Reports & Insights (`/analytics`) |
+| **Settings** | Reminder Schedule (`/sequences`), Automation Settings (`/automation`), Connected Services (`/settings/integrations`) |
+
+The menu names are display wording only. Routes, API endpoints and models keep their names (a customer is a `Client`
+in the API), and older invoice links (`/?invoice=<id>`) still open the invoice. **Approvals** lists every reminder
+and statement waiting for approval or sending, and who can act. Statuses use the same words everywhere (Awaiting
+approval, Approved, not sent, Sent, Delivery unknown, Disputed, Promise due, …); approving never sends, and sending is
 always a separate, confirmed step. See `docs/v2/11-ux-simplification-report.md`.
 
 ## Statements, analytics and forecast (M14)

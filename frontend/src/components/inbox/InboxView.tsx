@@ -504,7 +504,7 @@ function ReplyPanel({
           <input
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            placeholder={needsApprover ? "e.g. Checked with the client by phone; they will pay on the 30th" : ""}
+            placeholder={needsApprover ? "e.g. Checked with the customer by phone; they will pay on the 30th" : ""}
             className="mt-0.5 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900"
           />
         </label>
@@ -670,9 +670,9 @@ export function InboxView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Inbox</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Customer Replies</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Customer replies to your reminders. Each reply pauses chasing of its invoice until it is handled.
+            Emails customers sent in reply to your reminders. Each reply pauses chasing of its invoice until it is handled.
           </p>
         </div>
         <div className="flex gap-1" role="tablist" aria-label="Filter">

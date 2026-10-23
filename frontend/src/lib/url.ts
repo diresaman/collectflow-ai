@@ -1,8 +1,9 @@
 import { useSearchParams } from "next/navigation";
 
 /**
- * Deep links between screens (M12): /?invoice=<id>, /inbox?reply=<id>, /disputes?case=<id>, /tasks?task=<id>,
- * and /clients?client=<id> (M13).
+ * Deep links between screens (M12): /invoices?invoice=<id>, /inbox?reply=<id>, /disputes?case=<id>,
+ * /tasks?task=<id>, and /clients?client=<id> (M13). The older /?invoice=<id>, which the API still returns, is
+ * redirected to /invoices (next.config.ts).
  */
 
 /**
@@ -22,8 +23,13 @@ export function setQueryParam(name: string, value: string | null): void {
   window.history.replaceState(null, "", url.toString());
 }
 
+/** An app link from the API, with the older invoice form (/?invoice=<id>) mapped to the Invoices page. */
+export function appLink(link: string): string {
+  return link.startsWith("/?") ? `/invoices${link.slice(1)}` : link;
+}
+
 export const links = {
-  invoice: (id: string) => `/?invoice=${id}`,
+  invoice: (id: string) => `/invoices?invoice=${id}`,
   reply: (id: string) => `/inbox?reply=${id}`,
   dispute: (id: string) => `/disputes?case=${id}`,
   task: (id: string) => `/tasks?task=${id}`,
