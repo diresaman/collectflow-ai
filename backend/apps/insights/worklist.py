@@ -20,7 +20,7 @@ from typing import Any
 from django.utils import timezone
 
 from apps.core import today as today_report
-from apps.followups.eligibility import ineligibility
+from apps.followups.eligibility import IN_STATEMENT, ineligibility
 from apps.invoices.models import Client, Invoice
 from apps.sequences.models import SequenceEnrollment
 
@@ -93,7 +93,8 @@ def build(user: Any, now: dt.datetime | None = None) -> dict[str, Any]:
             status__in=SequenceEnrollment.LIVE_STATUSES, invoice__in=unpaid).select_related("invoice")
     }
     reasons = {i.pk: ineligibility(i) for i in unpaid}
-    eligible = {str(pk) for pk, found in reasons.items() if all(code == "not_overdue" for code, _ in found)}
+    # "In a statement" does not block the statement itself, the only unsent item such an invoice can have (M14).
+    eligible = {str(pk) for pk, found in reasons.items() if all(code in ("not_overdue", IN_STATEMENT) for code, _ in found)}
 
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     unscored = []

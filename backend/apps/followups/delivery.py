@@ -54,6 +54,7 @@ from .services import (
     validate_body,
     validate_subject,
 )
+from .statements import check_lines, lines_of
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,9 @@ class FollowUpDeliveryService:
 
     @staticmethod
     def _validate_invoice(follow_up: FollowUp) -> None:
+        if follow_up.kind == FollowUp.Kind.STATEMENT:
+            check_lines(follow_up, StaleInvoice, "Invoice is no longer eligible: ", lock=False)
+            return
         invoice = Invoice.objects.get(pk=follow_up.invoice_id)
         refuse_if_ineligible(invoice, StaleInvoice, "Invoice is no longer eligible: ")
         changed = changed_snapshot_fields(follow_up.invoice_snapshot, invoice)
@@ -249,8 +253,11 @@ class FollowUpDeliveryService:
                 # Re-checked under the invoice lock, which a customer reply's chase hold also takes, so a
                 # reply stored before this point always prevents the reservation (raising rolls back the
                 # update above). Lock order follow-up -> invoice, as in approve().
-                invoice = Invoice.objects.select_for_update().get(pk=follow_up.invoice_id)
-                refuse_if_ineligible(invoice, StaleInvoice, "Invoice is no longer eligible: ")
+                if follow_up.kind == FollowUp.Kind.STATEMENT:
+                    check_lines(follow_up, StaleInvoice, "Invoice is no longer eligible: ", lock=True)
+                else:
+                    invoice = Invoice.objects.select_for_update().get(pk=follow_up.invoice_id)
+                    refuse_if_ineligible(invoice, StaleInvoice, "Invoice is no longer eligible: ")
                 # Message-ID chosen before the call, so it is known even if the outcome is not.
                 parent = follow_up.thread_reply_to
                 references = " ".join(
@@ -330,11 +337,15 @@ class FollowUpDeliveryService:
             updated = FollowUp.objects.filter(pk=follow_up.pk, status=FollowUp.Status.SENDING).update(
                 **follow_up_fields
             )
-            timeline.record(
-                OUTCOME_EVENTS[status], actor=_event_actor(attempt), invoice=follow_up.invoice,
-                follow_up_id=str(follow_up.pk), attempt_id=str(attempt.pk), recipient=attempt.recipient_email,
-                gmail_message_id=attempt_fields["gmail_message_id"], error_code=attempt_fields["error_code"],
-            )
+            # A statement's outcome is recorded on every invoice it lists (M14).
+            covered = ([line.invoice for line in lines_of(follow_up)]
+                       if follow_up.kind == FollowUp.Kind.STATEMENT else [follow_up.invoice])
+            for invoice in covered:
+                timeline.record(
+                    OUTCOME_EVENTS[status], actor=_event_actor(attempt), invoice=invoice,
+                    follow_up_id=str(follow_up.pk), attempt_id=str(attempt.pk), recipient=attempt.recipient_email,
+                    gmail_message_id=attempt_fields["gmail_message_id"], error_code=attempt_fields["error_code"],
+                )
         if updated != 1:
             logger.error("Follow-up %s was not in SENDING when recording delivery outcome %s", follow_up.pk, status)
         if status != FollowUp.Status.SENT:

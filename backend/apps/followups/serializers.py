@@ -23,6 +23,23 @@ class FollowUpSerializer(serializers.ModelSerializer):
 
     # Material invoice changes since generation (DRAFT/APPROVED only): the reminder needs review.
     invoice_changed_fields = serializers.SerializerMethodField()
+    # M14: the invoices a consolidated statement lists, with the facts it was written from.
+    statement = serializers.SerializerMethodField()
+
+    def get_statement(self, follow_up: FollowUp) -> dict[str, Any] | None:
+        if follow_up.kind != FollowUp.Kind.STATEMENT:
+            return None
+        from .statements import lines_of, totals
+
+        lines = lines_of(follow_up)
+        return {
+            "lines": [{"invoice_id": str(line.invoice_id), "external_id": line.invoice.external_id,
+                       "amount": str(line.amount), "currency": line.currency, "due_date": line.due_date.isoformat(),
+                       "invoice_changed_fields": changed_snapshot_fields(line.invoice_snapshot, line.invoice)
+                       if follow_up.status in (FollowUp.Status.DRAFT, FollowUp.Status.APPROVED) else []}
+                      for line in lines],
+            "totals": {currency: str(amount) for currency, amount in totals(lines).items()},
+        }
 
     def get_step(self, follow_up: FollowUp) -> dict[str, Any] | None:
         step = follow_up.step
@@ -62,6 +79,8 @@ class FollowUpSerializer(serializers.ModelSerializer):
             "client_name",
             "recipient_email",
             "invoice_changed_fields",
+            "kind",
+            "statement",
             "subject",
             "body",
             "tone",

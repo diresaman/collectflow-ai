@@ -306,6 +306,8 @@ INBOX_BODY_RETENTION_DAYS = int(os.environ.get("INBOX_BODY_RETENTION_DAYS", "90"
 REPLY_CONFIDENCE_THRESHOLD = float(os.environ.get("REPLY_CONFIDENCE_THRESHOLD", "0.8"))
 # Automatic classification attempts per reply after transient Gemini failures (then triage only).
 INBOX_CLASSIFY_MAX_ATTEMPTS = int(os.environ.get("INBOX_CLASSIFY_MAX_ATTEMPTS", "3"))
+# Times an attempt may wait out a Gemini quota pause without counting as an attempt (M14 fix).
+INBOX_CLASSIFY_MAX_DEFERRALS = int(os.environ.get("INBOX_CLASSIFY_MAX_DEFERRALS", "6"))
 # Out-of-office: the next step waits until the return date (+1 day), at most this many days ahead;
 # without a return date it waits the default.
 OUT_OF_OFFICE_MAX_DAYS = int(os.environ.get("OUT_OF_OFFICE_MAX_DAYS", "21"))
@@ -338,5 +340,22 @@ RISK_LATE_FULL_DAYS = int(os.environ.get("RISK_LATE_FULL_DAYS", "60"))
 RISK_MIN_PAID_HISTORY = int(os.environ.get("RISK_MIN_PAID_HISTORY", "3"))
 # A send counts as unanswered only after this many days without a reply.
 RISK_REPLY_WAIT_DAYS = int(os.environ.get("RISK_REPLY_WAIT_DAYS", "3"))
+# Consolidated statements (M14): the least number of chaseable invoices a statement may list.
+STATEMENT_MIN_INVOICES = int(os.environ.get("STATEMENT_MIN_INVOICES", "2"))
+# Analytics and forecast (M14). Only the aging buckets and the forecast rule are from the design; the
+# values below were proposed in M14 (docs/v2/10-m14-implementation-report.md, section 3).
+# DSO and CEI period, in days.
+ANALYTICS_PERIOD_DAYS = int(os.environ.get("ANALYTICS_PERIOD_DAYS", "30"))
+# Attribution: payments seen in the last LOOKBACK days; "after a reminder" if within WINDOW days of one.
+ATTRIBUTION_LOOKBACK_DAYS = int(os.environ.get("ATTRIBUTION_LOOKBACK_DAYS", "90"))
+ATTRIBUTION_WINDOW_DAYS = int(os.environ.get("ATTRIBUTION_WINDOW_DAYS", "7"))
+FORECAST_DAYS = 30
+# Fewer settled promises or measured payments than this: portfolio averages, low confidence (design).
+FORECAST_MIN_HISTORY = 3
+# P(paid within 30 days) by aging bucket, before adjustments.
+FORECAST_BUCKET_P = {"current": "0.80", "1_30": "0.60", "31_60": "0.40", "61_90": "0.25", "90_plus": "0.10"}
+FORECAST_BEYOND_FACTOR = "0.25"
+FORECAST_BROKEN_PROMISE_FACTOR = "0.5"
+FORECAST_PROMISE_DEFAULT = "0.5"
 # Minutes between scheduled recomputes (time moves scores even when nothing changes).
 INSIGHTS_REFRESH_MINUTES = int(os.environ.get("INSIGHTS_REFRESH_MINUTES", "60"))

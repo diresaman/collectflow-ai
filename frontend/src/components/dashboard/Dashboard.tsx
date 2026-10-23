@@ -89,8 +89,12 @@ export function Dashboard() {
   const expectedColumns = summary.kind === "ready" ? summary.data.expected_columns : [];
 
   const allFollowUps = followUps.kind === "ready" ? followUps.data : [];
+  // An invoice's reminders, plus any consolidated statement that lists it (M14).
   const followUpsForInvoice = (invoiceId: string) =>
-    allFollowUps.filter((followUp) => followUp.invoice_id === invoiceId);
+    allFollowUps.filter(
+      (followUp) =>
+        followUp.invoice_id === invoiceId || followUp.statement?.lines.some((line) => line.invoice_id === invoiceId),
+    );
 
   const handleAnalyze = async (invoiceId: string, regenerate: boolean) => {
     setOpenInvoiceId(invoiceId);

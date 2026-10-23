@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, type ReactNode } from "react";
 
-import { ACTIVE_STATUSES, type FollowUp } from "@/lib/api/followups";
+import { ACTIVE_STATUSES, type FollowUp, type StatementInfo } from "@/lib/api/followups";
 import type { Invoice } from "@/lib/api/invoices";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 
@@ -220,6 +221,11 @@ export function FollowUpDrawer({
                   <FollowUpStatusBadge status={current.status} />
                   {current.step && <span className="text-xs font-medium text-slate-600">Step {current.step.order}</span>}
                   {current.threaded && <span className="text-xs text-slate-500">Reply in the earlier Gmail thread</span>}
+                  {current.kind === "STATEMENT" && (
+                    <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800">
+                      Consolidated statement
+                    </span>
+                  )}
                 </div>
                 <span className="text-xs text-slate-500">Generated {formatDateTime(current.generated_at)}</span>
               </div>
@@ -232,6 +238,7 @@ export function FollowUpDrawer({
                     : "It can no longer be sent. Withdraw the approval below, then draft a new reminder."}
                 </p>
               )}
+              {current.statement && <StatementLines statement={current.statement} />}
               <AiInsight followUp={current} />
               {current.status === "DRAFT" ? (
                 <DraftEditor
@@ -273,5 +280,43 @@ export function FollowUpDrawer({
         </div>
       </div>
     </div>
+  );
+}
+
+
+function StatementLines({ statement }: { statement: StatementInfo }) {
+  const changed = statement.lines.filter((line) => line.invoice_changed_fields.length > 0);
+  return (
+    <section aria-label="Statement lines" className="space-y-2 rounded-lg border border-slate-200 p-4">
+      <h3 className="text-sm font-semibold text-slate-900">Invoices in this statement</h3>
+      <ul className="divide-y divide-slate-100 text-sm">
+        {statement.lines.map((line) => (
+          <li key={line.invoice_id} className="flex justify-between gap-3 py-1.5">
+            <Link href={`/?invoice=${line.invoice_id}`} className="font-medium text-indigo-600 hover:underline">
+              {line.external_id}
+            </Link>
+            <span className="text-slate-700">
+              {formatMoney(line.amount, line.currency)} · due {formatDate(line.due_date)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-sm font-medium text-slate-900">
+        Total:{" "}
+        {Object.entries(statement.totals)
+          .map(([currency, amount]) => formatMoney(amount, currency))
+          .join(" + ")}
+      </p>
+      {changed.length > 0 && (
+        <p role="alert" className="text-sm text-amber-900">
+          {changed.map((line) => line.external_id).join(", ")} changed since the statement was prepared: it cannot be
+          approved or sent. Reject it and prepare a new one from the client page.
+        </p>
+      )}
+      <p className="text-xs text-slate-500">
+        The lines and totals were written by CollectFlow, not the AI, and must stay as they are in the text. A statement
+        always needs an approver who did not edit it. Each invoice is checked again before it is sent.
+      </p>
+    </section>
   );
 }

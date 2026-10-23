@@ -1,6 +1,7 @@
 """Deterministic follow-up rules. These are never delegated to the AI model."""
 
 from decimal import Decimal
+from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -8,7 +9,7 @@ from django.utils import timezone
 
 from apps.invoices.models import ChaseHold, Invoice
 
-from .models import Tone
+from .models import FollowUp, StatementLine, Tone
 
 
 def missing_from_sheet(invoice: Invoice) -> bool:
@@ -21,14 +22,28 @@ def missing_from_sheet(invoice: Invoice) -> bool:
 
 
 DISPUTED = "invoice_disputed"
+IN_STATEMENT = "in_statement"
+
+
+def active_statement_id(invoice: Invoice, *, other_than: Any = None) -> Any:
+    """The active consolidated statement (M14) that includes this invoice, if any."""
+    lines = StatementLine.objects.filter(
+        invoice_id=invoice.pk, follow_up__kind=FollowUp.Kind.STATEMENT, follow_up__status__in=FollowUp.ACTIVE_STATUSES
+    )
+    if other_than is not None:
+        lines = lines.exclude(follow_up_id=other_than)
+    return lines.values_list("follow_up_id", flat=True).first()
 
 
 def active_holds(invoice: Invoice) -> list[ChaseHold]:
     return list(ChaseHold.objects.filter(invoice_id=invoice.pk, released_at__isnull=True).order_by("created_at"))
 
 
-def ineligibility(invoice: Invoice) -> list[tuple[str, str]]:
-    """(reason_code, message) pairs explaining why the invoice cannot get a reminder."""
+def ineligibility(invoice: Invoice, *, statement: Any = None) -> list[tuple[str, str]]:
+    """
+    (reason_code, message) pairs explaining why the invoice cannot get a reminder. `statement` is the
+    ID of the consolidated statement being checked, which does not block its own invoices.
+    """
     reasons: list[tuple[str, str]] = []
     if missing_from_sheet(invoice):
         reasons.append(("not_in_sheet", "Invoice was not in the latest Google Sheets sync."))
@@ -53,6 +68,9 @@ def ineligibility(invoice: Invoice) -> list[tuple[str, str]]:
         what = "a promise to pay is open" if any(h.promise_id for h in others) else \
             f"{others[0].get_reason_display().lower()}. Review the customer's reply in the inbox"
         reasons.append(("on_hold", f"Chasing is on hold: {what}."))
+    # An invoice in an active statement gets no separate reminder until the statement is sent or rejected.
+    if active_statement_id(invoice, other_than=statement) is not None:
+        reasons.append((IN_STATEMENT, "The invoice is in a consolidated statement that is not sent yet."))
     return reasons
 
 

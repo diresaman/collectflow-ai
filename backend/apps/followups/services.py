@@ -78,9 +78,12 @@ class InvoiceDisputed(FollowUpError):
     code = "invoice_disputed"
 
 
-def refuse_if_ineligible(invoice: Invoice, error: type[FollowUpError], prefix: str = "") -> None:
-    """Raises `error` (or InvoiceDisputed, for an open dispute) if the invoice may not be chased now."""
-    found = ineligibility(invoice)
+def refuse_if_ineligible(invoice: Invoice, error: type[FollowUpError], prefix: str = "", *, statement: Any = None) -> None:
+    """
+    Raises `error` (or InvoiceDisputed, for an open dispute) if the invoice may not be chased now.
+    `statement`: the consolidated statement being checked (it does not block its own invoices).
+    """
+    found = ineligibility(invoice, statement=statement)
     if not found:
         return
     message = prefix + " ".join(text for _, text in found)
@@ -266,7 +269,7 @@ def check_can_generate(invoice: Invoice, *, regenerate: bool) -> FollowUp | None
     """Raises if no draft may be generated now; returns the draft an explicit regeneration replaces."""
     refuse_if_ineligible(invoice, NotEligible)
 
-    existing = FollowUp.objects.filter(invoice=invoice, status__in=FollowUp.ACTIVE_STATUSES).first()
+    existing = FollowUp.objects.filter(invoice=invoice, kind=FollowUp.Kind.INVOICE, status__in=FollowUp.ACTIVE_STATUSES).first()
     if existing is not None:
         if existing.status != FollowUp.Status.DRAFT:
             label = existing.get_status_display().lower()
@@ -510,6 +513,10 @@ def update_draft(follow_up_id: uuid.UUID, changes: dict[str, Any], *, actor: Any
         follow_up = _locked(follow_up_id)
         if follow_up.status != FollowUp.Status.DRAFT:
             raise InvalidState(f"Only drafts can be edited; this follow-up is {follow_up.status}.")
+        if follow_up.kind == FollowUp.Kind.STATEMENT and "body" in validated:
+            from .statements import require_lines_block
+
+            require_lines_block(follow_up, validated["body"])
         if follow_up.thread_reply_to_id and "subject" in validated and validated["subject"] != follow_up.subject:
             raise SubjectLocked(
                 "This reminder continues an earlier Gmail thread, so its subject must stay "
@@ -542,15 +549,22 @@ def approve(follow_up_id: uuid.UUID, *, actor: Any = None) -> FollowUp:
         if not follow_up.can_transition_to(FollowUp.Status.APPROVED):
             raise InvalidState(f"Cannot approve a follow-up that is {follow_up.status}.")
 
-        invoice = Invoice.objects.select_for_update().get(pk=follow_up.invoice_id)
-        refuse_if_ineligible(invoice, StaleInvoice, "Invoice is no longer eligible: ")
-        changed = changed_snapshot_fields(follow_up.invoice_snapshot, invoice)
-        if changed:
-            raise StaleInvoice(
-                f"Invoice details changed since this draft was generated ({', '.join(changed)}). "
-                "Regenerate the reminder.",
-                changed_fields=changed,
-            )
+        if follow_up.kind == FollowUp.Kind.STATEMENT:
+            from .statements import check_lines
+
+            # Every line invoice, locked by primary key, after the follow-up (as in send reservation).
+            check_lines(follow_up, StaleInvoice, "Invoice is no longer eligible: ", lock=True)
+            invoice = follow_up.invoice
+        else:
+            invoice = Invoice.objects.select_for_update().get(pk=follow_up.invoice_id)
+            refuse_if_ineligible(invoice, StaleInvoice, "Invoice is no longer eligible: ")
+            changed = changed_snapshot_fields(follow_up.invoice_snapshot, invoice)
+            if changed:
+                raise StaleInvoice(
+                    f"Invoice details changed since this draft was generated ({', '.join(changed)}). "
+                    "Regenerate the reminder.",
+                    changed_fields=changed,
+                )
 
         # Four-eyes: without an identifiable approver, only operator-level reminders can be approved.
         blocked = approval.refusal(follow_up, actor)
@@ -588,10 +602,16 @@ def cancel_unsent(invoice_id: Any, *, reason: str, actor: Any) -> list[FollowUp]
     step stays pending instead of counting as rejected. A reminder already SENDING is not touched: its
     delivery re-checks eligibility before Gmail is called and is released by the hold.
     """
+    from django.db.models import Q
+
     cancelled = []
+    # Includes an unsent statement (M14) that lists the invoice: the whole statement is withdrawn.
+    ids = FollowUp.objects.filter(
+        Q(invoice_id=invoice_id) | Q(kind=FollowUp.Kind.STATEMENT, statement_lines__invoice_id=invoice_id),
+        status__in=[FollowUp.Status.DRAFT, FollowUp.Status.APPROVED],
+    ).values("pk")
     active = FollowUp.objects.select_for_update(of=("self",)).select_related("invoice__client").filter(
-        invoice_id=invoice_id, status__in=[FollowUp.Status.DRAFT, FollowUp.Status.APPROVED]
-    )
+        pk__in=ids).order_by("pk")
     for follow_up in active:
         previous = follow_up.status
         _conditional_transition(follow_up, FollowUp.Status.REJECTED, cancelled_reason=reason[:20])

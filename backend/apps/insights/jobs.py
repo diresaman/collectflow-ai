@@ -44,4 +44,7 @@ def on_timeline_events(types: set[str]) -> None:
 
 
 def handle_recompute_job(job: Any) -> dict[str, Any]:
-    return risk.recompute()
+    """Client risk (M13), then the analytics snapshots and forecast (M14), from the same data."""
+    from . import analytics
+
+    return {**risk.recompute(), **analytics.refresh()}

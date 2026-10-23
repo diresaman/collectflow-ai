@@ -263,6 +263,48 @@ class FailureTests(TestCase):
         reply.refresh_from_db()
         self.assertEqual(reply.triage_reason, "ai_retry_scheduled")
 
+    @override_settings(INBOX_CLASSIFY_MAX_ATTEMPTS=3)
+    def test_a_quota_pause_does_not_use_up_the_last_attempt(self) -> None:
+        # M12.1 finding: attempt 3 fell inside the pause created by attempt 2 and was spent without a call.
+        reply = receive()
+        GenerationAttempt.objects.create(invoice=reply.invoice, outcome="FAILED", error_code="ai_quota_exhausted")
+        gemini = FakeClassifier()
+        result = classification.classify(reply.pk, attempt=3, gemini=gemini)
+        self.assertEqual((gemini.calls, result["triage_reason"]), ([], "ai_retry_scheduled"))
+        deferred = OutboxJob.objects.get(kind="inbox.classify", payload__deferral=1)
+        self.assertEqual(deferred.payload["attempt"], 3)  # same attempt, after the pause
+        self.assertGreaterEqual(deferred.run_after, timezone.now())
+        # Once the pause is over, the deferred attempt really calls Gemini.
+        GenerationAttempt.objects.update(created_at=timezone.now() - dt.timedelta(hours=2))
+        classification.classify(reply.pk, attempt=3, gemini=gemini, deferral=1)
+        self.assertEqual(len(gemini.calls), 1)
+        reply.refresh_from_db()
+        self.assertEqual(reply.label_source, "AI")
+
+    @override_settings(INBOX_CLASSIFY_MAX_ATTEMPTS=3, INBOX_CLASSIFY_MAX_DEFERRALS=2)
+    def test_deferrals_are_bounded(self) -> None:
+        reply = receive()
+        GenerationAttempt.objects.create(invoice=reply.invoice, outcome="FAILED", error_code="ai_quota_exhausted")
+        classification.classify(reply.pk, attempt=3, gemini=FakeClassifier(), deferral=2)
+        reply.refresh_from_db()
+        self.assertEqual(reply.triage_reason, "ai_quota_exhausted")  # final: a person labels it
+        self.assertFalse(OutboxJob.objects.filter(kind="inbox.classify", payload__deferral=3).exists())
+
+    def test_after_a_quota_error_the_next_attempt_waits_for_the_extended_pause(self) -> None:
+        from apps.followups import ai_budget
+
+        reply = receive()
+        # Two earlier quota failures: the pause after this third one is 120 minutes, longer than the
+        # 30-minute retry backoff for attempt 2.
+        for _ in range(2):
+            GenerationAttempt.objects.create(invoice=reply.invoice, outcome="FAILED", error_code="ai_quota_exhausted")
+        GenerationAttempt.objects.update(created_at=timezone.now() - dt.timedelta(hours=3))
+        run(reply, error=GeminiQuotaExceeded("429"), attempt=2)
+        retry = OutboxJob.objects.get(kind="inbox.classify", payload__attempt=3)
+        paused_until = ai_budget.status().cooldown_until
+        self.assertIsNotNone(paused_until)
+        self.assertGreaterEqual(retry.run_after, paused_until)
+
     def test_quota_error_counts_toward_the_shared_cooldown(self) -> None:
         from apps.followups import ai_budget
 

@@ -3,8 +3,8 @@ Four-eyes approval policy (v2 §6).
 
 A reminder needs an APPROVER who is not its last editor when its tone is FIRM, its sequence step
 requires an approver, or the invoice amount is at or above HIGH_VALUE_THRESHOLD (compared in the
-invoice's own currency). Statements join this list in Phase 07. Anything else can be approved by an
-OPERATOR. Approval never sends; every send still needs its own confirmation.
+invoice's own currency), or it is a consolidated statement (M14, always). Anything else can be
+approved by an OPERATOR. Approval never sends; every send still needs its own confirmation.
 """
 
 from dataclasses import dataclass
@@ -32,6 +32,8 @@ class ApprovalRequirement:
 
 def requirement(follow_up: Any) -> ApprovalRequirement:
     reasons: list[str] = []
+    if getattr(follow_up, "kind", "INVOICE") == "STATEMENT":
+        reasons.append("A consolidated statement always needs an approver")
     if follow_up.tone == "FIRM":
         reasons.append("Firm tone")
     step = getattr(follow_up, "step", None)

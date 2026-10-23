@@ -26,7 +26,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from apps.automation import outbox
-from apps.followups.models import DeliveryAttempt
+from apps.followups.models import DeliveryAttempt, FollowUp
 from apps.invoices.models import ChaseHold
 from apps.timeline import services as timeline
 from apps.timeline.models import ActorType, EventType
@@ -74,6 +74,14 @@ def known_threads() -> dict[str, list[DeliveryAttempt]]:
     for attempt in attempts:
         threads[attempt.gmail_thread_id].append(attempt)
     return threads
+
+
+def _invoices_written_about(attempt: DeliveryAttempt) -> list[str]:
+    """A reminder is about its invoice; a consolidated statement (M14) about every invoice it lists."""
+    follow_up = attempt.follow_up
+    if follow_up.kind == FollowUp.Kind.STATEMENT:
+        return [str(i) for i in follow_up.statement_lines.order_by("position").values_list("invoice_id", flat=True)]
+    return [str(follow_up.invoice_id)]
 
 
 def sender_check(sender: str, invoice_email: str) -> str:
@@ -124,7 +132,7 @@ def ingest(reader: MailboxReader, ref: MessageRef, threads: dict[str, list[Deliv
 
     latest = attempts[-1]
     invoice = latest.follow_up.invoice
-    invoice_ids = list(dict.fromkeys(str(a.follow_up.invoice_id) for a in attempts))
+    invoice_ids = list(dict.fromkeys(invoice_id for a in attempts for invoice_id in _invoices_written_about(a)))
     body, truncated = reply_text(message.payload, max_chars=settings.INBOX_BODY_MAX_CHARS)
     # Only the sender is validated; other recipients copied on the reply do not matter.
     check = sender_check(sender, invoice.client_email)
@@ -158,10 +166,16 @@ def ingest(reader: MailboxReader, ref: MessageRef, threads: dict[str, list[Deliv
 
 
 def enqueue_classification(reply: InboundMessage, *, attempt: int, run_after: dt.datetime | None = None,
-                           created_by: Any = None) -> Any:
-    """One job per attempt number: re-enqueueing the same attempt returns the existing job."""
-    return outbox.enqueue(CLASSIFY_JOB_KIND, {"reply_id": str(reply.pk), "attempt": attempt},
-                          idempotency_key=f"{CLASSIFY_JOB_KIND}:{reply.pk}:{attempt}", max_attempts=1,
+                           created_by: Any = None, deferral: int = 0) -> Any:
+    """
+    One job per attempt number: re-enqueueing the same attempt returns the existing job. An attempt
+    deferred because Gemini is in a quota pause keeps its number and gets its own key per deferral.
+    """
+    key = f"{CLASSIFY_JOB_KIND}:{reply.pk}:{attempt}" + (f":deferred-{deferral}" if deferral else "")
+    payload: dict[str, Any] = {"reply_id": str(reply.pk), "attempt": attempt}
+    if deferral:
+        payload["deferral"] = deferral
+    return outbox.enqueue(CLASSIFY_JOB_KIND, payload, idempotency_key=key, max_attempts=1,
                           created_by=created_by, run_after=run_after)
 
 

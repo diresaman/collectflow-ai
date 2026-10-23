@@ -187,10 +187,10 @@ def _ai_may_classify(reply: InboundMessage) -> bool:
 def handle_classify_job(job: Any) -> dict[str, Any]:
     reply_id = uuid.UUID(job.payload["reply_id"])
     attempt = int(job.payload.get("attempt", 1))
-    return classify(reply_id, attempt=attempt)
+    return classify(reply_id, attempt=attempt, deferral=int(job.payload.get("deferral", 0)))
 
 
-def classify(reply_id: uuid.UUID, *, attempt: int = 1, gemini: Any = None) -> dict[str, Any]:
+def classify(reply_id: uuid.UUID, *, attempt: int = 1, gemini: Any = None, deferral: int = 0) -> dict[str, Any]:
     reply = InboundMessage.objects.select_related("invoice__client").get(pk=reply_id)
     if not _ai_may_classify(reply):
         return {"skipped": "already_handled", "state": reply.state}
@@ -200,7 +200,11 @@ def classify(reply_id: uuid.UUID, *, attempt: int = 1, gemini: Any = None) -> di
     now = timezone.now()
     budget = ai_budget.status(now)
     if budget.cooldown_until is not None and now < budget.cooldown_until:
-        # Calling Gemini during a quota cooldown only burns quota. Wait for it (bounded), in triage.
+        # Calling Gemini during a quota cooldown only burns quota. Wait for it in triage, keeping the
+        # attempt: nothing was tried (bounded by INBOX_CLASSIFY_MAX_DEFERRALS, then it counts).
+        if deferral < settings.INBOX_CLASSIFY_MAX_DEFERRALS:
+            return _transient_failure(reply, "ai_quota_exhausted", attempt, run_after=budget.cooldown_until,
+                                      called=False, deferral=deferral + 1)
         return _transient_failure(reply, "ai_quota_exhausted", attempt, run_after=budget.cooldown_until, called=False)
 
     model_name = ""
@@ -311,12 +315,20 @@ def _triage_without_ai(reply: InboundMessage, reason: str, attempt: int, *, mode
 
 
 def _transient_failure(reply: InboundMessage, code: str, attempt: int, *, run_after: dt.datetime | None = None,
-                       called: bool) -> dict[str, Any]:
-    """Gemini busy or out of quota: retry later if attempts remain; the reply is in triage meanwhile."""
-    if attempt >= settings.INBOX_CLASSIFY_MAX_ATTEMPTS:
+                       called: bool, deferral: int = 0) -> dict[str, Any]:
+    """
+    Gemini busy or out of quota: retry later if attempts remain; the reply is in triage meanwhile.
+    With `deferral`, Gemini was not called (quota pause): the same attempt runs again after the pause.
+    """
+    if not deferral and attempt >= settings.INBOX_CLASSIFY_MAX_ATTEMPTS:
         return _triage_without_ai(reply, code, attempt)
     delay = ai_budget.backoff(attempt, base_minutes=settings.AI_RETRY_BASE_MINUTES)
     when = max(run_after or timezone.now(), timezone.now() + delay) if called else (run_after or timezone.now() + delay)
+    if called:
+        # A quota error just extended the shared pause: never schedule the next attempt inside it.
+        paused_until = ai_budget.status().cooldown_until
+        if paused_until is not None:
+            when = max(when, paused_until)
     with transaction.atomic():
         invoices = holds.lock_invoices(reply.thread_invoice_ids)
         locked = _locked(reply.pk)
@@ -329,6 +341,9 @@ def _transient_failure(reply: InboundMessage, code: str, attempt: int, *, run_af
             message=locked, source=InboundMessage.Source.AI, decision="retry_scheduled", error_code=code,
             prompt_version=prompts.PROMPT_VERSION, note=f"Next automatic attempt after {when.isoformat()}"[:300],
         )
-        enqueue_classification(locked, attempt=attempt + 1, run_after=when)
+        if deferral:
+            enqueue_classification(locked, attempt=attempt, run_after=when, deferral=deferral)
+        else:
+            enqueue_classification(locked, attempt=attempt + 1, run_after=when)
     return {"reply_id": str(reply.pk), "state": State.TRIAGE, "triage_reason": "ai_retry_scheduled",
             "retry_after": when.isoformat(), "error": code}

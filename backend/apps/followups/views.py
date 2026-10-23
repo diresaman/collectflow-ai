@@ -2,7 +2,7 @@ import uuid
 from typing import Any
 
 from django.conf import settings
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from rest_framework import generics, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -53,7 +53,11 @@ class FollowUpListView(generics.ListAPIView):
         invoice_id = self.request.query_params.get("invoice")
         if invoice_id:
             try:
-                queryset = queryset.filter(invoice_id=uuid.UUID(invoice_id))
+                wanted = uuid.UUID(invoice_id)
+                # An invoice's reminders, plus any consolidated statement listing it (M14).
+                queryset = queryset.filter(
+                    Q(invoice_id=wanted) | Q(kind=FollowUp.Kind.STATEMENT, statement_lines__invoice_id=wanted)
+                ).distinct()
             except ValueError:
                 return queryset.none()
         status_filter = self.request.query_params.get("status")
@@ -152,3 +156,33 @@ class GmailStatusView(APIView):
                 "recipient_allowlist_enforced": bool(settings.GMAIL_ALLOWED_RECIPIENTS) or settings.DEBUG,
             }
         )
+
+
+class ClientStatementView(APIView):
+    """
+    GET /api/clients/{id}/statement/: what a consolidated statement would list now (no AI, no writes).
+    POST: a person asks for the statement draft; 202 with the job ID (the worker drafts it).
+    """
+
+    def get(self, request: Request, pk: uuid.UUID) -> Response:
+        from apps.invoices.models import Client
+
+        from .statements import preview
+
+        client = Client.objects.filter(pk=pk).first()
+        if client is None:
+            return not_found("Client")
+        return Response(preview(client))
+
+    def post(self, request: Request, pk: uuid.UUID) -> Response:
+        from apps.invoices.models import Client
+
+        from . import statements
+
+        try:
+            job = statements.request(pk, actor=request.user)
+        except Client.DoesNotExist:
+            return not_found("Client")
+        except services.FollowUpError as error:
+            return error_response(error)
+        return Response({"job_id": str(job.pk)}, status=status.HTTP_202_ACCEPTED)

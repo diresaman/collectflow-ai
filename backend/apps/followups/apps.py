@@ -15,3 +15,6 @@ class FollowupsConfig(AppConfig):
 
         outbox.register(GENERATE_JOB_KIND, handle_generate_job)
         outbox.register(DELIVER_JOB_KIND, handle_deliver_job)
+        from .statements import STATEMENT_JOB_KIND, handle_statement_job
+
+        outbox.register(STATEMENT_JOB_KIND, handle_statement_job)

@@ -21,8 +21,17 @@ export type Approval = {
   blocked_for_you: { code: "approver_required" | "self_approval"; detail: string } | null;
 };
 
+/** M14: the invoices a consolidated statement lists, with the facts it was written from. */
+export type StatementInfo = {
+  lines: { invoice_id: string; external_id: string; amount: string; currency: string; due_date: string; invoice_changed_fields: string[] }[];
+  totals: Record<string, string>;
+};
+
 export type FollowUp = {
   id: string;
+  /** INVOICE reminder or consolidated STATEMENT (M14). */
+  kind: "INVOICE" | "STATEMENT";
+  statement: StatementInfo | null;
   invoice_id: string;
   invoice_external_id: string;
   client_name: string;
@@ -106,6 +115,8 @@ export function isFollowUp(value: unknown): value is FollowUp {
     typeof v.prompt_version === "string" &&
     (v.step === null || isStep(v.step)) &&
     typeof v.threaded === "boolean" &&
+    (v.kind === "INVOICE" || v.kind === "STATEMENT") &&
+    (v.statement === null || (typeof v.statement === "object" && Array.isArray((v.statement as Record<string, unknown>).lines))) &&
     isApproval(v.approval) &&
     nullableStr("last_edited_by") &&
     nullableStr("approved_by") &&

@@ -142,14 +142,17 @@ def step_tone(enrollment: SequenceEnrollment, step: SequenceStep) -> str:
 
 
 def last_sent_at(invoice: Invoice) -> dt.datetime | None:
-    return FollowUp.objects.filter(invoice=invoice, status=FollowUp.Status.SENT).aggregate(m=Max("sent_at"))["m"]
+    """The latest reminder sent about this invoice, including a consolidated statement listing it (M14)."""
+    from apps.followups.statements import last_sent_covering
+
+    return last_sent_covering(invoice)
 
 
 def thread_parent(invoice: Invoice) -> DeliveryAttempt | None:
     """The latest sent message to this client about this invoice: later steps continue its thread."""
     return (
         DeliveryAttempt.objects.filter(
-            follow_up__invoice=invoice, status=DeliveryAttempt.Status.SENT
+            follow_up__invoice=invoice, follow_up__kind=FollowUp.Kind.INVOICE, status=DeliveryAttempt.Status.SENT
         ).exclude(gmail_thread_id="").select_related("follow_up").order_by("-completed_at", "-started_at").first()
     )
 
@@ -210,7 +213,7 @@ def assess_history(invoice: Invoice, sequence: Sequence) -> Placement:
     automatically.
     """
     emails = email_steps(sequence)
-    follow_ups = list(FollowUp.objects.filter(invoice=invoice).order_by("generated_at"))
+    follow_ups = list(FollowUp.objects.filter(invoice=invoice, kind=FollowUp.Kind.INVOICE).order_by("generated_at"))
     sent = sorted((f for f in follow_ups if f.status == FollowUp.Status.SENT), key=lambda f: f.sent_at or f.generated_at)
     sent_count = len(sent)
     history: dict[str, Any] = {

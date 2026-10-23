@@ -19,6 +19,12 @@ class InvalidTransition(Exception):
 
 
 class FollowUp(models.Model):
+    class Kind(models.TextChoices):
+        INVOICE = "INVOICE", "Invoice reminder"
+        # M14: one consolidated email for several of a client's invoices (lines in StatementLine). Its
+        # `invoice` is the oldest line; every line invoice is checked at approval, reservation and delivery.
+        STATEMENT = "STATEMENT", "Consolidated statement"
+
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "Draft"
         APPROVED = "APPROVED", "Approved"
@@ -52,6 +58,8 @@ class FollowUp(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="follow_ups")
+    # db_default: code from before M14 can still insert reminders if only the images are rolled back.
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.INVOICE, db_default=Kind.INVOICE)
     subject = models.CharField(max_length=150)
     body = models.TextField()
     tone = models.CharField(max_length=20, choices=Tone.choices)
@@ -110,6 +118,31 @@ class FollowUp(models.Model):
             self.approved_at = timezone.now()
 
 
+class StatementLine(models.Model):
+    """
+    One invoice in a consolidated statement (M14), with the invoice facts the statement was written from.
+    An invoice is in at most one active statement (enforced in apps.followups.statements under the
+    invoice locks: a partial unique index cannot span tables).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    follow_up = models.ForeignKey(FollowUp, on_delete=models.CASCADE, related_name="statement_lines")
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="statement_lines")
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3)
+    due_date = models.DateField()
+    # Same fields as FollowUp.invoice_snapshot: approval and delivery are refused if any of them changed.
+    invoice_snapshot = models.JSONField()
+    position = models.PositiveSmallIntegerField()
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(fields=["follow_up", "invoice"], name="statement_line_once_per_statement"),
+            models.CheckConstraint(condition=Q(amount__gt=0), name="statement_line_amount_positive"),
+        ]
+
+
 class GenerationAttempt(models.Model):
     """
     Audit record of each Gemini call: reminder drafts and (M10) reply classifications. The spending
@@ -123,6 +156,7 @@ class GenerationAttempt(models.Model):
     class Purpose(models.TextChoices):
         DRAFT = "DRAFT", "Reminder draft"
         CLASSIFY = "CLASSIFY", "Reply classification"
+        STATEMENT = "STATEMENT", "Statement draft"
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="generation_attempts")
     follow_up = models.ForeignKey(FollowUp, on_delete=models.SET_NULL, null=True, blank=True)

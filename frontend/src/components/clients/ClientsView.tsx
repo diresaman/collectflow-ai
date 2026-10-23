@@ -7,12 +7,16 @@ import { Card, ErrorMessage, Skeleton, Spinner } from "@/components/dashboard/ui
 import { ApiError } from "@/lib/api/client";
 import {
   getClient,
+  getStatementPreview,
   getWorklist,
+  prepareStatement,
   requestRecompute,
-  type ClientDetail,
+  type ClientProfile,
+  type StatementPreview,
   type Worklist,
   type WorklistRow,
 } from "@/lib/api/clients";
+import { jobError, waitForJob } from "@/lib/api/jobs";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { queryParam, setQueryParam } from "@/lib/url";
 
@@ -65,7 +69,7 @@ function RowButton({ row, selected, onSelect }: { row: WorklistRow; selected: bo
   );
 }
 
-function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientDetail }) {
+function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientProfile }) {
   return (
     <div className="space-y-5 p-5">
       <header className="space-y-1">
@@ -180,6 +184,10 @@ function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientD
         </ul>
       </section>
 
+      <PaymentHistory detail={detail} />
+
+      <StatementSection clientId={detail.id} statements={detail.statements} />
+
       {(detail.open_tasks.length > 0 || detail.disputes.length > 0 || detail.promises.length > 0 || detail.replies.length > 0) && (
         <section aria-label="Related work" className="grid gap-4 sm:grid-cols-2">
           {detail.open_tasks.length > 0 && (
@@ -252,8 +260,170 @@ function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientD
   );
 }
 
+function PaymentHistory({ detail }: { detail: ClientProfile }) {
+  const missing = detail.paid_history.filter((p) => p.paid_seen_on === null).length;
+  const promises = detail.promise_summary;
+  return (
+    <section aria-label="Payment and communication history" className="space-y-3">
+      <h3 className="text-sm font-semibold text-slate-900">Payments and communication</h3>
+      <p className="text-xs text-slate-600">
+        Promises: {promises.kept} kept, {promises.broken} broken, {promises.open} open
+        {promises.cancelled ? `, ${promises.cancelled} cancelled` : ""}.
+        {promises.kept + promises.broken === 0 ? " No settled promise yet, so there is no kept rate (not 0%)." : ""}
+      </p>
+      {detail.paid_history.length === 0 ? (
+        <p className="text-xs text-slate-500">No paid invoice yet.</p>
+      ) : (
+        <ul className="space-y-1 text-sm">
+          {detail.paid_history.map((p) => (
+            <li key={p.id}>
+              <Link href={p.link} className="text-indigo-600 hover:underline">
+                {p.external_id}
+              </Link>{" "}
+              <span className="text-xs text-slate-600">
+                {formatMoney(p.amount, p.currency)} · due {formatDate(p.due_date)} ·{" "}
+                {p.paid_seen_on === null
+                  ? "paid date unknown (already paid when imported)"
+                  : `paid seen ${formatDate(p.paid_seen_on)}, ${p.days_late} day(s) late`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {missing > 0 && (
+        <p className="text-xs text-slate-500">
+          Paid dates are when a sync first saw PAID in the sheet, not the bank date; {missing} paid invoice(s) have none.
+        </p>
+      )}
+      {detail.communications.length > 0 && (
+        <ul className="space-y-1 text-sm">
+          {detail.communications.slice(0, 10).map((c, n) => (
+            <li key={`${c.at}:${n}`} className="text-xs text-slate-600">
+              <span className="font-medium text-slate-800">{formatDateTime(c.at)}</span> ·{" "}
+              {c.type === "sent" ? (c.kind === "STATEMENT" ? "statement sent" : `reminder sent (${c.tone.toLowerCase()})`) : "reply received"}{" "}
+              ·{" "}
+              <Link href={c.link} className="text-indigo-600 hover:underline">
+                {c.invoice_external_id}
+              </Link>{" "}
+              · {c.subject}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function StatementSection({ clientId, statements }: { clientId: string; statements: ClientProfile["statements"] }) {
+  const [preview, setPreview] = useState<StatementPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getStatementPreview(clientId, controller.signal)
+      .then(setPreview)
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted) setError(errorText(err));
+      });
+    return () => controller.abort();
+  }, [clientId, reload]);
+
+  const prepare = async () => {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const { job_id } = await prepareStatement(clientId);
+      const job = await waitForJob(job_id);
+      if (job.status === "FAILED") throw jobError(job);
+      setMessage("Statement drafted. Open its first invoice to review it; an approver who did not edit it approves it.");
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+      setReload((n) => n + 1);
+    }
+  };
+
+  return (
+    <section aria-label="Consolidated statement" className="space-y-2 rounded-md border border-slate-200 p-3">
+      <h3 className="text-sm font-semibold text-slate-900">Consolidated statement</h3>
+      {preview === null && !error && <Skeleton className="h-10" />}
+      {preview && (
+        <>
+          {preview.lines.length > 0 && (
+            <ul className="text-xs text-slate-700">
+              {preview.lines.map((line) => (
+                <li key={line.invoice_id}>
+                  {line.external_id}: {formatMoney(line.amount, line.currency)}, due {formatDate(line.due_date)}
+                  {line.replaces_draft_id ? " (replaces its unsent draft)" : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          {Object.keys(preview.totals).length > 0 && (
+            <p className="text-xs font-medium text-slate-900">
+              Total:{" "}
+              {Object.entries(preview.totals)
+                .map(([currency, amount]) => formatMoney(amount, currency))
+                .join(" + ")}
+            </p>
+          )}
+          {preview.excluded.length > 0 && (
+            <details className="text-xs text-slate-600">
+              <summary className="cursor-pointer">Not included ({preview.excluded.length})</summary>
+              <ul className="mt-1 list-disc pl-5">
+                {preview.excluded.map((line) => (
+                  <li key={line.invoice_id}>
+                    {line.external_id}: {line.reasons?.join(" ")}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {preview.can_prepare ? (
+            <button
+              type="button"
+              onClick={() => void prepare()}
+              disabled={busy}
+              className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
+            >
+              {busy && <Spinner />}
+              Prepare statement draft
+            </button>
+          ) : (
+            <p className="text-xs text-slate-600">{preview.reason}</p>
+          )}
+          <p className="text-xs text-slate-500">
+            Gemini writes only the wording; CollectFlow writes the invoice list and totals. Nothing is sent until an
+            approver approves it and someone sends it.
+          </p>
+        </>
+      )}
+      {message && <p className="text-xs text-emerald-800">{message}</p>}
+      {error && <ErrorMessage message={error} />}
+      {statements.length > 0 && (
+        <ul className="space-y-1 border-t border-slate-100 pt-2 text-xs text-slate-600">
+          {statements.map((s) => (
+            <li key={s.id}>
+              <Link href={s.link} className="font-medium text-indigo-600 hover:underline">
+                {s.subject}
+              </Link>{" "}
+              · {s.lines} invoices · {s.status.toLowerCase().replace(/_/g, " ")} ·{" "}
+              {s.sent_at ? `sent ${formatDateTime(s.sent_at)}` : `drafted ${formatDateTime(s.generated_at)}`}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function ClientDetailLoader({ clientId, row }: { clientId: string; row: WorklistRow | null }) {
-  const [detail, setDetail] = useState<ClientDetail | null>(null);
+  const [detail, setDetail] = useState<ClientProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

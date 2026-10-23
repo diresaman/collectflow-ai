@@ -92,14 +92,93 @@ const isWorklist = (v: unknown): v is Worklist =>
 const isClient = (v: unknown): v is ClientDetail =>
   isRec(v) && typeof v.id === "string" && Array.isArray(v.factors) && Array.isArray(v.invoices);
 
+const isProfile = (v: unknown): v is ClientProfile =>
+  isClient(v) && Array.isArray((v as Record<string, unknown>).paid_history) &&
+  Array.isArray((v as Record<string, unknown>).communications) && Array.isArray((v as Record<string, unknown>).statements);
+
 export function getWorklist(signal?: AbortSignal): Promise<Worklist> {
   return backendGet("/worklist/", isWorklist, { signal });
 }
 
-export function getClient(id: string, signal?: AbortSignal): Promise<ClientDetail> {
-  return backendGet(`/clients/${id}/`, isClient, { signal });
+export function getClient(id: string, signal?: AbortSignal): Promise<ClientProfile> {
+  return backendGet(`/clients/${id}/`, isProfile, { signal });
 }
 
 export function requestRecompute(): Promise<{ job_id: string; status: string }> {
   return backendPost("/clients/recompute/", (v): v is { job_id: string; status: string } => isRec(v) && typeof v.job_id === "string");
+}
+
+// Client profile (M14) and consolidated statements -----------------------------------------------
+
+export type PaidHistory = {
+  id: string;
+  external_id: string;
+  amount: string;
+  currency: string;
+  due_date: string;
+  /** null: CollectFlow never saw the invoice change to PAID (missing, not zero). */
+  paid_seen_on: string | null;
+  days_late: number | null;
+  link: string;
+}[];
+
+export type Communication = {
+  type: "sent" | "reply";
+  kind: string;
+  at: string;
+  subject: string;
+  tone: string;
+  invoice_external_id: string;
+  link: string;
+};
+
+export type ClientStatementSummary = {
+  id: string;
+  status: string;
+  subject: string;
+  generated_at: string;
+  sent_at: string | null;
+  lines: number;
+  invoice_id: string;
+  link: string;
+};
+
+export type ClientProfile = ClientDetail & {
+  paid_history: PaidHistory;
+  communications: Communication[];
+  promise_summary: { kept: number; broken: number; open: number; cancelled: number };
+  statements: ClientStatementSummary[];
+};
+
+export type StatementLinePreview = {
+  invoice_id: string;
+  external_id: string;
+  amount: string;
+  currency: string;
+  due_date: string;
+  link: string;
+  replaces_draft_id?: string | null;
+  reasons?: string[];
+};
+
+export type StatementPreview = {
+  client_id: string;
+  can_prepare: boolean;
+  reason: string;
+  min_invoices: number;
+  lines: StatementLinePreview[];
+  totals: Record<string, string>;
+  excluded: StatementLinePreview[];
+  active_statement_id: string | null;
+};
+
+const isPreview = (v: unknown): v is StatementPreview =>
+  isRec(v) && typeof v.can_prepare === "boolean" && Array.isArray(v.lines) && Array.isArray(v.excluded);
+
+export function getStatementPreview(clientId: string, signal?: AbortSignal): Promise<StatementPreview> {
+  return backendGet(`/clients/${clientId}/statement/`, isPreview, { signal });
+}
+
+export function prepareStatement(clientId: string): Promise<{ job_id: string }> {
+  return backendPost(`/clients/${clientId}/statement/`, (v): v is { job_id: string } => isRec(v) && typeof v.job_id === "string");
 }

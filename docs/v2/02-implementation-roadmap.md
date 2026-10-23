@@ -13,9 +13,9 @@ continue the repository's commit history.
 | 03 Reply ingestion and classification | M10 | Gmail read, poll, classify, triage, health page | P0 | 6–7 h | **Done and deployed** (see `06-m10-implementation-report.md`); reading enabled 2026-10-22 and verified with a live reply |
 | 04 Promises, disputes, tasks | M11 | Promise lifecycle, dispute lock, all task kinds, daily promise check | P0 | 4–5 h | **Done and deployed** 2026-10-22 (see `07-m11-implementation-report.md` §8.1) |
 | 05 Closed-loop UI and P0 gate | M12 | Invoice detail, approvals, sequence editor, explicit unavailable states, P0 demo | P0 | 4–5 h | **Done** on the development database (see `08-m12-implementation-report.md`); P0 acceptance passes with mocked providers; **deployed** to the owner's stack 2026-10-23 (report §8.1); live-provider end-to-end acceptance **PENDING** (`09-m12-live-provider-acceptance-report.md`) |
-| 06 Risk and worklist | M13 | Client metrics, risk score, Today page, `/clients` | P1 | 3–4 h | **Done** on the development database (see `09-m13-implementation-report.md`); one additive migration; not deployed. The M12 `/today` page stays the operational queue; the ranked worklist is `/clients` |
-| 07 Statements, analytics, forecast | M14 | Statement email, aging, DSO, CEI, attribution, forecast | P1 | 4–5 h | Next (not started) |
-| 08 QA, AI evals, CI, delivery | M15 | Eval harness, Hypothesis, import-linter, Playwright, CI, docs | Release | 6–7 h | |
+| 06 Risk and worklist | M13 | Client metrics, risk score, Today page, `/clients` | P1 | 3–4 h | **Done** on the development database (see `09-m13-implementation-report.md`); one additive migration; **not deployed (pending approval)**. The M12 `/today` page stays the operational queue; the ranked worklist is `/clients` |
+| 07 Statements, analytics, forecast | M14 | Statement email, aging, DSO, CEI, attribution, forecast | P1 | 4–5 h | **Done** on the development database (see `10-m14-implementation-report.md`); three additive migrations; **not deployed** |
+| 08 QA, AI evals, CI, delivery | M15 | Eval harness, Hypothesis, import-linter, Playwright, CI, docs | Release | 6–7 h | Next (not started) |
 | 09 Reconciliation | M16 | Stripe test mode or CSV, suggested matches | P2 | 3–4 h | Owner decides after 08 |
 
 **Remaining effort: about 34–41 h for Phases 02–08**, plus 3–4 h if Phase 09 is approved.

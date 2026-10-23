@@ -754,6 +754,25 @@ kept, reminders answered) and links to invoices, replies, disputes, promises and
 drafts, approves, sends or releases a hold. APIs: `GET /api/worklist/`, `GET /api/clients/`,
 `GET /api/clients/{id}/`.
 
+## Statements, analytics and forecast (M14)
+
+- **Consolidated statements:** on a client's panel, "Prepare statement draft" lists every invoice that
+  can be chased now (at least two; holds, disputes, in-flight reminders and the cooldown exclude
+  invoices, with the reason shown). Gemini writes only the opening and closing; CollectFlow writes the
+  invoice lines and per-currency totals, and AI text containing amounts is rejected. The statement is
+  reviewed in the drawer of its oldest invoice (and listed under each of its invoices), always needs an
+  approver who did not edit it, and is sent through the normal Gmail delivery: every listed invoice is
+  checked again at approval, reservation and delivery, and while it is unsent its invoices get no
+  separate reminder. A dispute or promise on any of them withdraws it.
+- **Analytics (`/analytics`):** summary strip (overdue, expected cash in 30 days, DSO, open promises),
+  aging (current, 1–30, 31–60, 61–90, 90+), DSO and CEI over 30 days, payments after reminders, and an
+  explained 30-day cash forecast, all per currency. "Billed" means first seen by CollectFlow (the sheet
+  has no invoice date) and "paid" means first seen PAID in the sheet, not the bank date; DSO and CEI wait
+  for a full tracked period instead of estimating opening balances. The forecast is an estimate:
+  disputed invoices and unconfirmed payment claims are never counted. The worker refreshes the figures
+  with the risk scores (after each relevant change and hourly); pages only read them. The formulas and
+  their proposed parameters are in `docs/v2/10-m14-implementation-report.md`.
+
 ## Proactive automation
 
 ### Architecture

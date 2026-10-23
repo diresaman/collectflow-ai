@@ -20,9 +20,10 @@ class Client(models.Model):
     # M13 insights, written only by apps.insights.risk.recompute (null until the first recompute).
     risk_score = models.PositiveSmallIntegerField(null=True, blank=True)
     # {"factors": [...], "outstanding": {currency: amount}, "as_of": date, ...}: every point and its facts.
-    risk_factors = models.JSONField(default=dict, blank=True)
+    # db_default (M14): code from before M13 can still create clients if only the images are rolled back.
+    risk_factors = models.JSONField(default=dict, blank=True, db_default={})
     # Fewer than RISK_MIN_PAID_HISTORY measured payments: average days late uses the portfolio average.
-    risk_low_confidence = models.BooleanField(default=False)
+    risk_low_confidence = models.BooleanField(default=False, db_default=False)
     avg_days_late = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
     promise_kept_rate = models.DecimalField(max_digits=5, decimal_places=4, null=True, blank=True)
     response_rate = models.DecimalField(max_digits=5, decimal_places=4, null=True, blank=True)

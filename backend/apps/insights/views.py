@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.utils import timezone
+
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -11,6 +13,10 @@ from apps.inbox.models import InboundMessage, Task
 from apps.invoices.models import Client, Invoice
 
 from . import jobs, worklist
+from .models import AnalyticsSnapshot
+
+ANALYTICS_KINDS = {"aging": "aging", "dso": "dso_cei", "cei": "dso_cei", "attribution": "attribution",
+                   "forecast": "forecast", "kpis": "kpis"}
 
 
 def _metrics(client: Client) -> dict[str, Any]:
@@ -75,6 +81,13 @@ class ClientDetailView(APIView):
             "id": str(r.pk), "invoice_external_id": r.invoice.external_id, "received_at": r.received_at,
             "state": r.state, "label": r.label, "link": f"/inbox?reply={r.pk}",
         } for r in InboundMessage.objects.filter(client=client).select_related("invoice").order_by("-received_at")[:20]]
+        data["paid_history"] = _paid_history(invoices)
+        data["communications"] = _communications(client)
+        data["statements"] = _statements(client)
+        settled = [p["status"] for p in data["promises"] if p["status"] in ("KEPT", "BROKEN")]
+        data["promise_summary"] = {"kept": settled.count("KEPT"), "broken": settled.count("BROKEN"),
+                                   "open": sum(1 for p in data["promises"] if p["status"] == "OPEN"),
+                                   "cancelled": sum(1 for p in data["promises"] if p["status"] == "CANCELLED")}
         data["open_tasks"] = [{
             "id": str(t.pk), "title": t.title, "due_at": t.due_at,
             "invoice_external_id": t.invoice.external_id if t.invoice else None,
@@ -89,3 +102,64 @@ class RecomputeView(APIView):
     def post(self, request: Request) -> Response:
         job = jobs.request_recompute(trigger="manual", created_by=request.user)
         return Response({"job_id": str(job.pk), "status": job.status}, status=status.HTTP_202_ACCEPTED)
+
+
+def _paid_history(invoices: Any) -> list[dict[str, Any]]:
+    """Paid invoices with the date a sync first saw them PAID; None when CollectFlow never saw the change."""
+    from .risk import first_paid_seen
+
+    seen = first_paid_seen()
+    rows = []
+    for invoice in invoices:
+        if invoice.status != Invoice.Status.PAID:
+            continue
+        at = seen.get(invoice.pk)
+        paid_on = timezone.localdate(at) if at else None
+        rows.append({"id": str(invoice.pk), "external_id": invoice.external_id, "amount": str(invoice.amount),
+                     "currency": invoice.currency, "due_date": invoice.due_date, "paid_seen_on": paid_on,
+                     "days_late": max((paid_on - invoice.due_date).days, 0) if paid_on else None,
+                     "link": f"/?invoice={invoice.pk}"})
+    return rows
+
+
+def _communications(client: Client) -> list[dict[str, Any]]:
+    """Reminders and statements sent, and replies received, newest first (the last 30)."""
+    from apps.followups.models import FollowUp
+
+    items = [{"type": "sent", "kind": f.kind, "at": f.sent_at, "subject": f.subject, "tone": f.tone,
+              "invoice_external_id": f.invoice.external_id, "link": f"/?invoice={f.invoice_id}"}
+             for f in FollowUp.objects.filter(invoice__client=client, status=FollowUp.Status.SENT).select_related("invoice")]
+    items += [{"type": "reply", "kind": r.label or r.state, "at": r.received_at, "subject": r.subject, "tone": "",
+               "invoice_external_id": r.invoice.external_id, "link": f"/inbox?reply={r.pk}"}
+              for r in InboundMessage.objects.filter(client=client).select_related("invoice")]
+    return sorted(items, key=lambda i: i["at"], reverse=True)[:30]
+
+
+def _statements(client: Client) -> list[dict[str, Any]]:
+    """Consolidated statements prepared for the client (M14); reviewed in the drawer of their first invoice."""
+    from apps.followups.models import FollowUp
+
+    return [{"id": str(f.pk), "status": f.status, "subject": f.subject, "generated_at": f.generated_at,
+             "sent_at": f.sent_at, "lines": f.statement_lines.count(), "invoice_id": str(f.invoice_id),
+             "link": f"/?invoice={f.invoice_id}"}
+            for f in FollowUp.objects.filter(kind=FollowUp.Kind.STATEMENT, invoice__client=client).order_by("-generated_at")[:10]]
+
+
+class AnalyticsView(APIView):
+    """
+    GET /api/analytics/: every stored analytics snapshot; GET /api/analytics/{kind}/ one of them
+    (aging, dso, cei, attribution, forecast, kpis). Read-only: the worker computes them (M14).
+    """
+
+    def get(self, request: Request, kind: str | None = None) -> Response:
+        if kind is None:
+            snapshots = {s.kind: {"computed_at": s.computed_at, **s.data} for s in AnalyticsSnapshot.objects.all()}
+            return Response({"computed": bool(snapshots), "snapshots": snapshots})
+        stored = ANALYTICS_KINDS.get(kind)
+        if stored is None:
+            return Response({"code": "not_found", "detail": "Unknown analytics."}, status=status.HTTP_404_NOT_FOUND)
+        snapshot = AnalyticsSnapshot.objects.filter(kind=stored).first()
+        if snapshot is None:
+            return Response({"status": "not_computed", "detail": "Not calculated yet; the worker does it within the hour "
+                             "or after the next change.", "computed_at": None})
+        return Response({"computed_at": snapshot.computed_at, **snapshot.data})

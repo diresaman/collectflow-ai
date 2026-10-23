@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 
 from apps.accounts.models import Role
 from apps.accounts.roles import has_role
@@ -99,8 +100,10 @@ def lock_case_rows(invoice_id: Any, reply_id: Any = None) -> tuple[Invoice, Inbo
     Locks, in this order, the invoice's unsent reminders, the invoice, then the reply (the order approval
     and send reservation use: reminder before invoice), so concurrent writers cannot deadlock.
     """
-    list(FollowUp.objects.select_for_update(of=("self",)).filter(
-        invoice_id=invoice_id, status__in=[FollowUp.Status.DRAFT, FollowUp.Status.APPROVED]).order_by("pk"))
+    unsent = FollowUp.objects.filter(
+        Q(invoice_id=invoice_id) | Q(kind=FollowUp.Kind.STATEMENT, statement_lines__invoice_id=invoice_id),
+        status__in=[FollowUp.Status.DRAFT, FollowUp.Status.APPROVED]).values("pk")
+    list(FollowUp.objects.select_for_update(of=("self",)).filter(pk__in=unsent).order_by("pk"))
     locked = holds.lock_invoices([invoice_id])
     if not locked:
         raise Invoice.DoesNotExist

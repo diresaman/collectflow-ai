@@ -14,5 +14,6 @@ urlpatterns = [
         views.DeliveryAttemptListView.as_view(),
         name="follow-up-delivery-attempts",
     ),
+    path("clients/<uuid:pk>/statement/", views.ClientStatementView.as_view(), name="client-statement"),
     path("integrations/gmail/status/", views.GmailStatusView.as_view(), name="gmail-status"),
 ]
