@@ -2,8 +2,9 @@
 
 - **Date:** 2026-10-23
 - **Baseline:** `95c421f` (M12 deployed to the owner's stack)
-- **Status:** **Stage A: test plan, awaiting the owner's approval.** Nothing in this plan has been
-  executed. Stage B (execution) and Stage C (results) will be added below after approval.
+- **Status:** **Stage C complete: live-provider acceptance PASSED, with recorded limitations** (section 8).
+  It was run with real Google Sheets, Gmail and Gemini on the controlled test records only. The owner
+  performed every action; Claude observed read-only.
 
 ## 1. Test subjects
 
@@ -91,3 +92,61 @@ no send is initiated by Claude or by any job.
 4. Send replies R1 and R2 from `getdera6591@gmail.com` and let the scheduled polls read them.
 5. Confirm the promise, try the refused actions in steps 5 (optional) and 9, and close the test as in section 5.
 6. Claude takes a backup and read-only snapshots throughout, and writes the Stage C report.
+
+
+## 8. Stage C: results (2026-10-23, times UTC)
+
+Live providers: Google Sheets (the owner's sheet), Gmail (sender `diresaman@gmail.com`), Gemini
+(`gemini-3.5-flash`, free tier). Only `getdera6591@gmail.com` was emailed. Most steps ran on the M12 deployment;
+from 11:09 the M13/M14/UX version was live (the promise confirmation and cleanup ran on it).
+
+| # | Scenario | Result | Evidence |
+| --- | --- | --- | --- |
+| 0 | Baseline | PASS (late) | The owner started before the baseline; the backup `collectflow-m12-1-before-reply-20261023T061258.dump` was taken before the first reply |
+| 1 | Sheets import | **PASS** | TEST-M12-001 (900 USD) and TEST-M12-002 (6,000 USD) imported at 06:05:18 |
+| 2 | Sequence | **PASS** | Both enrolled at 06:05:18 on "Standard collection v1" |
+| 3 | Gemini draft | **PASS** | TEST-M12-001 drafted at 06:05:27. TEST-M12-002 was refused at 06:05:29 (HTTP 429, quota); the backoff held and it drafted at 07:46:04 after the pause |
+| 4 | Human edit | **PASS** (on TEST-M12-002) | Not done on TEST-M12-001; TEST-M12-002's body was edited by the owner at 08:15:55 |
+| 5 | Approval rules | **PASS** | TEST-M12-001 (under the threshold) was approved by the owner. TEST-M12-002 (6,000 USD, edited by the owner): the owner could not approve it (no approve request reached the server), then **rejected** it. The server-side refusal itself is covered by the automated tests and the browser suite (journey 7) |
+| 6 | One live send | **PASS** | Exactly one delivery attempt: SENT at 06:10:20 to `getdera6591@gmail.com`, thread `1a16761c868f7a70`. Delivery attempts in total: 7 before and 7 after the whole test (the 7th is this send) |
+| 7 | Reply A (promise) | **PASS** | Stored once at 06:15:49 (sender MATCH); an AWAITING_CLASSIFICATION hold placed in the same transaction |
+| 8 | Deduplication and classification | **PASS** after a quota delay | 3 replies, each stored once over many polls. Reply A: attempts at 06:15 and 06:35 met the Gemini quota pause; attempt 3 at 07:05 was spent inside the pause (**finding F1**); a manual retry at 07:59 classified it PROMISE_TO_PAY (0.98) → review required |
+| 9 | Chasing blocked | **PASS** | Holds kept TEST-M12-001 out of chasing all day; every scheduled tick generated 0 drafts for it |
+| 10 | Human confirms the promise | **PASS** after a usability issue | At first the owner confirmed only the AI's *label* ("Confirm Promise to pay"), which records no promise (**finding F2**). The promise was recorded at 15:49:52 from reply 3 (900 USD, due 2026-10-28); that reply's hold was handed over to the promise |
+| 11 | Payment claim | **PASS** | Reply B at 08:08 was classified CLAIMS_PAID (0.95) by Gemini and acted on automatically: a RECONCILE task and a protected hold. **The invoice stayed UNPAID** until the Sheet said PAID |
+| 12 | Consistency and audit | **PASS** | The owner set the Sheet rows to PAID and synced (15:52, 15:55, 15:58). **The promise turned KEPT automatically** ("Paid within the grace period") and its hold was released. The task was completed at 15:54. Every enrollment exited with reason `paid`. 50 timeline events on the TEST invoices record the full chain, from import to promise kept. No other invoice changed. No pending draft or reminder remains |
+
+**Gemini usage for the test: 8 calls.**
+- **Drafts (3):** one succeeded, one quota refusal, one succeeded after the pause.
+- **Classifications (5):**
+  - one quota refusal at 06:35;
+  - three successes at 07:59, 08:11 and 08:20;
+  - one failed with "unavailable" at 15:43, a manual retry on reply 3.
+
+The quota refusals and the backoff behaved as designed: nothing was sent and chasing stayed blocked.
+
+**Additional behaviour observed:** TEST-M12-002 was briefly set back to UNPAID in the Sheet (15:55). CollectFlow
+correctly re-enrolled it (next step on 30 Oct, only a draft for approval), then exited again when the Sheet said
+PAID at 15:58.
+
+**Findings:**
+
+| # | Finding | Status |
+| --- | --- | --- |
+| F1 | A classification retry could be spent inside the longer quota pause created by the previous failure | **Fixed in M14** (the attempt is deferred, not spent); not yet re-verified live |
+| F2 | "Confirm Promise to pay" saved the label only; recording the promise was a separate box | **Fixed in UX pass 1**: for promise and dispute replies, the main action is now "Record promise to pay" / "Open dispute case" |
+| F3 | Free-tier Gemini quota (about 20 a day) is too small for comfortable daily use | Open: consider a paid key, especially before the live AI evaluation (M15) |
+| F4 | After the shared-layout change, links inside the app opened the page but not the record | **Fixed in M15**, not yet deployed |
+
+**Leftovers (no action needed):** two reply-owned holds (the first promise reply and the payment-claim reply)
+remain on TEST-M12-001. They no longer have any effect, because the invoice is PAID and its sequence has ended,
+and they stay as part of the audit trail. The TEST rows remain in the Sheet as PAID.
+
+**Verdict: M12.1 live-provider acceptance PASSED.**
+- **What passed:** every P0 scenario was exercised once with live Sheets, Gmail and Gemini.
+- **Safety:** exactly one email was sent, no invoice was marked paid by an email, and the protections held
+  throughout.
+- **Limitations:**
+  - one run, by one person, so the four-eyes rule was shown in the interface rather than with two approvers;
+  - F1 is fixed but not re-verified live;
+  - F3 remains open.

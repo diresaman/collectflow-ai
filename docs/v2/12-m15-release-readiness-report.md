@@ -19,7 +19,7 @@
 | AI evaluation, live model quality (accuracy, dispute recall, injections) | **NOT TESTED**: needs owner approval (about 120 Gemini calls) |
 | CI pipeline (`.github/workflows/ci.yml`) | **NOT TESTED** remotely: the repository has no remote. Every step was run locally |
 | Security and operational verification | **PASS** (section 7) |
-| M12.1 live-provider acceptance | **BLOCKED**: owner actions pending (section 9) |
+| M12.1 live-provider acceptance | **PASS** (2026-10-23, after M15; see `09-m12-live-provider-acceptance-report.md` §8) |
 | Production deployment (M13, M14, UX) | **PASS** (`14f40ab`). The M15 changes are **not deployed** |
 
 **Recommendation: not yet ready for a full release.** The software side is release-candidate quality: all
@@ -178,7 +178,7 @@ python manage.py run_ai_evals --mode live --confirm-live --max-requests 120  # w
 | Issue | Severity | Status |
 | --- | --- | --- |
 | Live AI quality not measured | High (release gate) | Needs approval and quota (section 4) |
-| M12.1 live acceptance incomplete | High (release gate) | Owner checklist (section 9) |
+| M12.1 live acceptance | Closed | Passed 2026-10-23 (findings F1–F4 recorded) |
 | M15 fixes not in production (deep links, Integrations job row, statement reconciliation event) | Medium | Deployment plan (section 10). The deep-link defect is live in production since the UX deployment: clicking an action link opens the page but not the record |
 | Forecast week-1 concentration | Low | Fix ready, off until approved |
 | DSO and CEI unavailable until about 2026-11-15 (no history) | Low | By design |
