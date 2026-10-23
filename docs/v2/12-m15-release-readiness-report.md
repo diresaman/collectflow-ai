@@ -4,6 +4,22 @@
 - **Baseline:** `14f40ab` (M13, M14 and UX deployed and verified)
 - **Scope:** testing and stabilisation only. No new business features, no production change, no live
   Gmail or Gemini call.
+- **Final assignment release update (2026-10-23):** sections 1, 8, 9, 10 and 11, below. The code is unchanged
+  since `7e46f80`.
+
+## 0. Final assignment release status
+
+| Item | Status |
+| --- | --- |
+| M12.1 live-provider acceptance | **PASSED** (`a6ace03`; `09-m12-live-provider-acceptance-report.md` §8) |
+| Live 120-case AI evaluation | **NOT RUN.** The owner excluded it from the assignment scope. Not a release requirement |
+| M16 reconciliation | **OUT OF SCOPE** |
+| M15 deployment | **PENDING** until deployed and verified (section 10) |
+| M14 analytics parameters | Kept unchanged as an assignment demonstration, pending the owner's final review (section 11) |
+
+**Recommendation:** ready for assignment submission. The one release blocker for production is deploying
+M15, which fixes F4: links between screens currently open the page but not the record. Deployment needs the
+owner's separate approval.
 
 ## 1. Summary
 
@@ -16,17 +32,16 @@
 | Playwright browser suite (committed, fake providers) | **PASS**: 23 passed (19 desktop journeys and negative paths, 1 phone, 3 sign-in setups) |
 | AI evaluation harness, deterministic checks | **PASS** |
 | AI evaluation, simulated answers (harness check only) | **PASS** (SIMULATED: not a model measurement) |
-| AI evaluation, live model quality (accuracy, dispute recall, injections) | **NOT TESTED**: needs owner approval (about 120 Gemini calls) |
+| AI evaluation, live model quality (accuracy, dispute recall, injections) | **NOT RUN**: excluded from the assignment scope by the owner (about 120 Gemini calls) |
 | CI pipeline (`.github/workflows/ci.yml`) | **NOT TESTED** remotely: the repository has no remote. Every step was run locally |
 | Security and operational verification | **PASS** (section 7) |
 | M12.1 live-provider acceptance | **PASS** (2026-10-23, after M15; see `09-m12-live-provider-acceptance-report.md` §8) |
 | Production deployment (M13, M14, UX) | **PASS** (`14f40ab`). The M15 changes are **not deployed** |
+| Re-run on the release commit (code identical to `7e46f80`) | **PASS**: `check`, `makemigrations --check`, `lint-imports` (2 kept), deterministic and simulated evaluations, type-check, lint. The demo stack was started and signed in to. The full suite and Playwright were not repeated: no code changed since they passed |
 
-**Recommendation: not yet ready for a full release.** The software side is release-candidate quality: all
-offline checks pass and the browser suite found and fixed a real defect. Two mandatory gates remain open, the
-live AI quality evaluation and the M12.1 live acceptance, and both need the owner's approval for live
-provider use. A controlled internal release on the current deployment is reasonable. M15's fixes should be
-deployed (section 10) before the live evaluation, so the measurement uses the final code.
+*Superseded by section 0:* the original M15 recommendation ("not yet ready for a full release") depended on
+two open gates. M12.1 has since passed, and the owner has excluded the live evaluation from the assignment
+scope.
 
 ## 2. Backend regression
 
@@ -109,9 +124,9 @@ the app would do, and the draft and statement validators. Reported metrics:
 | --- | --- | --- |
 | deterministic | **PASS** | All 8 dataset checks pass. Deterministic screens: the injection regex catches 8/8 injection texts; the payment/dispute wording screen catches 20/36 English promise, dispute and payment replies (a backstop only: those labels always go to a person anyway) |
 | recorded, `recorded/simulated-*.json` | **PASS (SIMULATED)** | Hand-written oracle answers: accuracy 1.0, dispute recall 1.0, 0 injections, compliance 1.0. **This proves the harness works, not the model** |
-| live | **NOT TESTED** | Awaiting approval |
+| live | **NOT RUN** | Excluded from the assignment scope by the owner |
 
-**Live run, when approved:**
+**Live run, if it is ever approved:**
 
 ```
 python manage.py run_ai_evals --mode live --confirm-live --max-requests 20   # repeat until all 120 are cached
@@ -173,54 +188,130 @@ python manage.py run_ai_evals --mode live --confirm-live --max-requests 120  # w
 | Email payment claims never mark invoices paid | Full suite (P0 #10); evaluation `must_hold` metric |
 | Secrets excluded | No `.env`, credentials, token, backup or key files are tracked, now or in history. No key-like strings in tracked files (one fake string inside a test). `.env`, `credentials/`, `backups/`, `evals/results/` and `e2e/.auth/` are git-ignored. No tokens or keys in `backend/logs/` or in the last 24 h of container logs |
 
-## 8. Known issues
+## 8. Known issues and release blockers
 
 | Issue | Severity | Status |
 | --- | --- | --- |
-| Live AI quality not measured | High (release gate) | Needs approval and quota (section 4) |
-| M12.1 live acceptance | Closed | Passed 2026-10-23 (findings F1–F4 recorded) |
-| M15 fixes not in production (deep links, Integrations job row, statement reconciliation event) | Medium | Deployment plan (section 10). The deep-link defect is live in production since the UX deployment: clicking an action link opens the page but not the record |
-| Forecast week-1 concentration | Low | Fix ready, off until approved |
+| M15 fixes not in production: deep links (F4), the Integrations job row, the statement reconciliation event | **Medium, the only release blocker** | Deployment prepared (section 10), awaiting the owner's approval. F4 is live in production: an action link opens the page but not the record |
+| Live AI quality not measured on the 120 cases | — | **Not run, by the owner's decision** for the assignment. Evidence: deterministic and simulated harness runs, and the M12.1 live test |
+| Free Gemini quota too small for daily use (F3) | Low (for the assignment) | Open. A paid key is recommended for real use |
+| M12.1 live acceptance | Closed | **Passed** 2026-10-23, findings F1–F4 recorded |
+| Forecast week-1 concentration | Low | Correction ready, off until approved (section 11) |
 | DSO and CEI unavailable until about 2026-11-15 (no history) | Low | By design |
-| Unknown deliveries need an admin command (no screen) | Low | Documented; not a blocker |
+| Unknown deliveries need an admin command (no screen) | Low | Documented, not a blocker |
 | The payment/dispute wording screen catches 20/36 English cases | Low | A backstop; protected labels always go to a person |
-| CI not executed remotely | Low | Needs a git remote |
-| Hypothesis state-machine tests (design §11) not added | Low | Concurrency and state rules are covered by example-based and threaded PostgreSQL tests; property tests remain a gap |
+| CI not run remotely | Low | Needs a git remote |
+| Hypothesis state-machine tests (design §11) not added | Low | Covered by example-based and threaded PostgreSQL tests instead |
+| M16 payment reconciliation | — | **Out of scope** |
 
-**Analytics assumptions awaiting approval:**
-- the M14 DSO and CEI definitions, the attribution window and the forecast probabilities
-  (`10-m14-implementation-report.md` §3);
-- the M15 `FORECAST_OVERDUE_LAG_DAYS` proposal.
+**No critical security or workflow defect is open.** Section 7's guarantees hold on the M15 code. The
+defects found in M15 and in M12.1 are fixed. Their deployment status is shown above.
 
-## 9. M12.1 live acceptance: remaining owner actions
+### Implemented, tested and deployed
 
-Only on the controlled test records (sender `diresaman@gmail.com`, customer `getdera6591@gmail.com`, invoices
-TEST-M12-001 and TEST-M12-002), and only with the owner's approval. Nothing here runs automatically.
+| Area | Implemented | Tested offline | Tested live (real providers) | In production |
+| --- | --- | --- | --- | --- |
+| Sheets sync, sequences, AI drafting, approval, Gmail delivery (M08–M09, M12) | Yes | Suite + browser | **Yes** (M12.1) | Yes |
+| Reply reading and classification, holds (M10) | Yes | Suite + browser | **Yes** (promise, claims paid) | Yes |
+| Promises, disputes, tasks (M11) | Yes | Suite + browser | Promise and task **yes**; dispute no (no live dispute reply was sent) | Yes |
+| Roles, four-eyes, CSRF (M09.x, M12) | Yes | Suite + browser | Approval refusal on TEST-M12-002 **yes** | Yes |
+| Client risk and worklist (M13) | Yes | Suite + browser | Computed on production data | Yes |
+| Statements, analytics, forecast (M14) | Yes | Suite + browser | Analytics computed on production data; no live statement sent | Yes |
+| UX shell, Approvals (UX) | Yes | Browser | Used in M12.1 | Yes |
+| Deep-link fix, Integrations job row, statement reconciliation event (M15) | Yes | Suite + browser | — | **No: pending deployment** |
+| Browser suite, evaluation harness, import contracts, CI (M15) | Yes | Run locally | — | Development and CI only |
 
-1. **Confirm the promise** on TEST-M12-001: Inbox → a promise reply → **Record the promise to pay** (date
-   2026-10-28, amount 900).
-2. **Reject the TEST-M12-002 draft**: open TEST-M12-002 → **Reject draft**. Do not approve or send it.
-3. **Complete the reconciliation task**: Tasks → "Check whether invoice TEST-M12-001 was paid" → note → **Mark task complete**.
-4. **Cancel the test promise** (approver): invoice TEST-M12-001 → promise → note "M12.1 acceptance test" → **Cancel promise**.
-5. **Update the Sheet**: set both TEST rows to `PAID`, or remove them, then sync.
-6. **Verify**:
-   - both enrollments have exited;
-   - no hold remains on the TEST invoices;
-   - the invoices show PAID from the sheet;
-   - Gmail delivery attempts are still 7;
-   - there are no new Gemini calls beyond those expected.
-7. **Write the Stage C report** in `09-m12-live-provider-acceptance-report.md`, with the results already
-   recorded: one live send; reply ingestion and deduplication; live classification of a promise and a payment
-   claim; the quota events; the retry fix; the label-versus-promise usability finding, which UX pass 1 fixed.
+## 9. M12.1 live acceptance: closed
 
-## 10. Deployment of the M15 changes (not done; needs approval)
+Every owner action listed here before is done, and the Stage C report is written
+(`09-m12-live-provider-acceptance-report.md` §8, commit `a6ace03`):
+- **Invoices:** both TEST invoices are PAID from the sheet, and every enrollment exited with reason "paid".
+- **Promise:** KEPT automatically.
+- **Gmail:** 7 delivery attempts in total, exactly one of them a live test send.
+- **Scope:** no other record changed.
 
-M15 has **no migrations**. It is the same procedure as M12:
-1. a verified backup;
-2. `pre-m15` rollback images;
-3. build;
-4. pause the worker;
-5. swap api, web and worker;
-6. read-only verification.
+## 10. M15 production deployment plan (prepared, not executed)
 
-The deep-link fix is the reason to deploy soon. Rollback is the `pre-m15` images; no database change.
+**Needs the owner's separate approval. Claude does not run it.**
+
+**No migrations: verified.**
+- No migration file changed between the deployed commit `14f40ab` and HEAD.
+- `makemigrations --check` reports no changes.
+- Production records 51 migrations: the 33 app migrations plus Django's built-in ones.
+- The script refuses to continue if that count is not 51, before or after the api swap.
+
+**Environment:** unchanged.
+- No new required variable: `FORECAST_OVERDUE_LAG_DAYS` is a settings constant that defaults to off.
+- `backend/.env`, the credentials and the token files are neither read nor modified.
+- `backend/.env.example` gained one optional, commented setting (`SEQUENCE_DRAFTING_TIMEOUT_SECONDS`, which
+  already defaulted to 900). It is a template only.
+
+**Images:**
+- Running now (M13, M14 and UX): api `a96708d810f7`, worker `ed158895c363`, web `0cce2d611845`.
+- The script tags them `collectflow-{api,worker,web}:pre-m15` before building. The older `pre-m13` tags stay.
+
+**Script:** `bash backend/backups/deploy-m15.sh`. It is git-ignored like the earlier deployment scripts, and
+it sends no email and calls no AI provider. Steps:
+
+| Step | Action | Stops if |
+| --- | --- | --- |
+| 0 | Preconditions: a clean tree; code identical to `7e46f80`; 51 migrations | Any check fails |
+| 1 | Tag the running images `pre-m15` | — |
+| 2 | `docker compose build api worker web` (the current stack keeps serving) | The build fails |
+| 3 | **Pause the worker**, only if no job is running and no delivery is queued | Busy: try again in a minute |
+| 4 | **Verified backup** while the worker is paused: `pg_dump -Fc`, permissions 600, a SHA-256 checksum, a restore into the scratch database `collectflow_restorecheck`, and a row-count comparison against live on 10 key tables. The scratch database is then dropped | The checksum or the counts differ |
+| 5 | Recreate the api; wait until it is healthy; `manage.py check`; the migration count is still 51 | Unhealthy, or the count changed |
+| 6 | Recreate the web app. It polls for up to 2 minutes until `/login` answers, then checks `/login`, `/today`, `/approvals`, `/analytics` and the health endpoint through the proxy | Never: a warning only |
+| 7 | **Resume the worker** | — |
+| 8 | Print the running images, the backup path and the rollback command | — |
+
+**Fix carried over from M13:** that script ended before "resume the worker". The likely cause is
+`set -e` with a `curl` five seconds after the web container was recreated: Next.js was not listening yet,
+curl exited with code 7, and the worker stayed down for 2 h 20 min. The M15 script waits for the web app,
+treats page checks as warnings, and always resumes the worker. On any fatal error it prints the worker's
+state together with the exact resume and rollback commands.
+
+**Read-only verification by Claude afterwards** (no login sessions minted; in-process checks inside a
+rolled-back transaction, plus signed-out proxy checks):
+1. **Images and backup:** the new image IDs are running with 0 restarts; the `pre-m15` tags exist; the
+   backup and checksum files exist.
+2. **Database:** 51 migrations, and the 10 key table counts equal those printed by step 4, apart from new
+   worker activity (jobs, syncs).
+3. **Pages:** all 12 pages return 200 signed out; API routes return 401 signed out; a cross-origin write
+   returns 403.
+4. **API:** in-process, Today, worklist, approvals, analytics and integrations return 200, and integrations
+   lists the "Risk and analytics" job.
+5. **Deep links:** the built web bundle contains the `useUrlParam` deep-link handling.
+6. **Worker:** the first scheduled jobs succeed; no duplicate idempotency keys; nothing stuck.
+7. **Providers:** delivery attempts are still 7, and there are 0 Gemini calls caused by the deployment.
+
+**Rollback** (no database change is involved, so this is enough):
+```
+docker compose stop worker
+for c in api worker web; do docker tag collectflow-$c:pre-m15 collectflow-$c:latest; done
+docker compose up -d --no-deps --no-build api web worker
+```
+
+## 11. Analytics decision (final assignment release)
+
+The deterministic M14 analytics stay as they are, as an **assignment demonstration**.
+- **Formulas and parameters:** unchanged. The DSO and CEI definitions, the attribution window, the forecast
+  probabilities and the M15 `FORECAST_OVERDUE_LAG_DAYS` proposal (still off) await the owner's final review.
+- **Limitations:** documented in `docs/ANALYTICS.md`:
+  - DSO and CEI need a full 30-day history; opening balances are never estimated;
+  - the observed paid date differs from the bank settlement date;
+  - the forecast's assumptions and uncertainty;
+  - every calculation is separate per currency;
+  - why forecast figures are not guaranteed collections.
+
+## 12. Submission package
+
+| Item | Location |
+| --- | --- |
+| Setup, Docker Compose start-up, feature reference | `README.md` |
+| Environment template (no credentials) | `backend/.env.example`, `frontend/.env.example` |
+| Architecture, safety, AI integration | `docs/ARCHITECTURE.md` |
+| Analytics limitations | `docs/ANALYTICS.md` |
+| Testing summary | `docs/TESTING.md` |
+| Demonstration walkthrough (existing live evidence plus a fake-provider demo stack; no new live email) | `docs/DEMO.md` |
+| Known limitations | `README.md` "Known limitations", and section 8 here |

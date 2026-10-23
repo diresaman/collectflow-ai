@@ -8,8 +8,26 @@ CollectFlow AI reads your invoices from a Google Sheet, finds the overdue ones, 
 reminder for each with Gemini, and sends each reminder through Gmail only after a person has
 approved it and confirmed that specific send.
 
-> **Status:** feature-complete MVP (Milestones 01–05.5), final QA in
-> [docs/FINAL_QA_REPORT.md](docs/FINAL_QA_REPORT.md). Built for local, single-operator use.
+> **Status:** assignment release.
+> - **Built:** v2 milestones M08–M15. That is PostgreSQL, sequences, reply reading and classification,
+>   promises, disputes and tasks, roles with four-eyes approval, client risk, statements, analytics and the
+>   forecast, and final QA.
+> - **Live acceptance:** passed on real Sheets, Gmail and Gemini (M12.1).
+> - **Production:** runs M13, M14 and the UX work; the M15 fixes are pending deployment.
+> - **Release report:** [docs/v2/12-m15-release-readiness-report.md](docs/v2/12-m15-release-readiness-report.md).
+> - **Use:** local Docker Compose deployment for a small team.
+
+**Submission documents:**
+
+| Document | Contents |
+| --- | --- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture, safety guarantees, AI integration |
+| [docs/ANALYTICS.md](docs/ANALYTICS.md) | How to read DSO, CEI and the forecast, and their limits |
+| [docs/TESTING.md](docs/TESTING.md) | Testing summary |
+| [docs/DEMO.md](docs/DEMO.md) | 15-minute demonstration walkthrough, with a safe demo stack |
+| [docs/v2/](docs/v2/) | The design, the roadmap and a report for each milestone |
+
+[docs/FINAL_QA_REPORT.md](docs/FINAL_QA_REPORT.md) is the historical v1 (SQLite) QA report.
 
 > **Google Sheets is the source of truth for invoice payment status.** CollectFlow never writes
 > to the sheet and never marks an invoice paid by itself. To record a payment, set the row's
@@ -49,7 +67,8 @@ writing the email) and keeps a person in control of every message that leaves th
 
 ```
  Browser ──▶ Next.js (localhost:3000)
-              ├── pages: /login   /  (dashboard)   /automation  (workspace)
+              ├── pages: /login, then one mounted app shell: /today /inbox /approvals /tasks /disputes
+              │          /clients / (invoices) /analytics /sequences /automation /settings/integrations
               └── /api/backend/*  server-side proxy: route allowlist, same-origin check,
                                   forwards only the session + CSRF cookies and X-CSRFToken
                      │
@@ -59,7 +78,11 @@ writing the email) and keeps a person in control of every message that leaves th
               ├── apps/accounts    users, roles, login rate limiting
               ├── apps/timeline    append-only TimelineEvent (triggers block UPDATE/DELETE/TRUNCATE)
               ├── apps/invoices    Client, Invoice, sync service
-              ├── apps/followups   drafts, approval workflow, delivery (the only Gmail send path)
+              ├── apps/followups   drafts, statements, approval workflow, delivery (the only Gmail send path)
+              ├── apps/sequences   collection sequences (drafts only, never sends)
+              ├── apps/inbox       reply reading, AI classification, deterministic triage, holds
+              ├── apps/cases       promises to pay, disputes, tasks
+              ├── apps/insights    risk scores, worklist, analytics and forecast snapshots
               ├── apps/automation  outbox jobs + worker, orchestrator, policy, lease, workflow view
               └── PostgreSQL 16    state, timeline and the job queue
                      ▲
@@ -161,16 +184,28 @@ collectflow-ai/
 │   │   ├── outbox.py           Job enqueue/claim/retry; handlers registered by each app
 │   │   ├── workflow.py         Interactive workflow state (derived from persisted data)
 │   │   └── models.py           AutomationRunItem, AutomationLease, WorkflowStep, OutboxJob
+│   ├── apps/sequences/         Collection sequences and steps (M09)
+│   ├── apps/inbox/             Reply ingestion, classification, triage, holds (M10)
+│   ├── apps/cases/             Promises to pay, disputes, tasks (M11)
+│   ├── apps/insights/          Risk, worklist, analytics, forecast (M13, M14)
 │   ├── integrations/gemini.py  Gemini API adapter (google-genai)
 │   ├── integrations/gmail.py   Gmail send-only adapter (OAuth 2.0 user credentials)
-│   ├── credentials/            Service account key (gitignored; create locally)
-│   ├── requirements.txt
+│   ├── integrations/mailbox.py Gmail read-only adapter for replies
+│   ├── evals/                  AI evaluation datasets and harness (M15)
+│   ├── scripts/e2e_backend.sh  Throwaway backend with fake providers (browser tests, demo)
+│   ├── credentials/            Service account key, Gmail OAuth files (gitignored; create locally)
+│   ├── requirements.txt, requirements-dev.txt
+│   └── .env.example            Every setting, no credentials
+├── frontend/                   Next.js (App Router) + TypeScript + Tailwind CSS
+│   ├── src/app/(app)/          Pages inside the shared app shell
+│   ├── src/app/api/backend/    Server-side proxy to the API
+│   ├── src/components/         Screens and layout
+│   ├── src/lib/                Typed API client, status labels, deep links
+│   ├── e2e/                    Playwright journeys
 │   └── .env.example
-└── frontend/                   Next.js (App Router) + TypeScript + Tailwind CSS
-    ├── src/app/                Dashboard (/), automation workspace (/automation), /api/backend proxy
-    ├── src/components/         ApiStatus and dashboard components
-    ├── src/lib/api/            Typed API client
-    └── .env.example
+├── docs/                       Submission documents and docs/v2 milestone reports
+├── docker-compose.yml
+└── .github/workflows/ci.yml
 ```
 
 ## Prerequisites
@@ -1155,7 +1190,19 @@ missing role or CSRF token.
 
 ## Known limitations
 
-Consolidated from the sections above. See also [docs/FINAL_QA_REPORT.md](docs/FINAL_QA_REPORT.md).
+Consolidated from the sections above.
+
+- **Release state.** The M15 fixes are not yet deployed. In production, links between screens open the page
+  but not the record (finding F4, fixed in M15).
+- **AI quality not measured at scale.** The 120-case live evaluation was not run, by the owner's decision for
+  the assignment. Evidence is the deterministic and simulated harness runs plus the M12.1 live acceptance test.
+  The free Gemini tier (about 20 calls a day) is too small for daily use.
+- **Analytics are a demonstration.** Paid dates are when a sync first saw PAID, not bank settlement dates.
+  DSO and CEI need a full 30-day history and are unavailable until about 2026-11-15 on the current deployment.
+  The forecast uses fixed, unfitted probabilities and is an estimate, not guaranteed collections. Its
+  parameters await owner review. See [docs/ANALYTICS.md](docs/ANALYTICS.md).
+- **Not built:** payment reconciliation against bank data (M16, out of scope), a screen for unknown delivery
+  outcomes (CLI only), and remote CI (no git remote).
 
 - **Local deployment.** Users, roles and sessions are in place, but the app is meant for one
   machine on `localhost`. Exposing it needs HTTPS (cookies are `Secure` outside debug) and a
@@ -1172,8 +1219,8 @@ Consolidated from the sections above. See also [docs/FINAL_QA_REPORT.md](docs/FI
   enforced in code. Everything else (no invented fees, deadlines or payment claims, no bare
   domains such as `pay.example.com`) relies on the model's instructions plus mandatory human
   review before approval.
-- **Gmail.** Plain text only, one sender account. Reply reading (M10) is built but stays off until
-  the owner approves `gmail.readonly`. "Sent" means Gmail accepted
+- **Gmail.** Plain text only, one sender account. Reply reading (M10) needs the `gmail.readonly`
+  scope and `GMAIL_READ_ENABLED=true` (enabled on the current deployment). "Sent" means Gmail accepted
   the message, not that it was delivered. Unknown outcomes are reconciled by CLI only. While the
   OAuth consent screen is in *Testing*, refresh tokens expire after 7 days.
 - **Interrupted runs** are shown as processing until their lease expires (up to
