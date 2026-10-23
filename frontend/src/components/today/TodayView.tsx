@@ -112,6 +112,40 @@ function ItemRow({ item, section }: { item: TodayItem; section: string }) {
 }
 
 function SectionBlock({ section }: { section: TodaySection }) {
+  const user = useCurrentUser();
+  // Integration problems only an admin can fix: one summary line for everyone else.
+  if (section.key === "integrations" && user.role !== "ADMIN") {
+    return (
+      <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div>
+          <p className="text-sm font-medium text-slate-900">
+            {section.items.length} integration problem(s){" "}
+            <span className="ml-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-800">For an admin</span>
+          </p>
+          <p className="text-xs text-slate-600">{section.items.map((i) => i.title).join(" · ")}</p>
+          <p className="text-xs text-violet-900">Scheduled reminders and reply checks may be delayed until an admin fixes this.</p>
+        </div>
+        <Link href="/settings/integrations" className={`${buttonStyles.secondary} shrink-0 !px-3 !py-1.5 text-xs`}>
+          View details
+        </Link>
+      </div>
+    );
+  }
+  // Holds repeat items already listed above (replies, disputes, promises): folded by default.
+  if (section.key === "held") {
+    return (
+      <details className="border-t border-slate-100">
+        <summary className="cursor-pointer px-4 py-2 text-sm font-semibold text-slate-800 sm:px-5">
+          {section.title} <span className="font-normal text-slate-500">({section.items.length}) · why each one is paused and who can end it</span>
+        </summary>
+        <ul className="divide-y divide-slate-100">
+          {section.items.map((item) => (
+            <ItemRow key={item.key} item={item} section={section.key} />
+          ))}
+        </ul>
+      </details>
+    );
+  }
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-2 sm:px-5">
@@ -226,7 +260,17 @@ export function TodayView() {
                   <h2 id={`${group.key}-title`} className="text-base font-semibold text-slate-900">
                     {group.title} <span className="font-normal text-slate-500">({count(group)})</span>
                   </h2>
-                  <p className="text-xs text-slate-500">{group.intro}</p>
+                  <p className="text-xs text-slate-500">
+                    {group.intro}
+                    {group.key === "approval" && (
+                      <>
+                        {" "}
+                        <Link href="/approvals" className="font-medium text-indigo-600 hover:underline">
+                          Open Approvals →
+                        </Link>
+                      </>
+                    )}
+                  </p>
                 </div>
                 {group.sections.map((section) => (
                   <SectionBlock key={section.key} section={section} />

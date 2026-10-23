@@ -758,8 +758,9 @@ drafts, approves, sends or releases a hold. APIs: `GET /api/worklist/`, `GET /ap
 
 Start on **Today**: it groups everything that needs a person into *Needs your attention*, *Waiting for
 approval or sending*, *Blocked or at risk* and *Due now and coming up*, and every item has one clear
-action. The menu holds daily work (Today, Inbox, Invoices, Clients, Tasks, Disputes, Analytics); Sequences,
-Automation and Integrations are under **Setup**. Statuses use the same words everywhere (Awaiting approval,
+action. The sidebar is grouped by purpose: **Today**; **Collections** (Inbox, Approvals, Tasks, Disputes, each with a
+live count); **Receivables** (Clients, Invoices); **Insights** (Analytics); **Setup** (Sequences, Automation,
+Integrations). **Approvals** lists every reminder and statement waiting for approval or sending, and who can act. Statuses use the same words everywhere (Awaiting approval,
 Approved, not sent, Sent, Delivery unknown, Disputed, Promise due, …); approving never sends, and sending is
 always a separate, confirmed step. See `docs/v2/11-ux-simplification-report.md`.
 

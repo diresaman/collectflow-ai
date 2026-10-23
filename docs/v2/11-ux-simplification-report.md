@@ -87,6 +87,39 @@ backend `apps.core` and `apps.insights` tests (86, including the M12 Today tests
 acceptance suite) pass on `collectflow_dev`, run alone. The scenario script lives outside the repository
 (it uses a Playwright install from another local project); M15 is where a committed browser suite belongs.
 
+## 5a. Second pass: application structure (owner request)
+
+The owner asked for menus with a clear meaning and order, so the app feels like one organised product.
+
+**Research.** How established accounts-receivable tools organise work:
+- **Upflow:** an *Actions* list with *To-do* and *All* tabs, plus *Customers*, *Invoices*, *Workflows* and separate *Insights*.
+- **Versapay:** the customer page is the hub, with promise-to-pay progress, and there is a collector queue.
+- **Kolleno:** a dashboard of collected versus overdue, and a separate dispute triage queue.
+- **SAP Fiori worklist pattern:** tabs over one dataset, with consistent colours for meaning.
+- **General B2B guidance:** a grouped left sidebar for 5–20 sections, daily work first, reports and admin apart,
+  shallow hierarchy and plain labels.
+
+Sources: [Upflow Actions list view](https://docs.upflow.io/en-us/core-entities/actions/your-actions-list-view),
+[Upflow workflows](https://docs.upflow.io/en-us/essentials/get-started/step-5-configure-workflows),
+[Versapay promise to pay](https://updates.versapay.com/announcements/ann_eSbyRmOFSUoWX),
+[Kolleno dashboard](https://www.kolleno.com/kolleno-2-0-part-1-revamped-dashboard/),
+[SAP Fiori worklist](https://www.sap.com/design-system/fiori-design-web/v1-71/page-types/floorplans/work-list/usage),
+[Cloudscape side navigation](https://cloudscape.design/patterns/general/service-navigation/side-navigation/),
+[Journey: B2B navigation](https://journey.io/blog/b2b-navigation-design-tips-for-better-ux).
+
+**Decisions (approved by the owner):** a grouped left sidebar, and a dedicated Approvals page.
+
+| Area | Change |
+| --- | --- |
+| App shell (`components/layout/AppShell.tsx`) | A fixed left sidebar in groups, in order of daily use. **Today** comes first. **Collections:** Inbox, Approvals, Tasks, Disputes. **Receivables:** Clients, Invoices. **Insights:** Analytics. **Setup:** Sequences, Automation, Integrations. Each item has an icon and a **live count** from the Today report: replies to review, approvals, due tasks, open disputes, and a red "!" on Integrations when something is broken. The user's name, role and Sign out sit at the bottom. On phones, a top bar with **Menu** (showing the count) opens the same sidebar as a drawer. The old top bar, Setup dropdown, inbox badge and user menu were removed. All pages use the shell, and no route was removed |
+| Approvals (`/approvals`) | A focused work queue with two tabs: **Waiting for approval** and **Approved, not sent**. Each row shows client, invoice or statement, amount, subject, tone, step and age, plus whether an approver is needed and why. When the user cannot approve, it says so and why ("You edited it, so another approver must approve it" or "Your role cannot approve it"). The button reads **Review draft** or **Review and send**, or **View** for someone who cannot act. It opens the existing review drawer, where approval and sending work exactly as before and the backend enforces the rules. This is only a filtered view of the existing follow-up list |
+| Today | Admin-only integration problems become **one summary line** for non-admins: "*N* integration problem(s), for an admin; reminders may be delayed", with **View details**. "Invoices on hold" repeats items listed above, so it is folded by default. The approval group links to Approvals |
+| Invoices | The approvals panel is replaced by one line: "*N* reminder(s) waiting for approval or sending · **Go to Approvals →**". The last column is now **Reminders** and wraps instead of being cut off |
+
+**Re-verified:** the 10 scenarios plus 4b all **PASS**, with scenario 4 now starting from the sidebar's
+Approvals link. Frontend type-check, lint and production build are clean. Screenshots:
+`docs/v2/ux/today-after.png`, `approvals.png`, `mobile-menu.png` and `today-mobile-after.png`.
+
 ## 6. Known usability gaps
 
 - Resolving a **delivery with an unknown outcome** still needs an admin command (`reconcile_delivery`);

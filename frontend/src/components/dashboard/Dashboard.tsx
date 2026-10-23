@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError } from "@/lib/api/client";
@@ -14,7 +15,6 @@ import {
   type Invoice,
 } from "@/lib/api/invoices";
 
-import { ApprovalQueue } from "./ApprovalQueue";
 import { AutomationPanel } from "./AutomationPanel";
 import { queryParam, setQueryParam } from "@/lib/url";
 
@@ -180,7 +180,19 @@ export function Dashboard() {
         </p>
       )}
       <SummaryCards state={summary} />
-      <ApprovalQueue state={followUps} onOpen={followUpActions.onOpen} />
+      {(() => {
+        const waiting = allFollowUps.filter((f) => f.status === "DRAFT" || f.status === "APPROVED").length;
+        return waiting > 0 ? (
+          <p className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm text-indigo-900">
+            <span>
+              <span className="font-semibold">{waiting} reminder(s)</span> waiting for approval or sending.
+            </span>
+            <Link href="/approvals" className="font-semibold text-indigo-700 hover:underline">
+              Go to Approvals →
+            </Link>
+          </p>
+        ) : null;
+      })()}
       <InvoiceTable state={invoices} expectedColumns={expectedColumns} followUps={followUpActions} />
       {/* Secondary: open tasks live on Tasks and Today; these stay one click away. */}
       <details className="group rounded-xl border border-slate-200 bg-white shadow-sm">

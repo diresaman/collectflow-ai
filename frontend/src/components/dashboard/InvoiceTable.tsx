@@ -326,7 +326,7 @@ export function InvoiceTable({
                 <th scope="col" className="px-5 py-3">Due date</th>
                 <th scope="col" className="px-5 py-3 text-right">Amount</th>
                 <th scope="col" className="px-5 py-3">Status</th>
-                <th scope="col" className="px-5 py-3">Follow-up</th>
+                <th scope="col" className="px-5 py-3">Reminders</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -352,7 +352,7 @@ export function InvoiceTable({
                   <td className="whitespace-nowrap px-5 py-4">
                     <StatusBadge invoice={invoice} />
                   </td>
-                  <td className="whitespace-nowrap px-5 py-4">
+                  <td className="min-w-[13rem] px-5 py-4">
                     <FollowUpCell invoice={invoice} actions={followUps} />
                   </td>
                 </tr>
