@@ -806,7 +806,7 @@ The menu names are display wording only. Routes, API endpoints and models keep t
 in the API), and older invoice links (`/?invoice=<id>`) still open the invoice. **Approvals** lists every reminder
 and statement waiting for approval or sending, and who can act. Statuses use the same words everywhere (Awaiting
 approval, Approved, not sent, Sent, Delivery unknown, Disputed, Promise due, …); approving never sends, and sending is
-always a separate, confirmed step. See `docs/v2/11-ux-simplification-report.md`.
+always a separate, confirmed step. See `docs/v2/11-ux-simplification-report.md` and the complete redesign in `docs/v2/14-complete-ux-redesign-report.md`.
 
 ## Statements, analytics and forecast (M14)
 
@@ -876,9 +876,10 @@ names or emails.
 
 ### Running it
 
-- **Dashboard:** **Run Automation** (`POST /api/automation/run/`, trigger `MANUAL`) queues an
-  `automation.run` job (`202`, or `409` while a run is queued or holds the lease); the worker
-  runs it. The panel polls while a run is active and shows counts and per-invoice results.
+- **Automation Settings (`/automation`):** **Run Automation** (`POST /api/automation/run/`, trigger
+  `MANUAL`) queues an `automation.run` job (`202`, or `409` while a run is queued or holds the
+  lease); the worker runs it. The page follows the run step by step, then the review and each
+  confirmed send. The same page lists the scheduled background processes and their health.
 - **Command line:** `python manage.py run_automation` (trigger `SCHEDULED`). It prints a summary
   with counts and reason codes. Exit codes: `0` completed/partial, `1` fatal failure, `2` another
   run in progress.
@@ -906,8 +907,7 @@ chmod +x backend/scripts/scheduled_automation.sh
 crontab -l | grep -A1 collectflow-ai      # confirm
 ```
 
-**Check:** `tail -n 30 backend/logs/automation.log`, the dashboard's automation panel, or the
-`/automation` workspace (scheduled runs show as "scheduled run"). Exit codes: `0`
+**Check:** `tail -n 30 backend/logs/automation.log`, or the Automation Settings page (`/automation`) (scheduled runs show as "scheduled run"). Exit codes: `0`
 completed/partial, `1` failed (e.g. sync error), `2` another run held the lease (nothing done).
 
 **Disable** (removes only the CollectFlow lines; other crontab entries are kept):

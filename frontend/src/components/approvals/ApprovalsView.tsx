@@ -3,34 +3,50 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { Card, EmptyState, ErrorMessage, PageHeader, Skeleton, StatusPill } from "@/components/dashboard/ui";
+import { FollowUpStatusBadge, ToneBadge } from "@/components/dashboard/FollowUpBadges";
+import {
+  EmptyState,
+  ErrorMessage,
+  PageHeader,
+  Section,
+  SegmentedFilter,
+  Skeleton,
+  buttonStyles,
+  tableStyles,
+} from "@/components/dashboard/ui";
 import { ApiError } from "@/lib/api/client";
 import { getFollowUps, type FollowUp } from "@/lib/api/followups";
-import { formatDateTime, formatMoney } from "@/lib/format";
+import { formatMoney, formatShortDateTime } from "@/lib/format";
 import { REMINDER_STATUS } from "@/lib/status";
 import { links } from "@/lib/url";
 
 /**
- * Approvals (UX): reminders and statements waiting for a person, from the existing follow-up list.
- * Review, approve and send happen in the invoice drawer as before; the backend enforces who may approve.
+ * Approvals: reminders and statements before they are sent, filtered from the existing follow-up list.
+ * Review, approve and send happen in the invoice drawer (Reminders tab) as before; the backend decides who
+ * may approve, and this page only explains it. Approving never sends.
  */
-type Tab = "waiting" | "ready";
+type Filter = "waiting" | "ready" | "rejected" | "all";
 
-const TABS: readonly { key: Tab; label: string; status: FollowUp["status"]; empty: string; action: string }[] = [
+const FILTERS: readonly { key: Filter; label: string; statuses: FollowUp["status"][] | null; empty: [string, string] }[] = [
   {
     key: "waiting",
-    label: "Waiting for approval",
-    status: "DRAFT",
-    empty: "Nothing is waiting for approval. Drafts appear here when a scheduled reminder is due or someone drafts a reminder.",
-    action: "Review draft",
+    label: "Awaiting approval",
+    statuses: ["DRAFT"],
+    empty: ["Nothing is waiting for approval", "Drafts appear here when a scheduled reminder is due or someone drafts a reminder."],
   },
   {
     key: "ready",
     label: "Approved, not sent",
-    status: "APPROVED",
-    empty: "No approved email is waiting to be sent.",
-    action: "Review and send",
+    statuses: ["APPROVED"],
+    empty: ["No approved email is waiting to be sent", "Approved reminders wait here until someone confirms the send."],
   },
+  {
+    key: "rejected",
+    label: "Rejected",
+    statuses: ["REJECTED"],
+    empty: ["No rejected drafts", "Drafts that a person rejected are kept here for reference; they are never sent."],
+  },
+  { key: "all", label: "All", statuses: null, empty: ["No reminders yet", "Every reminder and statement appears here once drafted."] },
 ];
 
 function amountOf(f: FollowUp): string {
@@ -40,64 +56,66 @@ function amountOf(f: FollowUp): string {
       .join(" + ");
   }
   const { amount, currency } = f.invoice_snapshot;
-  return amount && currency ? formatMoney(amount, currency) : "";
+  return amount && currency ? formatMoney(amount, currency) : "—";
 }
 
-function Row({ followUp, action }: { followUp: FollowUp; action: string }) {
+/** Who has to approve and whether the signed-in user can, in plain words. */
+function ApprovalNeed({ followUp }: { followUp: FollowUp }) {
+  if (followUp.status !== "DRAFT") {
+    return (
+      <span className="text-xs text-ink-subtle">
+        {followUp.approved_by ? `Approved by ${followUp.approved_by}` : REMINDER_STATUS[followUp.status].label}
+      </span>
+    );
+  }
   const blocked = followUp.approval.blocked_for_you;
   const needsApprover = followUp.approval.required_role === "APPROVER";
-  const changed = followUp.invoice_changed_fields.length > 0;
   return (
-    <li className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-      <div className="min-w-0 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate text-sm font-semibold text-slate-900">{followUp.client_name}</p>
-          {followUp.kind === "STATEMENT" ? (
-            <StatusPill label={`Statement · ${followUp.statement?.lines.length ?? 0} invoices`} tone="info" />
-          ) : (
-            <span className="font-mono text-xs text-slate-500">{followUp.invoice_external_id}</span>
-          )}
-          <span className="text-sm font-medium text-slate-700">{amountOf(followUp)}</span>
-        </div>
-        <p className="truncate text-sm text-slate-600">{followUp.subject}</p>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <span>{followUp.tone.charAt(0) + followUp.tone.slice(1).toLowerCase()} tone</span>
-          {followUp.step && <span>· reminder step {followUp.step.order}</span>}
-          <span>· {followUp.status === "APPROVED" && followUp.approved_at ? `approved ${formatDateTime(followUp.approved_at)}` : `drafted ${formatDateTime(followUp.generated_at)}`}</span>
-          {followUp.approved_by && <span>by {followUp.approved_by}</span>}
-        </div>
-        {changed && (
-          <p className="text-xs font-medium text-amber-800">
-            The invoice changed since this was written ({followUp.invoice_changed_fields.join(", ")}): it cannot be approved or
-            sent as it is.
-          </p>
-        )}
-        {followUp.status === "DRAFT" && needsApprover && (
-          <p className={`text-xs ${blocked ? "text-violet-900" : "text-slate-600"}`}>
-            <span className="font-medium">Approver needed</span>
-            {followUp.approval.reasons.length ? ` (${followUp.approval.reasons.join("; ")})` : ""}
-            {blocked ? `. ${blocked.code === "self_approval" ? "You edited it, so another approver must approve it." : "Your role cannot approve it."}` : ". You can approve it."}
-          </p>
-        )}
-      </div>
-      <Link
-        href={links.invoice(followUp.invoice_id)}
-        className={`shrink-0 rounded-lg px-3 py-2 text-center text-sm font-semibold ${
-          blocked
-            ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-            : "bg-indigo-600 text-white shadow-sm hover:bg-indigo-500"
-        }`}
-      >
-        {blocked ? "View" : action}
-      </Link>
-    </li>
+    <div className="space-y-0.5 text-xs">
+      <p className="font-medium text-ink">{needsApprover ? "Approver needed" : "Any operator"}</p>
+      {needsApprover && followUp.approval.reasons.length > 0 && (
+        <p className="text-ink-subtle">{followUp.approval.reasons.join("; ")}</p>
+      )}
+      {blocked ? (
+        <p className="font-medium text-brand-800">
+          {blocked.code === "self_approval" ? "You edited it: another approver must approve." : "Your role cannot approve it."}
+        </p>
+      ) : (
+        <p className="text-success-700">You can approve it.</p>
+      )}
+    </div>
+  );
+}
+
+function StaleWarning({ followUp }: { followUp: FollowUp }) {
+  const changed = followUp.invoice_changed_fields.length > 0 || Boolean(followUp.statement?.lines.some((l) => l.invoice_changed_fields.length));
+  if (!changed) return null;
+  return (
+    <p className="mt-1 text-xs font-medium text-warning-800">
+      Invoice changed since it was written: it cannot be approved or sent as it is.
+    </p>
+  );
+}
+
+function actionFor(followUp: FollowUp): { label: string; primary: boolean } {
+  if (followUp.status === "DRAFT") return followUp.approval.blocked_for_you ? { label: "View", primary: false } : { label: "Review", primary: true };
+  if (followUp.status === "APPROVED") return { label: "Review and send", primary: true };
+  return { label: "View", primary: false };
+}
+
+function Type({ followUp }: { followUp: FollowUp }) {
+  return (
+    <span className="whitespace-nowrap">
+      {followUp.kind === "STATEMENT" ? `Statement · ${followUp.statement?.lines.length ?? 0} invoices` : "Reminder"}
+      {followUp.step ? ` · step ${followUp.step.order}` : ""}
+    </span>
   );
 }
 
 export function ApprovalsView() {
   const [rows, setRows] = useState<FollowUp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("waiting");
+  const [filter, setFilter] = useState<Filter>("waiting");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -109,54 +127,138 @@ export function ApprovalsView() {
     return () => controller.abort();
   }, []);
 
-  const byTab = (key: Tab) => {
-    const status = TABS.find((t) => t.key === key)?.status;
-    return (rows ?? []).filter((f) => f.status === status).sort((a, b) => a.generated_at.localeCompare(b.generated_at));
+  const matching = (key: Filter) => {
+    const statuses = FILTERS.find((f) => f.key === key)?.statuses ?? null;
+    return (rows ?? [])
+      .filter((f) => statuses === null || statuses.includes(f.status))
+      .sort((a, b) => (key === "all" ? b.generated_at.localeCompare(a.generated_at) : a.generated_at.localeCompare(b.generated_at)));
   };
-  const current = TABS.find((t) => t.key === tab) ?? TABS[0]!;
-  const shown = byTab(tab);
+  const current = FILTERS.find((f) => f.key === filter) ?? FILTERS[0]!;
+  const shown = matching(filter);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Approvals"
-        description="Reminders and statements a person must approve, and approved emails waiting to be sent. Approving never sends; sending is a separate, confirmed step."
+        description="Review collection emails before they are sent. Approving never sends: sending is a separate, confirmed step."
       />
-      <div className="flex flex-wrap gap-1" role="tablist" aria-label="Approvals">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-              tab === t.key ? "bg-slate-900 text-white" : "bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-50"
-            }`}
-          >
-            {t.label}
-            {rows && <span className="ml-1.5 opacity-70">{byTab(t.key).length}</span>}
-          </button>
-        ))}
-      </div>
       {error && <ErrorMessage message={`Could not load approvals: ${error}`} />}
-      <Card className="overflow-hidden">
+      <Section
+        title={current.label}
+        count={rows ? shown.length : undefined}
+        flush
+        actions={
+          <SegmentedFilter
+            label="Filter approvals"
+            value={filter}
+            onChange={setFilter}
+            options={FILTERS.map((f) => ({ key: f.key, label: f.label, count: rows ? matching(f.key).length : undefined }))}
+          />
+        }
+      >
         {rows === null && !error ? (
-          <div className="space-y-3 p-5">
-            <Skeleton className="h-14" />
-            <Skeleton className="h-14" />
+          <div className="space-y-3 p-5" aria-busy="true" aria-label="Loading approvals">
+            <Skeleton className="h-12" />
+            <Skeleton className="h-12" />
+            <Skeleton className="h-12" />
           </div>
         ) : shown.length === 0 ? (
-          <EmptyState title={current.label}>{current.empty}</EmptyState>
+          <EmptyState title={current.empty[0]} icon="check">
+            {current.empty[1]}
+          </EmptyState>
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {shown.map((f) => (
-              <Row key={f.id} followUp={f} action={current.action} />
-            ))}
-          </ul>
+          <>
+            {/* Phones: one stacked row per email. */}
+            <ul className="divide-y divide-slate-100 xl:hidden">
+              {shown.map((f) => {
+                const action = actionFor(f);
+                return (
+                  <li key={f.id} className="space-y-2 px-5 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-ink">{f.client_name}</p>
+                        <p className="font-mono text-xs text-ink-subtle">{f.invoice_external_id}</p>
+                      </div>
+                      <p className="shrink-0 text-sm font-semibold tabular-nums text-ink">{amountOf(f)}</p>
+                    </div>
+                    <p className="text-sm text-ink-muted">{f.subject}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <FollowUpStatusBadge status={f.status} />
+                      <ToneBadge tone={f.tone} />
+                    </div>
+                    <ApprovalNeed followUp={f} />
+                    <p className="text-xs text-ink-subtle">Last edited by {f.last_edited_by ?? "nobody (AI draft)"}</p>
+                    <StaleWarning followUp={f} />
+                    <Link href={links.invoice(f.invoice_id)} className={`${action.primary ? buttonStyles.primary : buttonStyles.secondary} w-full sm:w-auto`}>
+                      {action.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className={`hidden xl:block ${tableStyles.wrap}`}>
+              <table className={tableStyles.table}>
+                <thead>
+                  <tr className={tableStyles.headRow}>
+                    <th scope="col" className={tableStyles.th}>Customer</th>
+                    <th scope="col" className={tableStyles.th}>Invoice and subject</th>
+                    <th scope="col" className={tableStyles.thNum}>Amount</th>
+                    <th scope="col" className={tableStyles.th}>Approval</th>
+                    <th scope="col" className={`${tableStyles.th} text-right`}>
+                      <span className="sr-only">Action</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className={tableStyles.body}>
+                  {shown.map((f) => {
+                    const action = actionFor(f);
+                    return (
+                      <tr key={f.id} className={tableStyles.row}>
+                        <td className={`${tableStyles.td} whitespace-nowrap`}>
+                          <p className="font-medium text-ink">{f.client_name}</p>
+                          <p className="text-xs text-ink-subtle">Drafted {formatShortDateTime(f.generated_at)}</p>
+                        </td>
+                        <td className={`${tableStyles.td} max-w-[20rem]`}>
+                          <p className="text-xs text-ink-subtle">
+                            <Link href={links.invoice(f.invoice_id)} className="font-mono font-medium text-brand-700 hover:underline">
+                              {f.invoice_external_id}
+                            </Link>
+                            {" · "}
+                            <Type followUp={f} />
+                          </p>
+                          <p className="truncate text-sm text-ink-muted" title={f.subject}>
+                            {f.subject}
+                          </p>
+                          <div className="mt-1.5">
+                            <ToneBadge tone={f.tone} />
+                          </div>
+                          <StaleWarning followUp={f} />
+                        </td>
+                        <td className={tableStyles.tdNum}>{amountOf(f)}</td>
+                        <td className={`${tableStyles.td} min-w-44 max-w-56`}>
+                          {filter === "all" && (
+                            <div className="mb-1">
+                              <FollowUpStatusBadge status={f.status} />
+                            </div>
+                          )}
+                          <ApprovalNeed followUp={f} />
+                          <p className="mt-1 text-xs text-ink-subtle">Last edited by {f.last_edited_by ?? "nobody (AI draft)"}</p>
+                        </td>
+                        <td className={`${tableStyles.td} text-right`}>
+                          <Link href={links.invoice(f.invoice_id)} className={action.primary ? buttonStyles.primarySm : buttonStyles.secondarySm}>
+                            {action.label}
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
-      </Card>
-      <p className="text-xs text-slate-500">
+      </Section>
+      <p className="text-xs text-ink-subtle">
         Status words: {REMINDER_STATUS.DRAFT.label} → {REMINDER_STATUS.APPROVED.label} → {REMINDER_STATUS.SENT.label}. If
         Gmail&apos;s answer is lost the status becomes &quot;{REMINDER_STATUS.DELIVERY_UNKNOWN.label}&quot; and nothing is resent.
       </p>

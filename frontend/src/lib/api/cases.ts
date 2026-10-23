@@ -161,6 +161,8 @@ export function getUsers(signal?: AbortSignal): Promise<AppUser[]> {
 
 export type HistoryEvent = {
   id: string;
+  /** The invoice the event belongs to (null for customer-level events). */
+  invoice?: string | null;
   type: string;
   type_label: string;
   actor_type: string;
@@ -174,5 +176,11 @@ const isHistory = (v: unknown): v is { results: HistoryEvent[] } =>
 /** Recent timeline events for an invoice, newest first. */
 export async function getInvoiceHistory(invoiceId: string, signal?: AbortSignal): Promise<HistoryEvent[]> {
   const page = await backendGet(`/timeline/?invoice=${invoiceId}&limit=50`, isHistory, { signal });
+  return page.results;
+}
+
+/** Recent timeline events for a customer (every invoice of the client), newest first. */
+export async function getClientHistory(clientId: string, signal?: AbortSignal): Promise<HistoryEvent[]> {
+  const page = await backendGet(`/timeline/?client=${clientId}&limit=100`, isHistory, { signal });
   return page.results;
 }

@@ -23,3 +23,22 @@ export function formatDateTime(isoDateTime: string): string {
   if (Number.isNaN(date.getTime())) return isoDateTime;
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
+
+export function formatTime(isoDateTime: string): string {
+  const date = new Date(isoDateTime);
+  if (Number.isNaN(date.getTime())) return isoDateTime;
+  return new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(date);
+}
+
+/** "Oct 23" for this year, "Oct 23, 2025" otherwise; with the time when `withTime`. */
+export function formatShortDateTime(isoDateTime: string, withTime = true): string {
+  const date = new Date(isoDateTime);
+  if (Number.isNaN(date.getTime())) return isoDateTime;
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+    ...(withTime ? { hour: "numeric", minute: "2-digit" } : {}),
+  }).format(date);
+}

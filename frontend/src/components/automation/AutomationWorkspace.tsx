@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { runAutomation } from "@/lib/api/automation";
@@ -10,18 +11,30 @@ import { finalizeWorkflow, getCurrentWorkflow, leaveUnsent, type Workflow, type 
 import { formatDateTime } from "@/lib/format";
 
 import type { Loadable } from "../dashboard/types";
-import { Card, ErrorMessage, Icon, Skeleton, Spinner } from "../dashboard/ui";
+import {
+  Card,
+  EmptyState,
+  ErrorMessage,
+  Icon,
+  Notice,
+  PageHeader,
+  Section as UiSection,
+  Skeleton,
+  Spinner,
+  buttonStyles,
+} from "../dashboard/ui";
+import { JobsTable, useIntegrationReport } from "../integrations/health";
 import { AttentionList, DeliveryItem, ReviewItem, Section, SendItem, SummaryGrid } from "./Sections";
 import { StepTracker } from "./StepTracker";
 
 const POLL_INTERVAL_MS = 1500;
 
 const STATE_META: Record<WorkflowState, { label: string; style: string }> = {
-  PROCESSING: { label: "Processing", style: "bg-sky-50 text-sky-700 ring-sky-600/20" },
-  WAITING_FOR_APPROVAL: { label: "Waiting for your approval", style: "bg-indigo-50 text-indigo-700 ring-indigo-600/20" },
-  WAITING_FOR_SEND_CONFIRMATION: { label: "Waiting for send confirmation", style: "bg-indigo-50 text-indigo-700 ring-indigo-600/20" },
-  SENDING: { label: "Sending", style: "bg-sky-50 text-sky-700 ring-sky-600/20" },
-  READY_TO_FINALIZE: { label: "Ready to finalize", style: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" },
+  PROCESSING: { label: "Processing", style: "bg-info-50 text-info-700 ring-info-600/20" },
+  WAITING_FOR_APPROVAL: { label: "Waiting for your approval", style: "bg-brand-50 text-brand-700 ring-brand-600/20" },
+  WAITING_FOR_SEND_CONFIRMATION: { label: "Waiting for send confirmation", style: "bg-brand-50 text-brand-700 ring-brand-600/20" },
+  SENDING: { label: "Sending", style: "bg-info-50 text-info-700 ring-info-600/20" },
+  READY_TO_FINALIZE: { label: "Ready to finalize", style: "bg-success-50 text-success-700 ring-success-600/20" },
   FINALIZED: { label: "Finalized", style: "bg-slate-100 text-slate-600 ring-slate-500/20" },
 };
 
@@ -31,6 +44,30 @@ const message = (error: unknown) => (error instanceof ApiError ? error.message :
  * Guided automation workflow. All state comes from the backend (`/automation/workflows/current/`),
  * so a refresh resumes exactly where the operator left off; this component never decides progress.
  */
+/** The worker's scheduled processes (from the integration health report): what each does and how it is doing. */
+function ScheduledProcesses() {
+  const { report, error } = useIntegrationReport();
+  return (
+    <UiSection
+      title="Scheduled processes"
+      description="Background work the worker runs on a timer. The schedule is set in the server configuration."
+      flush
+      actions={
+        <Link href="/settings/integrations" className={buttonStyles.secondarySm}>
+          Connected Services
+        </Link>
+      }
+    >
+      {error && (
+        <div className="p-5">
+          <ErrorMessage message={`Could not load the scheduled processes: ${error}`} />
+        </div>
+      )}
+      {report === null && !error ? <Skeleton className="m-5 h-24" /> : report && <JobsTable jobs={report.scheduled_jobs} />}
+    </UiSection>
+  );
+}
+
 export function AutomationWorkspace() {
   const [workflow, setWorkflow] = useState<Loadable<Workflow | null>>({ kind: "loading" });
   const [refreshKey, setRefreshKey] = useState(0);
@@ -120,39 +157,46 @@ export function AutomationWorkspace() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Automation Settings</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Sync, draft with AI, review, and confirm each Gmail send in one place. Nothing is emailed without your confirmation.
-          </p>
-        </div>
-        <div className="shrink-0">
+      <PageHeader
+        title="Automation Settings"
+        description="See how CollectFlow prepares and monitors collection work, and run it by hand when you want to."
+        actions={
           <button
             type="button"
             onClick={() => void start()}
             disabled={active || open}
             title={open ? "Finish or finalize the current workflow first." : undefined}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            className={buttonStyles.primary}
           >
             {active ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />}
             {active ? "Running…" : "Run Automation"}
           </button>
-        </div>
+        }
+      />
+      <Notice tone="info" title="Automation prepares work; people approve and send">
+        Scheduled processes sync the sheet, draft due reminders, read replies and update scores. They never approve a
+        reminder or send an email: every send needs a person&apos;s approval and a confirmed click.
+      </Notice>
+      <ScheduledProcesses />
+      <div className="pt-2">
+        <h2 className="text-lg font-semibold text-ink">Run the automation by hand</h2>
+        <p className="mt-0.5 text-sm text-ink-muted">
+          Run Automation syncs, drafts with AI, then walks you through review and each confirmed Gmail send in one place.
+        </p>
       </div>
-
       {connectionIssue && workflow.kind === "ready" && (
-        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800">Connection problem; retrying. Showing the last known state.</p>
+        <Notice tone="warning">Connection problem; retrying. Showing the last known state.</Notice>
       )}
-      {notice && <p className="rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-800">{notice}</p>}
+      {notice && <Notice tone="info">{notice}</Notice>}
       {error && <ErrorMessage message={error} />}
 
       {workflow.kind === "loading" && <Skeleton className="h-64 w-full rounded-xl" />}
       {workflow.kind === "error" && <ErrorMessage message={`Could not load the workflow: ${workflow.message}`} />}
       {workflow.kind === "ready" && data === null && (
-        <Card className="px-6 py-14 text-center">
-          <p className="text-sm font-semibold text-slate-900">No automation workflow yet</p>
-          <p className="mt-1 text-sm text-slate-500">Click Run Automation to sync invoices and draft reminders for overdue ones.</p>
+        <Card>
+          <EmptyState title="No automation run in progress" icon="sparkles">
+            Click Run Automation to sync invoices and draft reminders for overdue ones. Nothing is sent without your confirmation.
+          </EmptyState>
         </Card>
       )}
 
@@ -167,7 +211,7 @@ export function AutomationWorkspace() {
               {formatDateTime(data.run.started_at)}
             </span>
             {data.run.finalized_at && <span className="text-slate-500">finalized {formatDateTime(data.run.finalized_at)}</span>}
-            {data.run.error_summary && <span className="w-full text-rose-700">{data.run.error_summary}</span>}
+            {data.run.error_summary && <span className="w-full text-danger-700">{data.run.error_summary}</span>}
           </Card>
 
           <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
@@ -177,7 +221,7 @@ export function AutomationWorkspace() {
 
             <div className="min-w-0 space-y-6">
               {data.state === "PROCESSING" && (
-                <Card className="flex items-center gap-3 px-5 py-4 text-sm text-sky-800">
+                <Card className="flex items-center gap-3 px-5 py-4 text-sm text-info-800">
                   <Spinner className="h-5 w-5" />
                   {data.steps.find((step) => step.key === data.current_step)?.label ?? "Processing"}…{" "}
                   {data.steps.find((step) => step.key === data.current_step)?.detail}
@@ -246,7 +290,7 @@ export function AutomationWorkspace() {
                       type="button"
                       onClick={() => void finalize(data.id)}
                       disabled={finalizing}
-                      className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
+                      className={buttonStyles.primary}
                     >
                       {finalizing && <Spinner />}
                       {data.summary.awaiting_send_confirmation > 0

@@ -4,18 +4,29 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { useCurrentUser } from "@/components/auth/SessionGate";
-import { ChasingNote, DisputeCard } from "@/components/dashboard/CasePanel";
-import { Card, ErrorMessage, Skeleton } from "@/components/dashboard/ui";
+import { DisputeCard } from "@/components/dashboard/CasePanel";
+import {
+  Card,
+  EmptyState,
+  ErrorMessage,
+  KeyValues,
+  Notice,
+  PageHeader,
+  SegmentedFilter,
+  Skeleton,
+  StatusPill,
+  buttonStyles,
+} from "@/components/dashboard/ui";
 import { getUsers, listDisputes, type AppUser, type DisputeCase, type DisputeFilter } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
-import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { formatDate, formatDateTime, formatMoney, formatShortDateTime } from "@/lib/format";
 import { DISPUTE_STATUS, labelFor } from "@/lib/status";
 import { links, setQueryParam, useUrlParam } from "@/lib/url";
 
 const FILTERS: { key: DisputeFilter; label: string }[] = [
-  { key: "open", label: "Open cases" },
-  { key: "unassigned", label: "No owner yet" },
-  { key: "mine", label: "Owned by me" },
+  { key: "open", label: "Open" },
+  { key: "unassigned", label: "Unassigned" },
+  { key: "mine", label: "Mine" },
   { key: "resolved", label: "Resolved" },
   { key: "all", label: "All" },
 ];
@@ -27,43 +38,87 @@ function errorText(err: unknown): string {
 function DisputeDetails({ dispute, users, onChanged }: { dispute: DisputeCase; users: AppUser[]; onChanged: () => void }) {
   const user = useCurrentUser();
   const isApprover = user.role === "APPROVER" || user.role === "ADMIN";
+  const status = labelFor(DISPUTE_STATUS, dispute.status);
+  const section = "space-y-2 border-t border-line px-5 py-5 sm:px-6";
+  const title = "text-sm font-semibold text-ink";
   return (
-    <div className="space-y-4 p-5">
-      <header className="space-y-1">
-        <h2 className="text-lg font-semibold text-slate-900">
-          {dispute.invoice_external_id} · {dispute.client_name}
-        </h2>
-        <p className="text-sm text-slate-600">
-          {dispute.invoice_amount && dispute.invoice_currency
-            ? `${formatMoney(dispute.invoice_amount, dispute.invoice_currency)} · `
-            : ""}
-          {dispute.invoice_due_date ? `due ${formatDate(dispute.invoice_due_date)} · ` : ""}
-          invoice {dispute.invoice_status?.toLowerCase()}
-        </p>
-        <p className="flex flex-wrap gap-3 text-sm">
-          <Link href={links.invoice(dispute.invoice)} className="font-medium text-indigo-600 hover:underline">
-            Open the invoice
-          </Link>
-          {dispute.reply_summary && (
-            <Link href={links.reply(dispute.reply_summary.id)} className="font-medium text-indigo-600 hover:underline">
-              Open the customer&apos;s reply
+    <div>
+      <header className="space-y-4 px-5 py-5 sm:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-ink">
+              {dispute.client_name} <span className="font-mono text-base font-medium text-ink-muted">{dispute.invoice_external_id}</span>
+            </h2>
+            <p className="mt-0.5 text-sm text-ink-muted">{dispute.reason_display}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <StatusPill label={status.label} tone={status.tone} />
+            <Link href={links.invoice(dispute.invoice)} className={buttonStyles.secondarySm}>
+              Open invoice
             </Link>
-          )}
-        </p>
-        {dispute.reply_summary && (
-          <p className="text-xs text-slate-500">
-            From {dispute.reply_summary.sender_email} on {formatDateTime(dispute.reply_summary.received_at)}
-            {dispute.reply_summary.ai_label ? ` · the AI suggested ${dispute.reply_summary.ai_label.toLowerCase().replace(/_/g, " ")}` : ""}
-          </p>
-        )}
+          </div>
+        </div>
+        <KeyValues
+          columns={4}
+          items={[
+            {
+              label: "Amount",
+              value: dispute.invoice_amount && dispute.invoice_currency ? formatMoney(dispute.invoice_amount, dispute.invoice_currency) : "—",
+            },
+            { label: "Due", value: dispute.invoice_due_date ? formatDate(dispute.invoice_due_date) : "—" },
+            { label: "Invoice status", value: dispute.invoice_status ? dispute.invoice_status.charAt(0) + dispute.invoice_status.slice(1).toLowerCase() : "—" },
+            { label: "Owner", value: dispute.owner?.display_name ?? "No owner yet" },
+          ]}
+        />
       </header>
-      {dispute.chasing && (
-        <section aria-label="Chasing status" className="space-y-1">
-          <h3 className="text-sm font-semibold text-slate-900">Is the invoice being chased?</h3>
-          <ChasingNote chasing={dispute.chasing} />
-        </section>
-      )}
-      <DisputeCard dispute={dispute} users={users} isApprover={isApprover} onChanged={() => onChanged()} />
+
+      <section aria-label="Customer's original reply" className={section}>
+        <h3 className={title}>Customer&apos;s original reply</h3>
+        {dispute.reply_summary ? (
+          <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-line bg-white px-4 py-3">
+            <div className="min-w-0 text-sm">
+              <p className="font-medium text-ink">{dispute.reply_summary.subject || "(no subject)"}</p>
+              <p className="text-xs text-ink-subtle">
+                From {dispute.reply_summary.sender_email} on {formatDateTime(dispute.reply_summary.received_at)}
+                {dispute.reply_summary.ai_label ? ` · AI suggested ${dispute.reply_summary.ai_label.toLowerCase().replace(/_/g, " ")}` : ""}
+              </p>
+            </div>
+            <Link href={links.reply(dispute.reply_summary.id)} className={buttonStyles.link}>
+              Open the reply
+            </Link>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-subtle">This dispute was opened from the invoice, not from a customer reply.</p>
+        )}
+      </section>
+
+      <div className="border-t border-line px-5 py-5 sm:px-6">
+        <DisputeCard
+          bare
+          dispute={dispute}
+          users={users}
+          isApprover={isApprover}
+          onChanged={() => onChanged()}
+          impact={
+            dispute.chasing ? (
+              <section aria-label="Collection impact" className="space-y-2 border-t border-line pt-4">
+                <h4 className={title}>Collection impact</h4>
+                {dispute.chasing.resumes ? (
+                  <Notice tone="success">Chasing resumes. {dispute.chasing.note}</Notice>
+                ) : (
+                  <Notice tone="warning" title="Chasing is stopped">
+                    <ul className="list-disc space-y-0.5 pl-4">
+                      {dispute.chasing.blocked_by.map((b) => (
+                        <li key={b.code}>{b.detail}</li>
+                      ))}
+                    </ul>
+                  </Notice>
+                )}
+              </section>
+            ) : undefined
+          }
+        />
+      </div>
     </div>
   );
 }
@@ -73,12 +128,14 @@ export function DisputesView() {
   const [filter, setFilter] = useState<DisputeFilter>(caseParam ? "all" : "open");
   const [rows, setRows] = useState<DisputeCase[] | null>(null);
   const [selected, setSelected] = useState<string | null>(caseParam);
+  const [mobileDetail, setMobileDetail] = useState(Boolean(caseParam));
   const [seenCaseParam, setSeenCaseParam] = useState(caseParam);
   if (caseParam !== seenCaseParam) {
     setSeenCaseParam(caseParam);
     if (caseParam) {
       setSelected(caseParam);
       setFilter("all");
+      setMobileDetail(true);
     }
   }
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -109,86 +166,84 @@ export function DisputesView() {
 
   const select = useCallback((id: string) => {
     setSelected(id);
+    setMobileDetail(true);
     setQueryParam("case", id);
   }, []);
 
   const shown = rows?.find((d) => d.id === selected) ?? null;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Disputes</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            While a dispute is open its invoice is not chased at all. Anyone can add notes or take ownership; an approver
-            resolves it.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter">
-          {FILTERS.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              role="tab"
-              aria-selected={filter === item.key}
-              onClick={() => setFilter(item.key)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                filter === item.key ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Disputes"
+        description="Review and resolve customer concerns about invoices. While a dispute is open its invoice is not chased; an approver resolves it."
+      />
       {error && <ErrorMessage message={`Could not load disputes: ${error}`} />}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-        <Card className="max-h-[75vh] overflow-auto">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,38fr)_minmax(0,62fr)] lg:items-start">
+        <Card className={`overflow-hidden lg:sticky lg:top-6 ${mobileDetail ? "max-lg:hidden" : ""}`}>
+          <div className="border-b border-line p-4">
+            <SegmentedFilter fill label="Filter disputes" options={FILTERS} value={filter} onChange={setFilter} />
+          </div>
           {rows === null ? (
-            <div className="space-y-2 p-4">
-              <Skeleton className="h-14" />
-              <Skeleton className="h-14" />
+            <div className="space-y-3 p-4" aria-busy="true" aria-label="Loading disputes">
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16" />
             </div>
           ) : rows.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-slate-500">No disputes here. A dispute is opened from a reply in Customer Replies or from an invoice.</p>
+            <EmptyState title={filter === "open" ? "No open disputes" : "No disputes here"} icon="check">
+              A dispute is opened from a reply in Customer Replies or from an invoice.
+            </EmptyState>
           ) : (
-            <ul className="divide-y divide-slate-100" role="listbox" aria-label="Disputes">
-              {rows.map((d) => (
-                <li key={d.id}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={d.id === selected}
-                    onClick={() => select(d.id)}
-                    className={`block w-full px-4 py-3 text-left hover:bg-slate-50 ${d.id === selected ? "bg-indigo-50/60" : ""}`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-semibold text-slate-900">{d.client_name}</span>
-                      <span
-                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                          d.status === "OPEN" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-slate-200 bg-slate-50 text-slate-600"
-                        }`}
-                      >
-                        {labelFor(DISPUTE_STATUS, d.status).label}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {d.invoice_external_id} · {d.reason_display} · opened {formatDate(d.created_at.slice(0, 10))}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-600">{d.owner ? `Owner: ${d.owner.display_name}` : "No owner yet"}</p>
-                  </button>
-                </li>
-              ))}
+            <ul className="divide-y divide-slate-100 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto" role="listbox" aria-label="Disputes">
+              {rows.map((d) => {
+                const active = d.id === selected;
+                const status = labelFor(DISPUTE_STATUS, d.status);
+                return (
+                  <li key={d.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      onClick={() => select(d.id)}
+                      className={`relative block w-full px-4 py-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
+                        active ? "bg-brand-50/70" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-brand-600" aria-hidden="true" />}
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="truncate text-sm font-semibold text-ink">{d.client_name}</span>
+                        <span className="shrink-0 text-xs text-ink-subtle">{formatShortDateTime(d.created_at, false)}</span>
+                      </div>
+                      <p className="mt-0.5 text-sm text-ink-muted">
+                        <span className="font-mono text-xs">{d.invoice_external_id}</span> · {d.reason_display}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <StatusPill label={status.label} tone={status.tone} />
+                        <span className="text-xs text-ink-subtle">{d.owner ? `Owner: ${d.owner.display_name}` : "No owner yet"}</span>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
-        <Card>
-          {shown ? (
-            <DisputeDetails key={`${shown.id}:${shown.status}:${shown.notes.length}`} dispute={shown} users={users} onChanged={() => setReload((n) => n + 1)} />
-          ) : (
-            <p className="p-6 text-sm text-slate-500">{rows && rows.length === 0 ? "Nothing to show." : "Select a dispute."}</p>
-          )}
-        </Card>
+        <div className={mobileDetail ? "" : "max-lg:hidden"}>
+          <button type="button" onClick={() => setMobileDetail(false)} className={`mb-3 lg:hidden ${buttonStyles.ghost} -ml-3`}>
+            Back to disputes
+          </button>
+          <Card className="overflow-hidden">
+            {shown ? (
+              <DisputeDetails key={`${shown.id}:${shown.status}:${shown.notes.length}`} dispute={shown} users={users} onChanged={() => setReload((n) => n + 1)} />
+            ) : (
+              <EmptyState title={rows && rows.length === 0 ? "Nothing to review" : "Select a dispute"} icon="info">
+                {rows && rows.length === 0
+                  ? "Disputes appear here when a customer questions an invoice."
+                  : "Choose a dispute on the left to see the reply, the notes and what blocks chasing."}
+              </EmptyState>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   );

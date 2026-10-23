@@ -15,7 +15,7 @@ import {
 } from "@/lib/api/sequences";
 import { formatDateTime } from "@/lib/format";
 
-import { ErrorMessage, Spinner } from "./ui";
+import { buttonStyles, ErrorMessage, inputStyles, Spinner } from "./ui";
 
 /** Why a sequence is not moving, in operator terms. */
 export const BLOCKED_REASONS: Record<string, string> = {
@@ -27,8 +27,8 @@ export const BLOCKED_REASONS: Record<string, string> = {
 };
 
 const STATE_STYLES: Record<StepState["state"], string> = {
-  done: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  pending: "border-indigo-300 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-200",
+  done: "border-success-200 bg-success-50 text-success-800",
+  pending: "border-brand-300 bg-brand-50 text-brand-800 ring-2 ring-brand-200",
   upcoming: "border-slate-200 bg-white text-slate-500",
 };
 const STATE_LABELS: Record<StepState["state"], string> = { done: "Done", pending: "In progress", upcoming: "Upcoming" };
@@ -89,7 +89,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
   const canReview = user.role === "APPROVER" || user.role === "ADMIN";
 
   return (
-    <section className="space-y-3 rounded-lg border border-slate-200 p-4" aria-labelledby={`${fieldId}-title`}>
+    <section className="space-y-3 rounded-xl border border-line p-4" aria-labelledby={`${fieldId}-title`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 id={`${fieldId}-title`} className="text-sm font-semibold text-slate-900">
           {enrollment.sequence.name} <span className="font-normal text-slate-500">v{enrollment.sequence.version}</span>
@@ -118,7 +118,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
       </ol>
 
       {enrollment.holds.length > 0 && (
-        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p role="status" className="rounded-lg border border-warning-300 bg-warning-50 px-3 py-2 text-sm text-warning-900">
           <span className="font-semibold">Chasing on hold:</span>{" "}
           {enrollment.holds.map((hold) => hold.reason_display.toLowerCase()).join(", ")}. A customer replied; no reminder is
           drafted, approved or sent until the reply is reviewed.{" "}
@@ -134,7 +134,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
         </p>
       )}
       {enrollment.blocked_reason && (
-        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p role="status" className="rounded-lg border border-warning-300 bg-warning-50 px-3 py-2 text-sm text-warning-900">
           <span className="font-semibold">Held:</span> {BLOCKED_REASONS[enrollment.blocked_reason] ?? enrollment.blocked_reason}
           {enrollment.blocked_reason === "ai_retry_scheduled" && enrollment.retry_after && (
             <> Next try after {formatDateTime(enrollment.retry_after)}.</>
@@ -148,7 +148,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
       )}
 
       {enrollment.review_required && (
-        <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="space-y-2 rounded-lg border border-warning-300 bg-warning-50 p-3 text-sm text-warning-900">
           <p>
             <span className="font-semibold">History review{inReview ? " required" : " suggested"}:</span> {enrollment.review_reason}
           </p>
@@ -160,7 +160,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
                   value={position ?? 0}
                   onChange={(event) => setPosition(Number(event.target.value))}
                   disabled={busy}
-                  className="mt-1 block rounded-md border border-amber-300 bg-white px-2 py-1 text-sm text-slate-900"
+                  className={`mt-1 ${inputStyles.select}`}
                 >
                   {[0, ...enrollment.steps.map((step) => step.order)].map((order) => (
                     <option key={order} value={order}>
@@ -175,13 +175,13 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
                 placeholder="Note (optional)"
                 aria-label="Review note"
                 disabled={busy}
-                className="min-w-0 flex-1 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm text-slate-900"
+                className={`${inputStyles.input} min-w-0 flex-1`}
               />
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => void act(() => reviewEnrollment(enrollment.id, position ?? 0, note))}
-                className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
+                className={buttonStyles.primary}
               >
                 {busy && <Spinner />}
                 Confirm position
@@ -203,14 +203,14 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
                 placeholder="Reason for pausing"
                 aria-label="Reason for pausing"
                 disabled={busy}
-                className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900"
+                className={`${inputStyles.input} min-w-0 flex-1`}
               />
               <button
                 type="button"
                 disabled={busy || !pauseReason.trim()}
                 title={!pauseReason.trim() ? "Enter a reason first" : undefined}
                 onClick={() => void act(() => pauseEnrollment(enrollment.id, pauseReason))}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                className={buttonStyles.secondary}
               >
                 Pause reminders
               </button>
@@ -220,7 +220,7 @@ export function SequencePanel({ invoiceId, refreshKey }: { invoiceId: string; re
               type="button"
               disabled={busy}
               onClick={() => void act(() => resumeEnrollment(enrollment.id))}
-              className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
+              className={buttonStyles.primary}
             >
               Resume reminders
             </button>

@@ -3,7 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 
-import { Card, ErrorMessage, Spinner } from "@/components/dashboard/ui";
+import { Card, ErrorMessage, Spinner, buttonStyles } from "@/components/dashboard/ui";
 import { Logo } from "@/components/layout/Logo";
 import { login } from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/client";
@@ -36,7 +36,7 @@ export function LoginForm() {
   };
 
   const inputClass =
-    "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30";
+    "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30";
 
   return (
     <Card className="w-full max-w-sm p-6 sm:p-8">
@@ -82,7 +82,7 @@ export function LoginForm() {
         <button
           type="submit"
           disabled={submitting}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className={`${buttonStyles.primary} w-full`}
         >
           {submitting && <Spinner />}
           {submitting ? "Signing in…" : "Sign in"}

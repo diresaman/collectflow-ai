@@ -5,16 +5,16 @@ import { Card, Spinner } from "../dashboard/ui";
 
 const STATUS_META: Record<StepStatus, { label: string; dot: string; text: string }> = {
   PENDING: { label: "Pending", dot: "border-2 border-slate-300 bg-white", text: "text-slate-400" },
-  RUNNING: { label: "In progress", dot: "bg-sky-500", text: "text-sky-700" },
-  COMPLETED: { label: "Completed", dot: "bg-emerald-500", text: "text-emerald-700" },
-  FAILED: { label: "Needs attention", dot: "bg-rose-500", text: "text-rose-700" },
+  RUNNING: { label: "In progress", dot: "bg-info-500", text: "text-info-700" },
+  COMPLETED: { label: "Completed", dot: "bg-success-500", text: "text-success-700" },
+  FAILED: { label: "Needs attention", dot: "bg-danger-500", text: "text-danger-700" },
   SKIPPED: { label: "Skipped", dot: "bg-slate-300", text: "text-slate-500" },
 };
 
 function StepIcon({ status }: { status: StepStatus }) {
   if (status === "RUNNING") {
     return (
-      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-100 text-sky-600">
+      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-info-100 text-info-600">
         <Spinner className="h-3.5 w-3.5" />
       </span>
     );

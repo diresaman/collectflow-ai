@@ -1,9 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
-import { Card, ErrorMessage, Skeleton, Spinner } from "@/components/dashboard/ui";
+import {
+  Card,
+  EmptyState,
+  ErrorMessage,
+  Icon,
+  KeyValues,
+  Notice,
+  PageHeader,
+  Section,
+  Skeleton,
+  Spinner,
+  StatusPill,
+  TabPanel,
+  Tabs,
+  buttonStyles,
+  tableStyles,
+  type PillTone,
+} from "@/components/dashboard/ui";
+import { getClientHistory, type HistoryEvent } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
 import {
   getClient,
@@ -17,302 +36,450 @@ import {
   type WorklistRow,
 } from "@/lib/api/clients";
 import { jobError, waitForJob } from "@/lib/api/jobs";
-import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { formatDate, formatDateTime, formatMoney, formatShortDateTime } from "@/lib/format";
 import { SECTION_TITLES } from "@/lib/status";
-import { appLink, setQueryParam, useUrlParam } from "@/lib/url";
+import { appLink, links, useUrlParam } from "@/lib/url";
 
 function errorText(err: unknown): string {
   return err instanceof ApiError ? err.message : "Unexpected error.";
 }
 
 function percent(rate: string | null): string {
-  return rate === null ? "no history" : `${Math.round(Number(rate) * 100)}%`;
+  return rate === null ? "No history yet" : `${Math.round(Number(rate) * 100)}%`;
 }
 
-function ScoreBadge({ score, lowConfidence }: { score: number | null; lowConfidence: boolean }) {
-  if (score === null) {
-    return <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500">not scored yet</span>;
-  }
-  const tone =
-    score >= 60 ? "border-rose-200 bg-rose-50 text-rose-800" : score >= 30 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700";
+function riskTone(score: number): PillTone {
+  return score >= 60 ? "bad" : score >= 30 ? "warn" : "neutral";
+}
+
+/** The deterministic 0–100 score, labelled as such; "low confidence" when payment history is short. */
+function RiskBadge({ score, lowConfidence }: { score: number | null; lowConfidence: boolean }) {
+  if (score === null) return <StatusPill label="Not scored yet" tone="neutral" />;
   return (
-    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tone}`}>
-      Risk {score}/100{lowConfidence ? " · low confidence" : ""}
+    <span className="inline-flex flex-col items-start gap-0.5">
+      <StatusPill label={`Risk ${score} / 100`} tone={riskTone(score)} />
+      {lowConfidence && <span className="text-[11px] text-ink-subtle">Low confidence</span>}
     </span>
   );
 }
 
-function RowButton({ row, selected, onSelect }: { row: WorklistRow; selected: boolean; onSelect: () => void }) {
+function Amounts({ amounts }: { amounts: Record<string, string> }) {
+  const entries = Object.entries(amounts);
+  if (entries.length === 0) return <>Nothing outstanding</>;
+  return <>{entries.map(([currency, amount]) => formatMoney(amount, currency)).join(" · ")}</>;
+}
+
+// Worklist ----------------------------------------------------------------------------------------------------
+
+function Blockers({ row }: { row: WorklistRow }) {
+  if (row.blockers.length === 0) return <span className="text-sm text-success-700">Chasing allowed</span>;
+  const invoices = new Set(row.blockers.map((b) => b.invoice_external_id));
   return (
-    <button
-      type="button"
-      role="option"
-      aria-selected={selected}
-      onClick={onSelect}
-      className={`block w-full px-4 py-3 text-left hover:bg-slate-50 ${selected ? "bg-indigo-50/60" : ""}`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-semibold text-slate-900">
-          <span className="mr-1.5 text-slate-400">#{row.rank}</span>
-          {row.client_name}
-        </span>
-        <ScoreBadge score={row.risk_score} lowConfidence={row.low_confidence} />
-      </div>
-      <p className="truncate text-xs text-slate-500">{row.client_email}</p>
-      <p className="mt-0.5 text-xs text-slate-500">
-        {formatMoney(row.outstanding, row.currency)} outstanding · priority {Number(row.priority).toLocaleString()} ·{" "}
-        {row.oldest_days_overdue > 0 ? `oldest ${row.oldest_days_overdue} days overdue` : "nothing overdue"}
-      </p>
-      {row.top_factors.length > 0 && (
-        <p className="mt-0.5 text-xs text-slate-600">{row.top_factors.map((f) => `${f.label} (+${f.points})`).join(" · ")}</p>
-      )}
-      <p className="mt-1 text-xs font-medium text-slate-800">Next: {row.next_action.title}</p>
-    </button>
+    <span className="text-sm text-warning-800">
+      {invoices.size === 1 ? `${[...invoices][0]} on hold` : `${invoices.size} invoices on hold`}
+    </span>
   );
 }
 
-function ClientPanel({ row, detail }: { row: WorklistRow | null; detail: ClientProfile }) {
+function WorklistGroup({ currency, rows, onOpen }: { currency: string; rows: WorklistRow[]; onOpen: (row: WorklistRow) => void }) {
   return (
-    <div className="space-y-5 p-5">
-      <header className="space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold text-slate-900">{detail.display_name}</h2>
-          <ScoreBadge score={detail.risk_score} lowConfidence={detail.low_confidence} />
-        </div>
-        <p className="text-sm text-slate-600">
-          {detail.email}
-          {detail.invoice_names.length > 1 ? ` · invoiced as ${detail.invoice_names.join(", ")}` : ""}
-        </p>
-        <p className="text-xs text-slate-500">
-          Outstanding:{" "}
-          {Object.keys(detail.outstanding).length === 0
-            ? "nothing"
-            : Object.entries(detail.outstanding)
-                .map(([currency, amount]) => formatMoney(amount, currency))
-                .join(" + ")}
-          {detail.computed_at ? ` · score calculated ${formatDateTime(detail.computed_at)}` : ""}
-        </p>
-      </header>
-
-      {row && (
-        <section aria-label="Next action" className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3">
-          <h3 className="text-sm font-semibold text-slate-900">Suggested next action ({row.currency})</h3>
-          <p className="text-sm text-slate-800">{row.next_action.title}</p>
-          {row.next_action.detail && <p className="text-xs text-slate-600">{row.next_action.detail}</p>}
-          {row.next_action.who_can_act && <p className="text-xs text-slate-600">Who can act: {row.next_action.who_can_act}</p>}
-          {row.next_action.blocked && (
-            <p className="text-xs text-amber-800">
-              <span className="font-semibold">You cannot do this yourself:</span> {row.next_action.blocked}
-            </p>
-          )}
-          {row.next_action.link && (
-            <Link href={appLink(row.next_action.link)} className="inline-block text-sm font-medium text-indigo-600 hover:underline">
-              Open
-            </Link>
-          )}
-          {row.blockers.length > 0 && (
-            <div>
-              <h4 className="text-xs font-semibold text-slate-900">What stops chasing</h4>
-              <ul className="list-disc pl-5 text-xs text-slate-700">
-                {row.blockers.map((b) => (
-                  <li key={`${b.invoice_id}:${b.code}`}>
-                    {b.invoice_external_id}: {b.detail}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <p className="text-xs text-slate-500">The score only ranks clients. It never drafts, approves, sends or ends a hold.</p>
-        </section>
-      )}
-
-      <section aria-label="Risk score breakdown">
-        <h3 className="mb-2 text-sm font-semibold text-slate-900">Why this score</h3>
-        {detail.factors.length === 0 ? (
-          <p className="text-sm text-slate-500">Not calculated yet. The worker calculates scores every hour and after changes.</p>
-        ) : (
-          <table className="w-full text-left text-sm">
-            <tbody className="divide-y divide-slate-100">
-              {detail.factors.map((f) => (
-                <tr key={f.key}>
-                  <td className="py-2 pr-3 align-top font-medium text-slate-900">{f.label}</td>
-                  <td className="whitespace-nowrap py-2 pr-3 align-top tabular-nums text-slate-900">
-                    {f.points} / {f.max}
-                  </td>
-                  <td className="py-2 align-top text-slate-600">{f.detail}</td>
-                </tr>
-              ))}
-              <tr>
-                <td className="py-2 pr-3 font-semibold text-slate-900">Total</td>
-                <td className="py-2 pr-3 font-semibold tabular-nums text-slate-900">{detail.risk_score} / 100</td>
-                <td />
-              </tr>
-            </tbody>
-          </table>
-        )}
-        <p className="mt-2 text-xs text-slate-500">
-          Payment behaviour: average {detail.avg_days_late === null ? "no measured payment" : `${detail.avg_days_late} days late`}
-          {" · "}promises kept {percent(detail.promise_kept_rate)} · reminders answered {percent(detail.response_rate)}
-        </p>
-      </section>
-
-      <section aria-label="Invoices">
-        <h3 className="mb-2 text-sm font-semibold text-slate-900">Invoices</h3>
-        <ul className="divide-y divide-slate-100 text-sm">
-          {detail.invoices.map((i) => (
-            <li key={i.id} className="py-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Link href={appLink(i.link)} className="font-medium text-indigo-600 hover:underline">
-                  {i.external_id}
-                </Link>
-                <span className="text-slate-700">
-                  {formatMoney(i.amount, i.currency)} · due {formatDate(i.due_date)} · {i.status.toLowerCase()}
-                  {i.in_sheet ? "" : " · not in the sheet"}
-                </span>
+    <Section
+      title={`Customers owing ${currency}`}
+      count={rows.length}
+      description={`Ranked by risk × amount owed in ${currency} only; other currencies are ranked separately.`}
+      flush
+    >
+      <ul className="divide-y divide-slate-100 xl:hidden" role="listbox" aria-label={`Customers owing ${currency}`}>
+        {rows.map((row) => (
+          <li key={`${row.client_id}:${row.currency}`}>
+            <button
+              type="button"
+              role="option"
+              aria-selected={false}
+              onClick={() => onOpen(row)}
+              className="block w-full space-y-2 px-5 py-4 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-ink">
+                    <span className="mr-1.5 text-ink-subtle">#{row.rank}</span>
+                    {row.client_name}
+                  </p>
+                  <p className="truncate text-xs text-ink-subtle">{row.client_email}</p>
+                </div>
+                <p className="shrink-0 text-sm font-semibold tabular-nums text-ink">{formatMoney(row.outstanding, row.currency)}</p>
               </div>
-              {(i.open_promise_id || i.open_dispute_id) && (
-                <p className="text-xs text-slate-600">
-                  {i.open_promise_id ? "Open promise to pay. " : ""}
-                  {i.open_dispute_id && (
-                    <Link href={`/disputes?case=${i.open_dispute_id}`} className="text-indigo-600 hover:underline">
-                      Open dispute
-                    </Link>
-                  )}
-                </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <RiskBadge score={row.risk_score} lowConfidence={row.low_confidence} />
+                {row.top_factors[0] && <span className="text-xs text-ink-muted">{row.top_factors[0].label}</span>}
+              </div>
+              <p className="text-sm text-ink">Next: {row.next_action.title}</p>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className={`hidden xl:block ${tableStyles.wrap}`}>
+        <table className={tableStyles.table}>
+          <thead>
+            <tr className={tableStyles.headRow}>
+              <th scope="col" className={tableStyles.th}>Customer</th>
+              <th scope="col" className={tableStyles.thNum}>Outstanding</th>
+              <th scope="col" className={tableStyles.thNum}>Overdue</th>
+              <th scope="col" className={tableStyles.th}>Risk</th>
+              <th scope="col" className={tableStyles.th}>Main reason</th>
+              <th scope="col" className={tableStyles.th}>Next action</th>
+              <th scope="col" className={tableStyles.th}>Chasing</th>
+            </tr>
+          </thead>
+          <tbody className={tableStyles.body}>
+            {rows.map((row) => {
+              const overdue = row.invoices.filter((i) => i.days_overdue > 0).length;
+              return (
+                <tr
+                  key={`${row.client_id}:${row.currency}`}
+                  onClick={() => onOpen(row)}
+                  className={`${tableStyles.row} cursor-pointer`}
+                >
+                  <td className={tableStyles.td}>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onOpen(row);
+                      }}
+                      className="rounded text-left font-medium text-brand-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    >
+                      <span className="mr-1.5 text-xs text-ink-subtle tabular-nums">#{row.rank}</span>
+                      {row.client_name}
+                    </button>
+                    <p className="text-xs text-ink-subtle">{row.client_email}</p>
+                  </td>
+                  <td className={tableStyles.tdNum}>{formatMoney(row.outstanding, row.currency)}</td>
+                  <td className={tableStyles.tdNum}>
+                    {overdue} {overdue === 1 ? "invoice" : "invoices"}
+                    {row.oldest_days_overdue > 0 && (
+                      <span className="block text-xs font-normal text-ink-subtle">oldest {row.oldest_days_overdue} days</span>
+                    )}
+                  </td>
+                  <td className={tableStyles.td}>
+                    <RiskBadge score={row.risk_score} lowConfidence={row.low_confidence} />
+                  </td>
+                  <td className={`${tableStyles.td} max-w-[12rem] text-sm text-ink-muted`}>
+                    {row.top_factors[0] ? `${row.top_factors[0].label} (+${row.top_factors[0].points})` : "—"}
+                  </td>
+                  <td className={`${tableStyles.td} max-w-[15rem] text-sm text-ink`}>
+                    {row.next_action.title}
+                    {row.next_action.blocked && <span className="block text-xs text-brand-800">For {row.next_action.who_can_act.toLowerCase()}</span>}
+                  </td>
+                  <td className={tableStyles.td}>
+                    <Blockers row={row} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+// Customer detail ---------------------------------------------------------------------------------------------
+
+type DetailTab = "overview" | "invoices" | "activity" | "statements";
+
+function Overview({ detail, row }: { detail: ClientProfile; row: WorklistRow | null }) {
+  const open = detail.invoices.filter((i) => i.status === "UNPAID" && i.in_sheet);
+  const blocked = open.filter((i) => i.blockers.length > 0);
+  const promises = detail.promise_summary;
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
+      <div className="space-y-6">
+        <Section title="Outstanding invoices" count={open.length} headingLevel={3}>
+          {open.length === 0 ? (
+            <p className="text-sm text-ink-muted">No unpaid invoice in the sheet.</p>
+          ) : (
+            <KeyValues
+              items={[
+                { label: "Outstanding", value: <Amounts amounts={detail.outstanding} /> },
+                { label: "Oldest overdue", value: detail.oldest_days_overdue ? `${detail.oldest_days_overdue} days` : "Not overdue" },
+                { label: "On hold", value: blocked.length ? `${blocked.length} of ${open.length}` : "None" },
+              ]}
+            />
+          )}
+        </Section>
+
+        <Section
+          title="Why this score"
+          headingLevel={3}
+          description="Worked out from CollectFlow's own records, not by the AI. It only ranks customers; it never drafts, approves, sends or ends a hold."
+          flush
+        >
+          {detail.factors.length === 0 ? (
+            <p className="px-6 py-5 text-sm text-ink-muted">Not calculated yet. The worker calculates scores every hour and after changes.</p>
+          ) : (
+            <table className="w-full text-left text-sm">
+              <tbody className="divide-y divide-slate-100">
+                {detail.factors.map((f) => (
+                  <tr key={f.key}>
+                    <td className="py-3 pr-4 pl-6 align-top font-medium text-ink">{f.label}</td>
+                    <td className="py-3 pr-4 text-right align-top whitespace-nowrap tabular-nums text-ink">
+                      {f.points} / {f.max}
+                    </td>
+                    <td className="py-3 pr-6 align-top text-ink-muted">{f.detail}</td>
+                  </tr>
+                ))}
+                <tr className="bg-slate-50/70">
+                  <td className="py-3 pr-4 pl-6 font-semibold text-ink">Total</td>
+                  <td className="py-3 pr-4 text-right font-semibold whitespace-nowrap tabular-nums text-ink">{detail.risk_score} / 100</td>
+                  <td className="py-3 pr-6 text-xs text-ink-subtle">
+                    {detail.low_confidence ? "Low confidence: short payment history." : ""}
+                    {detail.computed_at ? ` Calculated ${formatDateTime(detail.computed_at)}.` : ""}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </Section>
+
+        {row && (
+          <Section title={`Recommended next action (${row.currency})`} headingLevel={3}>
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-ink">{row.next_action.title}</p>
+              {row.next_action.detail && <p className="text-sm text-ink-muted">{row.next_action.detail}</p>}
+              <p className="text-xs text-ink-subtle">Who can act: {row.next_action.who_can_act || "anyone"}</p>
+              {row.next_action.blocked && (
+                <Notice tone="info">
+                  <span className="font-semibold">You cannot do this yourself:</span> {row.next_action.blocked}
+                </Notice>
               )}
-              {i.blockers.length > 0 && <p className="text-xs text-amber-800">{i.blockers.join(" ")}</p>}
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <PaymentHistory detail={detail} />
-
-      <StatementSection clientId={detail.id} statements={detail.statements} />
-
-      {(detail.open_tasks.length > 0 || detail.disputes.length > 0 || detail.promises.length > 0 || detail.replies.length > 0) && (
-        <section aria-label="Related work" className="grid gap-4 sm:grid-cols-2">
-          {detail.open_tasks.length > 0 && (
-            <div>
-              <h3 className="mb-1 text-sm font-semibold text-slate-900">Open tasks</h3>
-              <ul className="space-y-1 text-sm">
-                {detail.open_tasks.map((t) => (
-                  <li key={t.id}>
-                    <Link href={appLink(t.link)} className="text-indigo-600 hover:underline">
-                      {t.title}
-                    </Link>{" "}
-                    <span className="text-xs text-slate-500">due {formatDateTime(t.due_at)}</span>
-                  </li>
-                ))}
-              </ul>
+              {row.blockers.length > 0 && (
+                <Notice tone="warning" title="What stops chasing">
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    {row.blockers.map((b) => (
+                      <li key={`${b.invoice_id}:${b.code}`}>
+                        {b.invoice_external_id}: {b.detail}
+                      </li>
+                    ))}
+                  </ul>
+                </Notice>
+              )}
+              {row.next_action.link && (
+                <Link href={appLink(row.next_action.link)} className={buttonStyles.primary}>
+                  Open
+                </Link>
+              )}
             </div>
-          )}
-          {detail.disputes.length > 0 && (
+          </Section>
+        )}
+      </div>
+
+      <div className="space-y-6">
+        <Section title="Customer" headingLevel={3}>
+          <dl className="space-y-3 text-sm">
             <div>
-              <h3 className="mb-1 text-sm font-semibold text-slate-900">Disputes</h3>
-              <ul className="space-y-1 text-sm">
+              <dt className="text-xs text-ink-subtle">Email</dt>
+              <dd className="break-all text-ink">{detail.email}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-subtle">{detail.invoice_names.length > 1 ? "Names used on invoices" : "Name on invoices"}</dt>
+              <dd className="text-ink">{detail.invoice_names.join(", ") || detail.display_name}</dd>
+            </div>
+          </dl>
+        </Section>
+        <Section title="Payment behaviour" headingLevel={3}>
+          <dl className="space-y-3 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-muted">Average days late</dt>
+              <dd className="font-medium tabular-nums text-ink">{detail.avg_days_late === null ? "No measured payment" : `${detail.avg_days_late} days`}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-muted">Promises kept</dt>
+              <dd className="font-medium tabular-nums text-ink">{percent(detail.promise_kept_rate)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-muted">Reminders answered</dt>
+              <dd className="font-medium tabular-nums text-ink">{percent(detail.response_rate)}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-xs text-ink-subtle">Paid dates are when a sync first saw PAID, not the bank date.</p>
+        </Section>
+        <Section title="Promises, disputes and tasks" headingLevel={3}>
+          <div className="space-y-3 text-sm">
+            <p className="text-ink-muted">
+              Promises: {promises.kept} kept, {promises.broken} broken, {promises.open} open
+              {promises.cancelled ? `, ${promises.cancelled} cancelled` : ""}.
+            </p>
+            {detail.disputes.length > 0 && (
+              <ul className="space-y-1">
                 {detail.disputes.map((d) => (
-                  <li key={d.id}>
-                    <Link href={appLink(d.link)} className="text-indigo-600 hover:underline">
-                      {d.invoice_external_id}
-                    </Link>{" "}
-                    <span className="text-xs text-slate-500">{d.status.toLowerCase().replace(/_/g, " ")}</span>
+                  <li key={d.id} className="flex justify-between gap-3">
+                    <Link href={appLink(d.link)} className={buttonStyles.link}>
+                      Dispute · {d.invoice_external_id}
+                    </Link>
+                    <span className="text-xs text-ink-subtle">{d.status === "OPEN" ? "Open" : "Resolved"}</span>
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
-          {detail.promises.length > 0 && (
-            <div>
-              <h3 className="mb-1 text-sm font-semibold text-slate-900">Promises to pay</h3>
-              <ul className="space-y-1 text-sm">
-                {detail.promises.map((p) => (
-                  <li key={p.id}>
-                    <Link href={appLink(p.link)} className="text-indigo-600 hover:underline">
-                      {p.invoice_external_id}
-                    </Link>{" "}
-                    <span className="text-xs text-slate-500">
-                      {p.status.toLowerCase()} · promised {formatDate(p.promised_date)}
-                    </span>
+            )}
+            {detail.open_tasks.length > 0 && (
+              <ul className="space-y-1">
+                {detail.open_tasks.map((t) => (
+                  <li key={t.id} className="flex justify-between gap-3">
+                    <Link href={appLink(t.link)} className={buttonStyles.link}>
+                      {t.title}
+                    </Link>
+                    <span className="shrink-0 text-xs text-ink-subtle">due {formatShortDateTime(t.due_at, false)}</span>
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
-          {detail.replies.length > 0 && (
-            <div>
-              <h3 className="mb-1 text-sm font-semibold text-slate-900">Recent replies</h3>
-              <ul className="space-y-1 text-sm">
-                {detail.replies.map((r) => (
-                  <li key={r.id}>
-                    <Link href={appLink(r.link)} className="text-indigo-600 hover:underline">
-                      {r.invoice_external_id}
-                    </Link>{" "}
-                    <span className="text-xs text-slate-500">
-                      {formatDateTime(r.received_at)} · {r.label ? r.label.toLowerCase().replace(/_/g, " ") : r.state.toLowerCase()}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-      )}
+            )}
+            {detail.disputes.length === 0 && detail.open_tasks.length === 0 && <p className="text-ink-subtle">No open dispute or task.</p>}
+          </div>
+        </Section>
+      </div>
     </div>
   );
 }
 
-function PaymentHistory({ detail }: { detail: ClientProfile }) {
-  const missing = detail.paid_history.filter((p) => p.paid_seen_on === null).length;
-  const promises = detail.promise_summary;
+function InvoicesTab({ detail }: { detail: ClientProfile }) {
   return (
-    <section aria-label="Payment and communication history" className="space-y-3">
-      <h3 className="text-sm font-semibold text-slate-900">Payments and communication</h3>
-      <p className="text-xs text-slate-600">
-        Promises: {promises.kept} kept, {promises.broken} broken, {promises.open} open
-        {promises.cancelled ? `, ${promises.cancelled} cancelled` : ""}.
-        {promises.kept + promises.broken === 0 ? " No settled promise yet, so there is no kept rate (not 0%)." : ""}
-      </p>
-      {detail.paid_history.length === 0 ? (
-        <p className="text-xs text-slate-500">No paid invoice yet.</p>
+    <Section title="Invoices" count={detail.invoices.length} flush>
+      {detail.invoices.length === 0 ? (
+        <EmptyState compact title="No invoices">Invoices for this customer appear after the next sync.</EmptyState>
       ) : (
-        <ul className="space-y-1 text-sm">
-          {detail.paid_history.map((p) => (
-            <li key={p.id}>
-              <Link href={appLink(p.link)} className="text-indigo-600 hover:underline">
-                {p.external_id}
-              </Link>{" "}
-              <span className="text-xs text-slate-600">
-                {formatMoney(p.amount, p.currency)} · due {formatDate(p.due_date)} ·{" "}
-                {p.paid_seen_on === null
-                  ? "paid date unknown (already paid when imported)"
-                  : `paid seen ${formatDate(p.paid_seen_on)}, ${p.days_late} day(s) late`}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className={tableStyles.wrap}>
+          <table className={tableStyles.table}>
+            <thead>
+              <tr className={tableStyles.headRow}>
+                <th scope="col" className={tableStyles.th}>Invoice</th>
+                <th scope="col" className={tableStyles.th}>Due date</th>
+                <th scope="col" className={tableStyles.thNum}>Amount</th>
+                <th scope="col" className={tableStyles.th}>Status</th>
+                <th scope="col" className={tableStyles.th}>What stops chasing</th>
+              </tr>
+            </thead>
+            <tbody className={tableStyles.body}>
+              {detail.invoices.map((i) => {
+                const [label, tone]: [string, PillTone] =
+                  i.status === "PAID" ? ["Paid", "good"] : i.open_dispute_id ? ["Disputed", "bad"] : i.open_promise_id ? ["Promise due", "info"] : ["Unpaid", "neutral"];
+                return (
+                  <tr key={i.id} className={tableStyles.row}>
+                    <td className={tableStyles.td}>
+                      <Link href={appLink(i.link)} className="font-mono text-sm font-medium text-brand-700 hover:underline">
+                        {i.external_id}
+                      </Link>
+                      {!i.in_sheet && <span className="block text-xs text-ink-subtle">Not in the sheet</span>}
+                    </td>
+                    <td className={`${tableStyles.td} whitespace-nowrap`}>{formatDate(i.due_date)}</td>
+                    <td className={tableStyles.tdNum}>{formatMoney(i.amount, i.currency)}</td>
+                    <td className={tableStyles.td}>
+                      <StatusPill label={label} tone={tone} />
+                    </td>
+                    <td className={`${tableStyles.td} max-w-sm text-sm text-ink-muted`}>{i.blockers.length ? i.blockers.join(" ") : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
-      {missing > 0 && (
-        <p className="text-xs text-slate-500">
-          Paid dates are when a sync first saw PAID in the sheet, not the bank date; {missing} paid invoice(s) have none.
-        </p>
-      )}
-      {detail.communications.length > 0 && (
-        <ul className="space-y-1 text-sm">
-          {detail.communications.slice(0, 10).map((c, n) => (
-            <li key={`${c.at}:${n}`} className="text-xs text-slate-600">
-              <span className="font-medium text-slate-800">{formatDateTime(c.at)}</span> ·{" "}
-              {c.type === "sent" ? (c.kind === "STATEMENT" ? "statement sent" : `reminder sent (${c.tone.toLowerCase()})`) : "reply received"}{" "}
-              ·{" "}
-              <Link href={appLink(c.link)} className="text-indigo-600 hover:underline">
-                {c.invoice_external_id}
-              </Link>{" "}
-              · {c.subject}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    </Section>
+  );
+}
+
+function ActivityTab({ detail }: { detail: ClientProfile }) {
+  const [events, setEvents] = useState<HistoryEvent[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    getClientHistory(detail.id, controller.signal)
+      .then(setEvents)
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted) setError(errorText(err));
+      });
+    return () => controller.abort();
+  }, [detail.id]);
+  const missing = detail.paid_history.filter((p) => p.paid_seen_on === null).length;
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
+      <Section title="Communication" description="Reminders sent and replies received, newest first." headingLevel={3} flush>
+        {detail.communications.length === 0 ? (
+          <EmptyState compact title="No emails yet">Sent reminders and customer replies will appear here.</EmptyState>
+        ) : (
+          <ol className="divide-y divide-slate-100">
+            {detail.communications.map((c, n) => (
+              <li key={`${c.at}:${n}`} className="flex gap-3 px-6 py-3">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-ink-muted" aria-hidden="true">
+                  <Icon name={c.type === "sent" ? "mail" : "user"} className="h-3.5 w-3.5" />
+                </span>
+                <div className="min-w-0 text-sm">
+                  <p className="text-ink">
+                    {c.type === "sent" ? (c.kind === "STATEMENT" ? "Statement sent" : `Reminder sent (${c.tone.toLowerCase()})`) : "Reply received"}
+                    {" · "}
+                    <Link href={appLink(c.link)} className="font-mono text-xs font-medium text-brand-700 hover:underline">
+                      {c.invoice_external_id}
+                    </Link>
+                  </p>
+                  <p className="truncate text-ink-muted">{c.subject}</p>
+                  <p className="text-xs text-ink-subtle">{formatDateTime(c.at)}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Section>
+      <div className="space-y-6">
+        <Section title="Payments seen" headingLevel={3}>
+          {detail.paid_history.length === 0 ? (
+            <p className="text-sm text-ink-muted">No paid invoice yet.</p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {detail.paid_history.map((p) => (
+                <li key={p.id}>
+                  <Link href={appLink(p.link)} className="font-mono text-xs font-medium text-brand-700 hover:underline">
+                    {p.external_id}
+                  </Link>{" "}
+                  <span className="tabular-nums text-ink">{formatMoney(p.amount, p.currency)}</span>
+                  <span className="block text-xs text-ink-subtle">
+                    {p.paid_seen_on === null ? "Paid date unknown (already paid when imported)" : `Paid seen ${formatDate(p.paid_seen_on)}, ${p.days_late} day(s) late`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {missing > 0 && <p className="mt-3 text-xs text-ink-subtle">{missing} paid invoice(s) have no observed paid date.</p>}
+        </Section>
+        <Section title="History" description="Every recorded event for this customer." headingLevel={3}>
+          {error && <ErrorMessage message={`Could not load the history: ${error}`} />}
+          {events === null && !error ? (
+            <Skeleton className="h-24" />
+          ) : events && events.length === 0 ? (
+            <p className="text-sm text-ink-muted">Nothing recorded yet.</p>
+          ) : (
+            <ol className="space-y-2 border-l border-line pl-4 text-xs text-ink-muted">
+              {(events ?? []).slice(0, 40).map((event) => (
+                <li key={event.id}>
+                  <span className="text-ink">{event.type_label}</span>
+                  {event.actor_username ? ` by ${event.actor_username}` : event.actor_type !== "USER" ? ` (${event.actor_type.toLowerCase()})` : ""}
+                  <span className="block text-ink-subtle">
+                    {formatDateTime(event.occurred_at)}
+                    {event.invoice ? (
+                      <>
+                        {" · "}
+                        <Link href={links.invoice(event.invoice)} className="text-brand-700 hover:underline">
+                          open invoice
+                        </Link>
+                      </>
+                    ) : null}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </Section>
+      </div>
+    </div>
   );
 }
 
@@ -341,7 +508,7 @@ function StatementSection({ clientId, statements }: { clientId: string; statemen
       const { job_id } = await prepareStatement(clientId);
       const job = await waitForJob(job_id);
       if (job.status === "FAILED") throw jobError(job);
-      setMessage("Statement drafted. Open its first invoice to review it; an approver who did not edit it approves it.");
+      setMessage("Statement drafted. It has not been sent: an approver who did not edit it reviews it in Approvals.");
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -351,82 +518,111 @@ function StatementSection({ clientId, statements }: { clientId: string; statemen
   };
 
   return (
-    <section aria-label="Consolidated statement" className="space-y-2 rounded-md border border-slate-200 p-3">
-      <h3 className="text-sm font-semibold text-slate-900">Consolidated statement</h3>
-      {preview === null && !error && <Skeleton className="h-10" />}
-      {preview && (
-        <>
-          {preview.lines.length > 0 && (
-            <ul className="text-xs text-slate-700">
-              {preview.lines.map((line) => (
-                <li key={line.invoice_id}>
-                  {line.external_id}: {formatMoney(line.amount, line.currency)}, due {formatDate(line.due_date)}
-                  {line.replaces_draft_id ? " (replaces its unsent draft)" : ""}
-                </li>
-              ))}
-            </ul>
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
+      <div>
+        <Section
+          title="Consolidated statement"
+          headingLevel={3}
+          description="One email listing every overdue invoice that can be chased now. Gemini writes only the wording; CollectFlow writes the invoice list and totals."
+          flush
+        >
+          {preview === null && !error && <Skeleton className="m-6 h-16" />}
+          {preview && (
+            <>
+              {preview.lines.length > 0 ? (
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-slate-100">
+                    {preview.lines.map((line) => (
+                      <tr key={line.invoice_id}>
+                        <td className="py-3 pl-6 font-mono text-xs text-ink">{line.external_id}</td>
+                        <td className="py-3 text-ink-muted">
+                          due {formatDate(line.due_date)}
+                          {line.replaces_draft_id ? " · replaces its unsent draft" : ""}
+                        </td>
+                        <td className="py-3 pr-6 text-right tabular-nums text-ink">{formatMoney(line.amount, line.currency)}</td>
+                      </tr>
+                    ))}
+                    {Object.keys(preview.totals).length > 0 && (
+                      <tr className="bg-slate-50/70">
+                        <td className="py-3 pl-6 font-semibold text-ink" colSpan={2}>
+                          Total:
+                        </td>
+                        <td className="py-3 pr-6 text-right font-semibold tabular-nums text-ink">
+                          {Object.entries(preview.totals)
+                            .map(([currency, amount]) => formatMoney(amount, currency))
+                            .join(" + ")}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="px-6 pt-5 text-sm text-ink-muted">No invoice can go on a statement right now.</p>
+              )}
+              <div className="space-y-3 px-6 py-5">
+                {preview.excluded.length > 0 && (
+                  <details className="group text-sm text-ink-muted">
+                    <summary className="flex cursor-pointer list-none items-center gap-1.5 font-medium text-ink">
+                      <Icon name="chevron" className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+                      Not included ({preview.excluded.length})
+                    </summary>
+                    <ul className="mt-2 list-disc space-y-0.5 pl-5">
+                      {preview.excluded.map((line) => (
+                        <li key={line.invoice_id}>
+                          {line.external_id}: {line.reasons?.join(" ")}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {message && (
+                  <Notice tone="success" role="status">
+                    {message}
+                  </Notice>
+                )}
+                {error && <ErrorMessage message={error} />}
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  {!preview.can_prepare && <p className="mr-auto text-sm text-ink-muted">{preview.reason}</p>}
+                  {preview.can_prepare && (
+                    <button type="button" onClick={() => void prepare()} disabled={busy} className={buttonStyles.primary}>
+                      {busy && <Spinner />}
+                      Prepare statement draft
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
           )}
-          {Object.keys(preview.totals).length > 0 && (
-            <p className="text-xs font-medium text-slate-900">
-              Total:{" "}
-              {Object.entries(preview.totals)
-                .map(([currency, amount]) => formatMoney(amount, currency))
-                .join(" + ")}
-            </p>
-          )}
-          {preview.excluded.length > 0 && (
-            <details className="text-xs text-slate-600">
-              <summary className="cursor-pointer">Not included ({preview.excluded.length})</summary>
-              <ul className="mt-1 list-disc pl-5">
-                {preview.excluded.map((line) => (
-                  <li key={line.invoice_id}>
-                    {line.external_id}: {line.reasons?.join(" ")}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-          {preview.can_prepare ? (
-            <button
-              type="button"
-              onClick={() => void prepare()}
-              disabled={busy}
-              className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
-            >
-              {busy && <Spinner />}
-              Prepare statement draft
-            </button>
-          ) : (
-            <p className="text-xs text-slate-600">{preview.reason}</p>
-          )}
-          <p className="text-xs text-slate-500">
-            Gemini writes only the wording; CollectFlow writes the invoice list and totals. Nothing is sent until an
-            approver approves it and someone sends it.
-          </p>
-        </>
-      )}
-      {message && <p className="text-xs text-emerald-800">{message}</p>}
-      {error && <ErrorMessage message={error} />}
-      {statements.length > 0 && (
-        <ul className="space-y-1 border-t border-slate-100 pt-2 text-xs text-slate-600">
-          {statements.map((s) => (
-            <li key={s.id}>
-              <Link href={appLink(s.link)} className="font-medium text-indigo-600 hover:underline">
-                {s.subject}
-              </Link>{" "}
-              · {s.lines} invoices · {s.status.toLowerCase().replace(/_/g, " ")} ·{" "}
-              {s.sent_at ? `sent ${formatDateTime(s.sent_at)}` : `drafted ${formatDateTime(s.generated_at)}`}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+        </Section>
+      </div>
+      <Section title="Statements so far" count={statements.length} headingLevel={3}>
+        {statements.length === 0 ? (
+          <p className="text-sm text-ink-muted">No statement prepared yet.</p>
+        ) : (
+          <ul className="space-y-3 text-sm">
+            {statements.map((s) => (
+              <li key={s.id}>
+                <Link href={appLink(s.link)} className={buttonStyles.link}>
+                  {s.subject}
+                </Link>
+                <span className="block text-xs text-ink-subtle">
+                  {s.lines} invoices · {s.status.toLowerCase().replace(/_/g, " ")} ·{" "}
+                  {s.sent_at ? `sent ${formatDateTime(s.sent_at)}` : `drafted ${formatDateTime(s.generated_at)}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-xs text-ink-subtle">Nothing is sent until an approver approves it and someone confirms the send.</p>
+      </Section>
+    </div>
   );
 }
 
-function ClientDetailLoader({ clientId, row }: { clientId: string; row: WorklistRow | null }) {
+function CustomerDetail({ clientId, row, onBack }: { clientId: string; row: WorklistRow | null; onBack: () => void }) {
   const [detail, setDetail] = useState<ClientProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<DetailTab>("overview");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -438,25 +634,84 @@ function ClientDetailLoader({ clientId, row }: { clientId: string; row: Worklist
     return () => controller.abort();
   }, [clientId]);
 
-  if (error) return <div className="p-5"><ErrorMessage message={`Could not load the customer: ${error}`} /></div>;
-  if (!detail) return <div className="space-y-2 p-5"><Skeleton className="h-8" /><Skeleton className="h-40" /></div>;
-  return <ClientPanel row={row} detail={detail} />;
+  const back = (
+    <button type="button" onClick={onBack} className={`${buttonStyles.ghost} -ml-3`}>
+      <Icon name="chevron" className="h-4 w-4 rotate-180" />
+      All customers
+    </button>
+  );
+  if (error) {
+    return (
+      <div className="space-y-4">
+        {back}
+        <ErrorMessage message={`Could not load the customer: ${error}`} />
+      </div>
+    );
+  }
+  if (!detail) {
+    return (
+      <div className="space-y-4" aria-busy="true" aria-label="Loading the customer">
+        {back}
+        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
+  }
+  const openInvoices = detail.invoices.filter((i) => i.status === "UNPAID" && i.in_sheet).length;
+  return (
+    <div className="space-y-6">
+      <div>
+        {back}
+        <header className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight text-ink">{detail.display_name}</h1>
+            <p className="mt-1 text-sm text-ink-muted">{detail.email}</p>
+          </div>
+          <div className="flex items-start gap-8">
+            <div className="sm:text-right">
+              <p className="text-xs text-ink-subtle">Outstanding</p>
+              <p className="text-lg font-semibold tabular-nums text-ink">
+                <Amounts amounts={detail.outstanding} />
+              </p>
+              <p className="text-xs text-ink-subtle">{openInvoices} unpaid invoice(s)</p>
+            </div>
+            <div>
+              <p className="mb-1 text-xs text-ink-subtle">Collection risk</p>
+              <RiskBadge score={detail.risk_score} lowConfidence={detail.low_confidence} />
+            </div>
+          </div>
+        </header>
+      </div>
+      <Tabs
+        idBase="customer"
+        label="Customer details"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { key: "overview", label: "Overview" },
+          { key: "invoices", label: "Invoices", count: detail.invoices.length },
+          { key: "activity", label: "Activity" },
+          { key: "statements", label: "Statements", count: detail.statements.length || undefined },
+        ]}
+      />
+      <TabPanel idBase="customer" tab={tab}>
+        {tab === "overview" && <Overview detail={detail} row={row} />}
+        {tab === "invoices" && <InvoicesTab detail={detail} />}
+        {tab === "activity" && <ActivityTab detail={detail} />}
+        {tab === "statements" && <StatementSection clientId={detail.id} statements={detail.statements} />}
+      </TabPanel>
+    </div>
+  );
 }
 
+// Page --------------------------------------------------------------------------------------------------------
+
 export function ClientsView() {
+  const router = useRouter();
   const [data, setData] = useState<Worklist | null>(null);
   const [error, setError] = useState<string | null>(null);
   const clientParam = useUrlParam("client");
-  const [selected, setSelected] = useState<string | null>(clientParam);
-  const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
-  const [seenClientParam, setSeenClientParam] = useState(clientParam);
-  if (clientParam !== seenClientParam) {
-    setSeenClientParam(clientParam);
-    if (clientParam) {
-      setSelected(clientParam);
-      setSelectedCurrency(null);
-    }
-  }
+  const [currency, setCurrency] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [queued, setQueued] = useState<string | null>(null);
   const [queueing, setQueueing] = useState(false);
@@ -467,8 +722,6 @@ export function ClientsView() {
       .then((worklist) => {
         setData(worklist);
         setError(null);
-        const first = worklist.groups[0]?.rows[0];
-        setSelected((current) => current ?? first?.client_id ?? null);
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted) setError(errorText(err));
@@ -476,110 +729,90 @@ export function ClientsView() {
     return () => controller.abort();
   }, [reload]);
 
-  const select = useCallback((row: WorklistRow) => {
-    setSelected(row.client_id);
-    setSelectedCurrency(row.currency);
-    setQueryParam("client", row.client_id);
-  }, []);
+  // Opening a customer is a navigation (Back returns to the list); the URL keeps the deep link.
+  const open = (row: WorklistRow) => {
+    setCurrency(row.currency);
+    router.push(`/clients?client=${row.client_id}`);
+  };
 
   const recompute = () => {
     setQueueing(true);
     requestRecompute()
-      .then(() => setQueued("Recalculation queued. The worker runs it within a few seconds; refresh to see it."))
+      .then(() => setQueued("Recalculation queued. The worker runs it within a few seconds; refresh to see the new scores."))
       .catch((err: unknown) => setQueued(`Could not queue it: ${errorText(err)}`))
       .finally(() => setQueueing(false));
   };
 
   const rows = data?.groups.flatMap((g) => g.rows) ?? [];
-  const row =
-    rows.find((r) => r.client_id === selected && (selectedCurrency === null || r.currency === selectedCurrency)) ??
-    rows.find((r) => r.client_id === selected) ??
-    null;
+  if (clientParam) {
+    const row =
+      rows.find((r) => r.client_id === clientParam && (currency === null || r.currency === currency)) ??
+      rows.find((r) => r.client_id === clientParam) ??
+      null;
+    return <CustomerDetail key={clientParam} clientId={clientParam} row={row} onBack={() => router.push("/clients")} />;
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Customers</h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            Customers ranked by who most needs attention: risk score (0–100, worked out from their records) × amount owed,
-            in each currency. The score only helps you prioritise; it never sends anything or overrides a hold.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setReload((n) => n + 1)}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Refresh
-          </button>
-          <button
-            type="button"
-            onClick={recompute}
-            disabled={queueing}
-            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-          >
-            {queueing && <Spinner />}
-            Recalculate scores
-          </button>
-        </div>
-      </div>
-      {queued && <p className="text-sm text-slate-600">{queued}</p>}
+    <div className="space-y-6">
+      <PageHeader
+        title="Customers"
+        description="Understand customer balances, payment history and collection risk. The risk score (0–100) is worked out from your records and only helps you prioritise."
+        actions={
+          <>
+            <button type="button" onClick={() => setReload((n) => n + 1)} className={buttonStyles.secondary}>
+              <Icon name="sync" className="h-4 w-4" />
+              Refresh
+            </button>
+            <button type="button" onClick={recompute} disabled={queueing} className={buttonStyles.secondary}>
+              {queueing && <Spinner />}
+              Recalculate scores
+            </button>
+          </>
+        }
+      />
+      {queued && (
+        <Notice tone="info" role="status">
+          {queued}
+        </Notice>
+      )}
       {data && data.urgent.length > 0 && (
-        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <span className="font-semibold">Handle these first, whatever the ranking:</span>{" "}
-          {data.urgent.map((u) => `${(SECTION_TITLES[u.key] ?? u.title).toLowerCase()} (${u.count})`).join(", ")}.{" "}
-          <Link href="/today" className="font-medium underline">
-            Open Today&apos;s Work
-          </Link>
-        </p>
+        <Notice
+          tone="warning"
+          role="status"
+          title="Handle these first, whatever the ranking"
+          action={
+            <Link href="/today" className={buttonStyles.secondarySm}>
+              Open Today&apos;s Work
+            </Link>
+          }
+        >
+          {data.urgent.map((u) => `${SECTION_TITLES[u.key] ?? u.title} (${u.count})`).join(" · ")}
+        </Notice>
       )}
       {error && <ErrorMessage message={`Could not load the worklist: ${error}${data ? " Showing the last loaded list." : ""}`} />}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
-        <Card className="max-h-[75vh] overflow-auto">
-          {data === null ? (
-            <div className="space-y-2 p-4">
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-            </div>
-          ) : data.groups.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-slate-500">No customer has an unpaid invoice in the sheet.</p>
-          ) : (
-            data.groups.map((group) => (
-              <div key={group.currency}>
-                <h2 className="sticky top-0 border-b border-slate-200 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {group.currency} · ranked within {group.currency} only
-                </h2>
-                <ul className="divide-y divide-slate-100" role="listbox" aria-label={`Customers owing ${group.currency}`}>
-                  {group.rows.map((r) => (
-                    <li key={`${r.client_id}:${r.currency}`}>
-                      <RowButton row={r} selected={row === r} onSelect={() => select(r)} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))
-          )}
-          {data && data.scores_computed_at && (
-            <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
-              Scores calculated {formatDateTime(data.scores_computed_at)} or later.
-            </p>
-          )}
-          {data && data.unscored.length > 0 && (
-            <p className="border-t border-slate-100 px-4 py-2 text-xs text-amber-800">
-              {data.unscored.length} customer(s) not scored yet; they rank last until the next calculation.
-            </p>
-          )}
+      {data === null && !error && (
+        <Card className="space-y-3 p-5">
+          <Skeleton className="h-12" />
+          <Skeleton className="h-12" />
+          <Skeleton className="h-12" />
         </Card>
+      )}
+      {data && data.groups.length === 0 && (
         <Card>
-          {selected ? (
-            <ClientDetailLoader key={`${selected}:${reload}`} clientId={selected} row={row} />
-          ) : (
-            <p className="p-6 text-sm text-slate-500">{data && rows.length === 0 ? "Nothing to show." : "Select a client."}</p>
-          )}
+          <EmptyState title="No customer owes anything" icon="check">
+            Customers appear here when they have an unpaid invoice in the Google Sheet.
+          </EmptyState>
         </Card>
-      </div>
+      )}
+      {data?.groups.map((group) => (
+        <WorklistGroup key={group.currency} currency={group.currency} rows={group.rows} onOpen={open} />
+      ))}
+      {data && (data.scores_computed_at || data.unscored.length > 0) && (
+        <p className="text-xs text-ink-subtle">
+          {data.scores_computed_at ? `Scores calculated ${formatDateTime(data.scores_computed_at)} or later. ` : ""}
+          {data.unscored.length > 0 ? `${data.unscored.length} customer(s) not scored yet; they rank last until the next calculation.` : ""}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,12 +1,24 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import type { FollowUp } from "@/lib/api/followups";
 import type { Invoice } from "@/lib/api/invoices";
 import { formatDate, formatMoney } from "@/lib/format";
+import { REMINDER_STATUS } from "@/lib/status";
 
-import { FollowUpStatusBadge } from "./FollowUpBadges";
 import type { Loadable } from "./types";
-import { Card, ErrorMessage, Icon, Skeleton, Spinner } from "./ui";
+import {
+  EmptyState,
+  ErrorMessage,
+  Icon,
+  Section,
+  SegmentedFilter,
+  Skeleton,
+  Spinner,
+  StatusPill,
+  buttonStyles,
+  tableStyles,
+  type PillTone,
+} from "./ui";
 
 export type FollowUpActions = {
   /** Active follow-up for the invoice, its most recent one, and how many exist in total. */
@@ -25,185 +37,87 @@ const FILTERS: { key: Filter; label: string; matches: (invoice: Invoice) => bool
   { key: "paid", label: "Paid", matches: (invoice) => invoice.status === "PAID" },
 ];
 
-const AVATAR_COLORS = [
-  "bg-indigo-100 text-indigo-700",
-  "bg-sky-100 text-sky-700",
-  "bg-violet-100 text-violet-700",
-  "bg-teal-100 text-teal-700",
-  "bg-amber-100 text-amber-700",
-];
-
-function Avatar({ name }: { name: string }) {
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase() ?? "")
-    .join("");
-  const hash = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return (
-    <span
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${AVATAR_COLORS[hash % AVATAR_COLORS.length]}`}
-      aria-hidden="true"
-    >
-      {initials || "?"}
-    </span>
-  );
-}
-
 function StatusBadge({ invoice }: { invoice: Invoice }) {
-  const [label, badge, dot] =
-    invoice.status === "PAID"
-      ? ["Paid", "bg-emerald-50 text-emerald-700 ring-emerald-600/20", "bg-emerald-500"]
-      : invoice.is_overdue
-        ? ["Overdue", "bg-rose-50 text-rose-700 ring-rose-600/20", "bg-rose-500"]
-        : ["Unpaid", "bg-amber-50 text-amber-800 ring-amber-600/20", "bg-amber-500"];
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${badge}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden="true" />
-      {label}
-    </span>
-  );
+  if (invoice.status === "PAID") return <StatusPill label="Paid" tone="good" />;
+  if (invoice.is_overdue) return <StatusPill label="Overdue" tone="bad" />;
+  return <StatusPill label="Unpaid" tone="neutral" />;
 }
 
-function OverdueNote({ invoice, block = false }: { invoice: Invoice; block?: boolean }) {
+function OverdueNote({ invoice }: { invoice: Invoice }) {
   if (!invoice.is_overdue) return null;
-  const Tag = block ? "p" : "span";
   return (
-    <Tag className="text-xs font-medium text-rose-600">
+    <span className="block text-xs font-medium text-danger-700">
       {invoice.days_overdue} {invoice.days_overdue === 1 ? "day" : "days"} overdue
-    </Tag>
-  );
-}
-
-/** One line on where the invoice is in its collection sequence. */
-function SequenceNote({ invoice }: { invoice: Invoice }) {
-  const hold = invoice.holds[0];
-  if (hold) {
-    return (
-      <span className="mt-1 block text-xs font-medium text-amber-700">
-        On hold: {hold.reason_display.toLowerCase()}
-        {hold.source === "reply" ? " (see Customer Replies)" : hold.source === "dispute" ? " (see Disputes)" : ""}
-      </span>
-    );
-  }
-  const e = invoice.enrollment;
-  if (!e) return null;
-  let text: string;
-  let tone = "text-slate-500";
-  if (e.status === "COMPLETED") text = "Reminders finished";
-  else if (e.status === "EXITED") text = `Reminders stopped (${e.exit_reason.replace(/_/g, " ")})`;
-  else if (e.status === "PAUSED") {
-    text = e.pause_reason === "history_review" ? "Paused: needs history review" : "Reminders paused";
-    tone = "text-amber-700";
-  } else if (e.blocked_reason) {
-    text = `Step ${e.pending_step ?? e.next_step} held: ${e.blocked_reason.replace(/_/g, " ")}`;
-    tone = "text-amber-700";
-  } else if (e.pending_step !== null) text = `Step ${e.pending_step} of ${e.total_steps} in progress`;
-  else if (e.next_action_at)
-    text = `Step ${e.next_step} of ${e.total_steps} due ${new Date(e.next_action_at).toLocaleDateString()}`;
-  else text = `Step ${e.next_step} of ${e.total_steps}`;
-  return (
-    <span className={`mt-1 block text-xs ${tone}`}>
-      {text}
-      {e.review_required && e.status === "ACTIVE" ? " · review suggested" : ""}
     </span>
   );
 }
 
-function FollowUpCell({ invoice, actions }: { invoice: Invoice; actions: FollowUpActions }) {
-  return (
-    <>
-      <FollowUpAction invoice={invoice} actions={actions} />
-      <SequenceNote invoice={invoice} />
-    </>
-  );
+/** What the collection is doing now, as one clear state (the detail lives in the invoice drawer). */
+function progressFor(invoice: Invoice, actions: FollowUpActions): { label: string; tone: PillTone; note?: string } | null {
+  const { active, latest } = actions.followUpFor(invoice.id);
+  const e = invoice.enrollment;
+  if (active) return { label: REMINDER_STATUS[active.status].label, tone: active.status === "DRAFT" || active.status === "DELIVERY_UNKNOWN" ? "warn" : "info" };
+  const hold = invoice.holds[0];
+  if (invoice.status === "UNPAID" && hold) {
+    return {
+      label: invoice.open_dispute ? "Disputed" : invoice.open_promise ? "Promise due" : "On hold",
+      tone: invoice.open_dispute ? "bad" : invoice.open_promise ? "info" : "warn",
+      note: invoice.open_dispute
+        ? invoice.open_dispute.reason_display
+        : invoice.open_promise
+          ? `Promised by ${formatDate(invoice.open_promise.promised_date)}`
+          : hold.reason_display,
+    };
+  }
+  if (invoice.status === "PAID") return latest?.status === "SENT" ? { label: "Paid after reminders", tone: "good" } : null;
+  if (e?.status === "PAUSED") return { label: "Reminders paused", tone: "warn", note: e.pause_reason === "history_review" ? "Needs history review" : undefined };
+  if (e?.status === "COMPLETED") return { label: "Reminders finished", tone: "neutral" };
+  if (e?.blocked_reason) return { label: "Reminder held", tone: "warn", note: e.blocked_reason.replace(/_/g, " ") };
+  if (latest?.status === "SENT") {
+    return { label: "Reminder sent", tone: "good", note: e?.next_action_at ? `Next step due ${new Date(e.next_action_at).toLocaleDateString()}` : undefined };
+  }
+  if (latest?.status === "FAILED") return { label: "Not delivered", tone: "bad" };
+  if (e?.next_action_at && !invoice.is_overdue) return { label: "Scheduled", tone: "neutral", note: `Step ${e.next_step} due ${new Date(e.next_action_at).toLocaleDateString()}` };
+  return null;
 }
 
-function FollowUpAction({ invoice, actions }: { invoice: Invoice; actions: FollowUpActions }) {
-  const { active, latest, total } = actions.followUpFor(invoice.id);
-
+function CollectionProgress({ invoice, actions }: { invoice: Invoice; actions: FollowUpActions }) {
   if (actions.analyzingInvoiceId === invoice.id) {
     return (
-      <span className="inline-flex items-center gap-2 text-xs font-medium text-indigo-600">
+      <span className="inline-flex items-center gap-2 text-sm font-medium text-brand-700">
         <Spinner className="h-3.5 w-3.5" />
         Drafting…
       </span>
     );
   }
-  const shown = active ?? (latest && (latest.status === "SENT" || latest.status === "FAILED") ? latest : null);
-  if (shown) {
+  const progress = progressFor(invoice, actions);
+  if (progress) {
     return (
-      <button
-        type="button"
-        onClick={() => actions.onOpen(invoice.id)}
-        className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        title="Review follow-up"
-      >
-        <FollowUpStatusBadge status={shown.status} />
-      </button>
+      <div>
+        <StatusPill label={progress.label} tone={progress.tone} />
+        {progress.note && <span className="mt-1 block text-xs text-ink-subtle">{progress.note}</span>}
+      </div>
     );
   }
-  // A hold, dispute or promise blocks drafting in the backend: say so instead of offering a button it would refuse.
-  if (invoice.is_overdue && invoice.holds.length > 0) {
-    return (
-      <button
-        type="button"
-        onClick={() => actions.onOpen(invoice.id)}
-        className="text-xs font-medium text-amber-800 underline-offset-2 hover:underline"
-      >
-        {invoice.open_dispute ? "Disputed: see why" : invoice.open_promise ? "Promise due: see details" : "On hold: see why"}
-      </button>
-    );
-  }
-  const enrollment = invoice.enrollment;
-  const sequenceHeld = enrollment !== null && (enrollment.status === "PAUSED" || enrollment.status === "COMPLETED");
-  if (invoice.is_overdue && sequenceHeld) {
-    return (
-      <button
-        type="button"
-        onClick={() => actions.onOpen(invoice.id)}
-        className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline"
-      >
-        {enrollment?.status === "COMPLETED" ? "Reminders finished: view" : "Reminders paused: see why"}
-      </button>
-    );
-  }
+  // Overdue with nothing in progress: offer the next draft (the backend still checks eligibility).
   if (invoice.is_overdue) {
+    const e = invoice.enrollment;
     return (
       <button
         type="button"
-        onClick={() => actions.onAnalyze(invoice.id)}
+        onClick={(event) => {
+          event.stopPropagation();
+          actions.onAnalyze(invoice.id);
+        }}
         disabled={actions.analyzingInvoiceId !== null}
-        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+        className={buttonStyles.secondarySm}
       >
-        <Icon name="sparkles" className="h-3.5 w-3.5" />
-        Draft reminder (step {enrollment ? (enrollment.pending_step ?? enrollment.next_step) : 1})
+        <Icon name="sparkles" className="h-3.5 w-3.5 text-brand-600" />
+        Draft reminder{e ? ` (step ${e.pending_step ?? e.next_step})` : ""}
       </button>
     );
   }
-  if (total > 0) {
-    return (
-      <button
-        type="button"
-        onClick={() => actions.onOpen(invoice.id)}
-        className="text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
-      >
-        View history
-      </button>
-    );
-  }
-  return <span className="text-slate-300">—</span>;
-}
-
-function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="px-6 py-14 text-center">
-      <p className="text-sm font-semibold text-slate-900">{title}</p>
-      {children && <div className="mt-1 text-sm text-slate-500">{children}</div>}
-    </div>
-  );
+  return <span className="text-sm text-ink-subtle">—</span>;
 }
 
 export function InvoiceTable({
@@ -221,43 +135,25 @@ export function InvoiceTable({
   const visible = invoices.filter(activeFilter.matches);
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-base font-semibold text-slate-900">Invoices</h2>
-        {state.kind === "ready" && invoices.length > 0 && (
-          <div className="flex gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1" role="tablist" aria-label="Filter invoices">
-            {FILTERS.map((option) => {
-              const active = option.key === filter;
-              return (
-                <button
-                  key={option.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setFilter(option.key)}
-                  className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-                    active ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  {option.label}
-                  <span className={`text-xs tabular-nums ${active ? "text-slate-500" : "text-slate-400"}`}>
-                    {invoices.filter(option.matches).length}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
+    <Section
+      title="Invoices"
+      count={state.kind === "ready" ? visible.length : undefined}
+      flush
+      actions={
+        state.kind === "ready" && invoices.length > 0 ? (
+          <SegmentedFilter
+            label="Filter invoices"
+            value={filter}
+            onChange={setFilter}
+            options={FILTERS.map((option) => ({ key: option.key, label: option.label, count: invoices.filter(option.matches).length }))}
+          />
+        ) : undefined
+      }
+    >
       {state.kind === "loading" && (
-        <div className="space-y-4 p-5" aria-busy="true" aria-label="Loading invoices">
+        <div className="space-y-3 p-5" aria-busy="true" aria-label="Loading invoices">
           {[0, 1, 2, 3].map((index) => (
-            <div key={index} className="flex items-center gap-3">
-              <Skeleton className="h-9 w-9 rounded-full" />
-              <Skeleton className="h-4 flex-1" />
-              <Skeleton className="h-4 w-20" />
-            </div>
+            <Skeleton key={index} className="h-10" />
           ))}
         </div>
       )}
@@ -269,12 +165,12 @@ export function InvoiceTable({
       )}
 
       {state.kind === "ready" && invoices.length === 0 && (
-        <EmptyState title="No invoices yet">
+        <EmptyState title="No invoices yet" icon="document">
           <p>
-            Click <span className="font-medium text-slate-700">Sync Invoices</span> to import them from Google Sheets.
+            Click <span className="font-medium text-ink">Sync Invoices</span> to import them from your Google Sheet.
           </p>
           {expectedColumns.length > 0 && (
-            <p className="mt-3 text-xs text-slate-400">
+            <p className="mt-3 text-xs text-ink-subtle">
               Expected columns: <code className="font-mono">{expectedColumns.join(", ")}</code>
             </p>
           )}
@@ -282,34 +178,41 @@ export function InvoiceTable({
       )}
 
       {state.kind === "ready" && invoices.length > 0 && visible.length === 0 && (
-        <EmptyState title={`No ${activeFilter.label.toLowerCase()} invoices`} />
+        <EmptyState compact title={`No ${activeFilter.label.toLowerCase()} invoices`}>
+          Choose another filter to see the rest.
+        </EmptyState>
       )}
 
       {visible.length > 0 && (
-        <ul className="divide-y divide-slate-100 md:hidden">
+        <ul className="divide-y divide-slate-100 xl:hidden">
           {visible.map((invoice) => (
-            <li key={invoice.id} className="flex gap-3 px-5 py-4">
-              <Avatar name={invoice.client_name} />
-              <div className="min-w-0 flex-1 space-y-1.5">
+            <li key={invoice.id}>
+              {/* The whole card opens the invoice by mouse; the invoice number is the keyboard target. */}
+              <div onClick={() => followUps.onOpen(invoice.id)} className="cursor-pointer space-y-2 px-5 py-4 hover:bg-slate-50">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">{invoice.client_name}</p>
-                    <p className="truncate text-xs text-slate-500">{invoice.client_email}</p>
+                    <p className="truncate font-medium text-ink">{invoice.client_name}</p>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        followUps.onOpen(invoice.id);
+                      }}
+                      className="rounded font-mono text-xs font-medium text-brand-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    >
+                      {invoice.external_id}
+                    </button>
                   </div>
-                  <p className="shrink-0 font-semibold tabular-nums text-slate-900">
-                    {formatMoney(invoice.amount, invoice.currency)}
-                  </p>
+                  <p className="shrink-0 font-semibold tabular-nums text-ink">{formatMoney(invoice.amount, invoice.currency)}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
-                  <StatusBadge invoice={invoice} />
-                  <span className="font-mono">{invoice.external_id}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>Due {formatDate(invoice.due_date)}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-subtle">
+                  <span className="flex items-center gap-2">
+                    <StatusBadge invoice={invoice} />
+                    Due {formatDate(invoice.due_date)}
+                  </span>
                   <OverdueNote invoice={invoice} />
                 </div>
-                <div className="pt-1">
-                  <FollowUpCell invoice={invoice} actions={followUps} />
-                </div>
+                <CollectionProgress invoice={invoice} actions={followUps} />
               </div>
             </li>
           ))}
@@ -317,43 +220,47 @@ export function InvoiceTable({
       )}
 
       {visible.length > 0 && (
-        <div className="hidden overflow-x-auto md:block">
-          <table className="min-w-full text-sm">
+        <div className={`hidden xl:block ${tableStyles.wrap}`}>
+          <table className={tableStyles.table}>
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <th scope="col" className="px-5 py-3">Customer</th>
-                <th scope="col" className="px-5 py-3">Invoice</th>
-                <th scope="col" className="px-5 py-3">Due date</th>
-                <th scope="col" className="px-5 py-3 text-right">Amount</th>
-                <th scope="col" className="px-5 py-3">Status</th>
-                <th scope="col" className="px-5 py-3">Reminders</th>
+              <tr className={tableStyles.headRow}>
+                <th scope="col" className={tableStyles.th}>Customer</th>
+                <th scope="col" className={tableStyles.th}>Invoice</th>
+                <th scope="col" className={tableStyles.th}>Due date</th>
+                <th scope="col" className={tableStyles.thNum}>Amount</th>
+                <th scope="col" className={tableStyles.th}>Status</th>
+                <th scope="col" className={tableStyles.th}>Collection progress</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className={tableStyles.body}>
               {visible.map((invoice) => (
-                <tr key={invoice.id} className="transition-colors hover:bg-slate-50">
-                  <td className="px-5 py-4">
-                    <div className="flex min-w-48 items-center gap-3">
-                      <Avatar name={invoice.client_name} />
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-slate-900">{invoice.client_name}</p>
-                        <p className="truncate text-xs text-slate-500">{invoice.client_email}</p>
-                      </div>
-                    </div>
+                <tr key={invoice.id} onClick={() => followUps.onOpen(invoice.id)} className={`${tableStyles.row} cursor-pointer`}>
+                  <td className={tableStyles.td}>
+                    <p className="max-w-56 truncate font-medium text-ink">{invoice.client_name}</p>
+                    <p className="max-w-56 truncate text-xs text-ink-subtle">{invoice.client_email}</p>
                   </td>
-                  <td className="whitespace-nowrap px-5 py-4 font-mono text-xs text-slate-600">{invoice.external_id}</td>
-                  <td className="whitespace-nowrap px-5 py-4">
-                    <p className="text-slate-700">{formatDate(invoice.due_date)}</p>
-                    <OverdueNote invoice={invoice} block />
+                  <td className={`${tableStyles.td} whitespace-nowrap`}>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        followUps.onOpen(invoice.id);
+                      }}
+                      className="rounded font-mono text-sm font-medium text-brand-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    >
+                      {invoice.external_id}
+                    </button>
                   </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-right font-semibold tabular-nums text-slate-900">
-                    {formatMoney(invoice.amount, invoice.currency)}
+                  <td className={`${tableStyles.td} whitespace-nowrap`}>
+                    <span className="text-ink">{formatDate(invoice.due_date)}</span>
+                    <OverdueNote invoice={invoice} />
                   </td>
-                  <td className="whitespace-nowrap px-5 py-4">
+                  <td className={tableStyles.tdNum}>{formatMoney(invoice.amount, invoice.currency)}</td>
+                  <td className={tableStyles.td}>
                     <StatusBadge invoice={invoice} />
                   </td>
-                  <td className="min-w-[13rem] px-5 py-4">
-                    <FollowUpCell invoice={invoice} actions={followUps} />
+                  <td className={`${tableStyles.td} min-w-44`}>
+                    <CollectionProgress invoice={invoice} actions={followUps} />
                   </td>
                 </tr>
               ))}
@@ -361,6 +268,6 @@ export function InvoiceTable({
           </table>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }

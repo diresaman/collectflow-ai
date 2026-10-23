@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError } from "@/lib/api/client";
@@ -15,15 +14,14 @@ import {
   type Invoice,
 } from "@/lib/api/invoices";
 
-import { AutomationPanel } from "./AutomationPanel";
 import { setQueryParam, useUrlParam } from "@/lib/url";
 
 import { FollowUpDrawer, type GenerationState } from "./FollowUpDrawer";
-import { FollowUpHistory } from "./FollowUpHistory";
 import { InvoiceTable, type FollowUpActions } from "./InvoiceTable";
 import { SummaryCards } from "./SummaryCards";
 import { SyncButton, SyncStatus } from "./SyncStatus";
 import type { Loadable } from "./types";
+import { Notice, PageHeader } from "./ui";
 
 function describeError(error: unknown): string {
   return error instanceof ApiError ? error.message : "Unexpected error.";
@@ -154,70 +152,30 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Invoices</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Every invoice from your Google Sheet. The sheet decides what is paid. Click an invoice to see its reminders,
-            holds, promises and history.
-          </p>
-        </div>
-        {/* Wrapper keeps the button at its natural height inside the flex row. */}
-        <div className="shrink-0">
-          <SyncButton syncing={syncing} onSync={() => void handleSync()} />
-        </div>
-      </div>
+      <PageHeader
+        title="Invoices"
+        description="Track invoices and payment status from your Google Sheet. The sheet decides what is paid; click an invoice to see its reminders, holds and history."
+        actions={<SyncButton syncing={syncing} onSync={() => void handleSync()} />}
+      />
       <SyncStatus lastRun={lastRun} syncError={syncError} />
       {summary.kind === "ready" && summary.data.stale && (
-        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <span className="font-semibold">Invoice data may be out of date:</span>{" "}
+        <Notice tone="warning" role="status" title="Invoice data may be out of date">
           {summary.data.last_successful_sync_at
-            ? `the last successful sync was more than ${summary.data.stale_after_hours} hours ago.`
-            : "there has been no successful sync yet."}{" "}
+            ? `The last successful sync was more than ${summary.data.stale_after_hours} hours ago.`
+            : "There has been no successful sync yet."}{" "}
           Reminder schedules keep using the last synced data until the next successful sync.
-        </p>
+        </Notice>
       )}
       {summary.kind === "ready" && summary.data.ai_budget.automatic_drafting_blocked && (
-        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <span className="font-semibold">Automatic AI drafting is paused:</span>{" "}
+        <Notice tone="warning" role="status" title="Automatic AI drafting is paused">
           {summary.data.ai_budget.automatic_drafting_blocked === "ai_quota_cooldown"
             ? `Gemini reported its quota is used up; scheduled drafting resumes after ${new Date(summary.data.ai_budget.cooldown_until ?? "").toLocaleString()}.`
-            : `today's budget of ${summary.data.ai_budget.limit} AI drafts is used (${summary.data.ai_budget.used_24h} in the last 24 hours).`}{" "}
+            : `Today's budget of ${summary.data.ai_budget.limit} AI drafts is used (${summary.data.ai_budget.used_24h} in the last 24 hours).`}{" "}
           Due steps wait; you can still draft manually.
-        </p>
+        </Notice>
       )}
       <SummaryCards state={summary} />
-      {(() => {
-        const waiting = allFollowUps.filter((f) => f.status === "DRAFT" || f.status === "APPROVED").length;
-        return waiting > 0 ? (
-          <p className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm text-indigo-900">
-            <span>
-              <span className="font-semibold">{waiting} reminder(s)</span> waiting for approval or sending.
-            </span>
-            <Link href="/approvals" className="font-semibold text-indigo-700 hover:underline">
-              Go to Approvals →
-            </Link>
-          </p>
-        ) : null;
-      })()}
       <InvoiceTable state={invoices} expectedColumns={expectedColumns} followUps={followUpActions} />
-      {/* Secondary: open tasks live on Tasks and Today; these stay one click away. */}
-      <details className="group rounded-xl border border-slate-200 bg-white shadow-sm">
-        <summary className="cursor-pointer list-none px-5 py-3 text-sm font-semibold text-slate-800">
-          Run automation now <span className="font-normal text-slate-500">(sync the sheet and draft due reminders; never sends)</span>
-        </summary>
-        <div className="border-t border-slate-100">
-          <AutomationPanel onRunFinished={() => setReloadKey((key) => key + 1)} onOpenInvoice={followUpActions.onOpen} />
-        </div>
-      </details>
-      <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <summary className="cursor-pointer list-none px-5 py-3 text-sm font-semibold text-slate-800">
-          All reminders <span className="font-normal text-slate-500">(every draft and email with its status)</span>
-        </summary>
-        <div className="border-t border-slate-100">
-          <FollowUpHistory state={followUps} onOpen={followUpActions.onOpen} />
-        </div>
-      </details>
 
       {openInvoice && (
         <FollowUpDrawer

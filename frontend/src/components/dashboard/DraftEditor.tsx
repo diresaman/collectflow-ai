@@ -11,7 +11,7 @@ import {
   type FollowUp,
 } from "@/lib/api/followups";
 
-import { ErrorMessage, Icon, Spinner } from "./ui";
+import { buttonStyles, ErrorMessage, Icon, inputStyles, Notice, Spinner } from "./ui";
 
 type Action = "save" | "approve" | "reject";
 
@@ -81,7 +81,7 @@ export function DraftEditor({
           disabled={disabled}
           readOnly={followUp.threaded}
           aria-describedby={followUp.threaded ? `${fieldId}-subject-note` : undefined}
-          className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm read-only:bg-slate-50 read-only:text-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-50"
+          className={`mt-1.5 ${inputStyles.input} read-only:bg-slate-50 read-only:text-ink-muted`}
         />
         {followUp.threaded && (
           <p id={`${fieldId}-subject-note`} className="mt-1 text-xs text-slate-500">
@@ -107,31 +107,31 @@ export function DraftEditor({
           rows={12}
           maxLength={BODY_MAX_LENGTH}
           disabled={disabled}
-          className="mt-1.5 block w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm leading-6 text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-50"
+          className={`mt-1.5 resize-y leading-6 ${inputStyles.textarea}`}
         />
       </div>
 
       {followUp.approval.required_role === "APPROVER" && (
-        <p className="rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-900">
+        <p className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-900">
           <span className="font-semibold">Needs an approver</span> other than the last editor:{" "}
           {followUp.approval.reasons.join("; ")}.
         </p>
       )}
-      {validationError && <p className="text-sm text-rose-600">{validationError}</p>}
+      {validationError && <p className="text-sm text-danger-600">{validationError}</p>}
       {error && <ErrorMessage message={error} />}
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
+      {approvalBlocked && !dirty && (
+        <Notice tone="info">
+          <p id={`${fieldId}-approval-blocked`}>
+            <span className="font-semibold">You can&apos;t approve this:</span> {approvalBlocked.detail} An approver can find it
+            in Approvals.
+          </p>
+        </Notice>
+      )}
+      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
         {dirty ? (
           <>
-            <button
-              type="button"
-              onClick={() => void run("save")}
-              disabled={disabled || validationError !== null}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {busy === "save" && <Spinner />}
-              Save changes
-            </button>
+            <span className="mr-auto text-xs text-ink-subtle">Save your edits before approving.</span>
             <button
               type="button"
               onClick={() => {
@@ -139,52 +139,39 @@ export function DraftEditor({
                 setBody(followUp.body);
               }}
               disabled={disabled}
-              className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60"
+              className={buttonStyles.ghost}
             >
               Discard
             </button>
-            <span className="text-xs text-slate-500">Save your edits before approving.</span>
+            <button type="button" onClick={() => void run("save")} disabled={disabled || validationError !== null} className={buttonStyles.primary}>
+              {busy === "save" && <Spinner />}
+              Save changes
+            </button>
           </>
         ) : (
           <>
-            <button
-              type="button"
-              onClick={() => void run("approve")}
-              disabled={disabled || approvalBlocked !== null}
-              aria-describedby={approvalBlocked ? `${fieldId}-approval-blocked` : undefined}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {busy === "approve" && <Spinner />}
-              {followUp.kind === "STATEMENT" ? "Approve statement" : "Approve reminder"}
+            <button type="button" onClick={onRegenerate} disabled={disabled} className={`${buttonStyles.ghost} mr-auto -ml-3 text-brand-700`}>
+              {regenerating ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />}
+              Rewrite with AI
             </button>
-            <button
-              type="button"
-              onClick={() => void run("reject")}
-              disabled={disabled}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
+            <button type="button" onClick={() => void run("reject")} disabled={disabled} className={buttonStyles.secondary}>
               {busy === "reject" && <Spinner />}
               Reject draft
             </button>
             <button
               type="button"
-              onClick={onRegenerate}
-              disabled={disabled}
-              className="ml-auto inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void run("approve")}
+              disabled={disabled || approvalBlocked !== null}
+              aria-describedby={approvalBlocked ? `${fieldId}-approval-blocked` : undefined}
+              className={approvalBlocked ? buttonStyles.secondary : buttonStyles.primary}
             >
-              {regenerating ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />}
-              Rewrite with AI
+              {busy === "approve" && <Spinner />}
+              {followUp.kind === "STATEMENT" ? "Approve statement" : "Approve reminder"}
             </button>
           </>
         )}
       </div>
-      {approvalBlocked && !dirty && (
-        <p id={`${fieldId}-approval-blocked`} className="text-sm text-slate-700">
-          <span className="font-medium">You can&apos;t approve this:</span> {approvalBlocked.detail} An approver can find it
-          on Today under &quot;Waiting for approval&quot;.
-        </p>
-      )}
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-subtle">
         Approving marks it as ready. It does <span className="font-medium">not</span> send anything: sending is the next,
         separate step.
       </p>

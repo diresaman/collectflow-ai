@@ -64,7 +64,9 @@ test("2 Today shows what needs attention and the next action", async ({ browser 
 test("3 a client's risk score is explained", async ({ browser }) => {
   const page = await as(browser, "operator");
   await page.goto("/clients");
-  await page.getByRole("option", { name: /Harbor Analytics/ }).first().click();
+  await page.getByRole("button", { name: /Harbor Analytics/ }).first().click();
+  await expect(page).toHaveURL(/\/clients\?client=/);
+  await expect(page.getByRole("tab", { name: "Overview", selected: true })).toBeVisible();
   await expect(page.getByText("Why this score")).toBeVisible();
   await expect(page.getByRole("row", { name: /Broken promises/ })).toContainText("15 / 25");
   await expect(page.getByRole("row", { name: /Oldest invoice overdue/ })).toBeVisible();
@@ -90,7 +92,7 @@ test("5 reviewing and classifying a customer reply", async ({ browser }) => {
   await page.getByRole("button", { name: "Save decision: Requests info" }).click();
   // The handled reply leaves "Needs review" and the list moves on to the next one; the decision is on the reply.
   await expect(page.getByRole("option", { name: /RB-300/ })).toHaveCount(0);
-  await page.getByRole("tab", { name: "All replies" }).click();
+  await page.getByRole("group", { name: "Filter replies" }).getByRole("button", { name: /^All/ }).click();
   await page.getByRole("option", { name: /RB-300/ }).click();
   await expect(page.getByText("Decided by a person")).toBeVisible();
 });
@@ -164,11 +166,13 @@ test("9 recording a promise to pay from a reply", async ({ browser }) => {
 test("10 assigning and completing a task", async ({ browser }) => {
   const page = await as(browser, "operator");
   await page.goto("/tasks");
-  const task = page.getByRole("listitem").filter({ hasText: "Call Tidewater about the missing purchase order" });
+  const table = page.locator("table");
+  const task = table.getByRole("row").filter({ hasText: "Call Tidewater about the missing purchase order" }).first();
   await task.getByLabel("Assignee").selectOption({ label: "Olga (operator)" });
   await expect(page.getByText(/was assigned/)).toBeVisible();
-  await task.getByLabel("Task note").fill("Called; PO number received.");
-  await task.getByRole("button", { name: "Mark task complete" }).click();
+  await table.getByRole("row").filter({ hasText: "Call Tidewater about the missing purchase order" }).first().getByRole("button", { name: "Complete…" }).click();
+  await table.getByLabel("Task note").fill("Called; PO number received.");
+  await table.getByRole("button", { name: "Mark task complete" }).click();
   await expect(page.getByText(/marked complete/)).toBeVisible();
 });
 
@@ -185,7 +189,8 @@ test.describe("12 consolidated statements", () => {
   test("prepare a statement (fake Gemini) and review it as an approver", async ({ browser }) => {
     const operator = await as(browser, "operator");
     await operator.goto("/clients");
-    await operator.getByRole("option", { name: /Summit Partners/ }).first().click();
+    await operator.getByRole("button", { name: /Summit Partners/ }).first().click();
+    await operator.getByRole("tab", { name: /Statements/ }).click();
     const panel = operator.getByRole("region", { name: "Consolidated statement" });
     await expect(panel.getByText(/Total:/)).toBeVisible();
     await panel.getByRole("button", { name: "Prepare statement draft" }).click();
@@ -193,9 +198,9 @@ test.describe("12 consolidated statements", () => {
 
     const approver = await as(browser, "approver");
     await approver.goto("/approvals");
-    const row = approver.getByRole("listitem").filter({ hasText: "Summit Partners" });
+    const row = approver.getByRole("row").filter({ hasText: "Summit Partners" });
     await expect(row.getByText(/Statement · 3 invoices/)).toBeVisible();
-    await row.getByRole("link", { name: "Review draft" }).click();
+    await row.getByRole("link", { name: "Review" }).click();
     const drawer = approver.getByRole("dialog").first();
     await expect(drawer.getByText("Invoices in this statement")).toBeVisible();
     await expect(drawer.getByRole("button", { name: "Approve statement" })).toBeEnabled();
@@ -204,7 +209,7 @@ test.describe("12 consolidated statements", () => {
   test("a stale statement cannot be approved", async ({ browser }) => {
     const approver = await as(browser, "approver");
     await approver.goto("/approvals");
-    await approver.getByRole("listitem").filter({ hasText: "Stale Supplies" }).getByRole("link").click();
+    await approver.getByRole("row").filter({ hasText: "Statement" }).filter({ hasText: "Stale Supplies" }).getByRole("link", { name: /^(Review|View)$/ }).click();
     const drawer = approver.getByRole("dialog").first();
     await expect(drawer.getByText(/changed since the statement was prepared/)).toBeVisible();
     await drawer.getByRole("button", { name: "Approve statement" }).click();
@@ -264,5 +269,53 @@ test.describe("negative paths enforced by the backend", () => {
       headers: { Origin: "http://evil.example" },
     });
     expect(response.status()).toBe(403);
+  });
+});
+
+test.describe("14 redesigned tabs, filters and drawers", () => {
+  test("report tabs follow the WAI-ARIA tabs pattern", async ({ browser }) => {
+    const page = await as(browser, "operator");
+    await page.goto("/analytics");
+    const overview = page.getByRole("tab", { name: "Overview" });
+    await expect(overview).toHaveAttribute("aria-selected", "true");
+    await overview.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("tab", { name: "Aging" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tabpanel")).toContainText("What it means");
+    await page.keyboard.press("End");
+    await expect(page.getByRole("tab", { name: "Forecast" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByText("This is an estimate")).toBeVisible();
+  });
+
+  test("the invoice drawer opens on the tab that needs action, and Escape closes it", async ({ browser }) => {
+    const page = await as(browser, "operator");
+    await openInvoice(page, "FA-500");
+    const drawer = page.getByRole("dialog").first();
+    await expect(drawer.getByRole("tab", { name: /Reminders/ })).toHaveAttribute("aria-selected", "true");
+    await expect(drawer.getByText(/Chasing allowed|Chasing is stopped|Reminders are held/).first()).toBeVisible();
+    await drawer.getByRole("tab", { name: "Activity" }).click();
+    await expect(drawer.getByRole("heading", { name: "History" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page).not.toHaveURL(/invoice=/);
+  });
+
+  test("list filters are pressed buttons, not tabs", async ({ browser }) => {
+    const page = await as(browser, "approver");
+    await page.goto("/approvals");
+    const filters = page.getByRole("group", { name: "Filter approvals" });
+    await expect(filters.getByRole("button", { name: /^Awaiting approval/ })).toHaveAttribute("aria-pressed", "true");
+    await filters.getByRole("button", { name: /^All/ }).click();
+    await expect(filters.getByRole("button", { name: /^All/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("heading", { level: 2, name: /^All/ })).toBeVisible();
+  });
+
+  test("opening a customer is a navigation: Back returns to the list", async ({ browser }) => {
+    const page = await as(browser, "operator");
+    await page.goto("/clients");
+    await page.getByRole("button", { name: /Elm Studio/ }).first().click();
+    await expect(page.getByRole("heading", { level: 1, name: "Elm Studio" })).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole("heading", { level: 1, name: "Customers" })).toBeVisible();
   });
 });

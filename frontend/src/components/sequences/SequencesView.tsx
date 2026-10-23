@@ -4,7 +4,18 @@ import { useEffect, useId, useState } from "react";
 
 import { useCurrentUser } from "@/components/auth/SessionGate";
 import type { Loadable } from "@/components/dashboard/types";
-import { Card, ErrorMessage, Skeleton, Spinner } from "@/components/dashboard/ui";
+import {
+  ErrorMessage,
+  Icon,
+  Notice,
+  PageHeader,
+  Section,
+  Skeleton,
+  Spinner,
+  StatusPill,
+  buttonStyles,
+  inputStyles,
+} from "@/components/dashboard/ui";
 import { ApiError } from "@/lib/api/client";
 import { createSequence, getSequences, type NewStep, type Sequence, type Tone } from "@/lib/api/sequences";
 
@@ -16,42 +27,61 @@ const DEFAULT_DRAFT: NewStep[] = [
   { offset_days: 30, channel: "TASK", requires_approver: false },
 ];
 
+const TONE_DOT: Record<string, string> = { FRIENDLY: "bg-success-500", PROFESSIONAL: "bg-info-500", FIRM: "bg-warning-500" };
+
+/** The steps as a vertical, connected sequence: when, what, who approves, and how many invoices are there now. */
 function Timeline({ sequence }: { sequence: Sequence }) {
-  const last = Math.max(...sequence.steps.map((step) => step.offset_days), 1);
   return (
-    <div className="space-y-3">
-      <div className="relative h-2 rounded-full bg-slate-100" aria-hidden="true">
-        {sequence.steps.map((step) => (
-          <span
-            key={step.order}
-            className={`absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white ${
-              step.channel === "TASK" ? "bg-slate-500" : step.tone === "FIRM" ? "bg-rose-500" : step.tone === "PROFESSIONAL" ? "bg-amber-500" : "bg-emerald-500"
-            }`}
-            style={{ left: `${(step.offset_days / last) * 100}%` }}
-          />
-        ))}
-      </div>
-      <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        {sequence.steps.map((step) => (
-          <li key={step.order} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-            <p className="font-semibold text-slate-900">
-              Step {step.order} · due + {step.offset_days} {step.offset_days === 1 ? "day" : "days"}
-            </p>
-            <p className="text-slate-600">
-              {step.channel === "TASK" ? "Call task for an operator" : `${step.tone.toLowerCase()} email`}
-              {step.requires_approver ? " · approver required" : ""}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              {sequence.enrollment_counts.by_step[String(step.order)] ?? 0} invoice(s) at this step
-            </p>
+    <ol className="relative">
+      {sequence.steps.map((step, index) => {
+        const at = sequence.enrollment_counts.by_step[String(step.order)] ?? 0;
+        const last = index === sequence.steps.length - 1;
+        return (
+          <li key={step.order} className="relative flex gap-4 pb-6 last:pb-0">
+            {!last && <span className="absolute top-9 bottom-0 left-[17px] w-px bg-line" aria-hidden="true" />}
+            <span
+              className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-white text-sm font-semibold text-ink"
+              aria-hidden="true"
+            >
+              {step.order}
+            </span>
+            <div className="min-w-0 flex-1 rounded-xl border border-line p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-ink">
+                    Day {step.offset_days} after the due date ·{" "}
+                    {step.channel === "TASK" ? "Call task" : `${step.tone.charAt(0)}${step.tone.slice(1).toLowerCase()} reminder`}
+                  </p>
+                  <p className="mt-0.5 flex items-center gap-2 text-sm text-ink-muted">
+                    {step.channel === "TASK" ? (
+                      <>
+                        <Icon name="user" className="h-3.5 w-3.5" /> An operator calls the customer; nothing is emailed.
+                      </>
+                    ) : (
+                      <>
+                        <span className={`h-2 w-2 rounded-full ${TONE_DOT[step.tone] ?? "bg-slate-400"}`} aria-hidden="true" />
+                        Email drafted by AI in a {step.tone.toLowerCase()} tone, then reviewed by a person.
+                      </>
+                    )}
+                  </p>
+                </div>
+                <StatusPill
+                  label={step.channel === "TASK" ? "No email to approve" : step.requires_approver ? "Approver required" : "Any operator can approve"}
+                  tone={step.requires_approver ? "brand" : "neutral"}
+                />
+              </div>
+              <p className="mt-2 text-xs text-ink-subtle">
+                {at} invoice{at === 1 ? "" : "s"} at this step now
+              </p>
+            </div>
           </li>
-        ))}
-      </ol>
-    </div>
+        );
+      })}
+    </ol>
   );
 }
 
-function NewVersionForm({ onCreated }: { onCreated: () => void }) {
+function NewVersionForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
   const id = useId();
   const [name, setName] = useState("Standard collection");
   const [steps, setSteps] = useState<NewStep[]>(DEFAULT_DRAFT);
@@ -75,48 +105,47 @@ function NewVersionForm({ onCreated }: { onCreated: () => void }) {
     }
   };
 
-  const input = "rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900";
+  const input = inputStyles.input;
+  const select = inputStyles.select;
   return (
-    <Card className="space-y-4 p-5">
-      <div>
-        <h2 className="text-base font-semibold text-slate-900">New version</h2>
-        <p className="text-sm text-slate-500">
-          Saving creates a new version. Invoices already enrolled keep the version they started with.
-        </p>
-      </div>
-      <label className="block text-sm font-medium text-slate-700" htmlFor={`${id}-name`}>
+    <Section
+      title="New version"
+      description="Saving creates a new, separate version; existing versions never change. Invoices already enrolled keep the version they started with."
+    >
+      <div className="space-y-4">
+      <label className="block max-w-md text-sm font-medium text-ink" htmlFor={`${id}-name`}>
         Name
-        <input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} className={`mt-1 block w-full ${input}`} />
+        <input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} className={`mt-1.5 ${input}`} />
       </label>
       <div className="space-y-2">
         {steps.map((step, index) => (
-          <fieldset key={index} className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 p-3">
-            <legend className="px-1 text-xs font-semibold text-slate-600">Step {index + 1}</legend>
-            <label className="text-xs text-slate-600">
+          <fieldset key={index} className="flex flex-wrap items-end gap-3 rounded-xl border border-line p-4">
+            <legend className="px-1 text-sm font-semibold text-ink">Step {index + 1}</legend>
+            <label className="text-sm font-medium text-ink">
               Days after due
               <input
                 type="number"
                 min={0}
                 value={step.offset_days}
                 onChange={(e) => update(index, { offset_days: Number(e.target.value) })}
-                className={`mt-1 block w-24 ${input}`}
+                className={`mt-1.5 !w-28 ${input}`}
               />
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-sm font-medium text-ink">
               Channel
               <select
                 value={step.channel}
                 onChange={(e) => update(index, { channel: e.target.value as NewStep["channel"], tone: e.target.value === "EMAIL" ? "FRIENDLY" : undefined })}
-                className={`mt-1 block ${input}`}
+                className={`mt-1.5 ${select}`}
               >
                 <option value="EMAIL">Email</option>
                 <option value="TASK">Call task</option>
               </select>
             </label>
             {step.channel === "EMAIL" && (
-              <label className="text-xs text-slate-600">
+              <label className="text-sm font-medium text-ink">
                 Tone
-                <select value={step.tone} onChange={(e) => update(index, { tone: e.target.value as Tone })} className={`mt-1 block ${input}`}>
+                <select value={step.tone} onChange={(e) => update(index, { tone: e.target.value as Tone })} className={`mt-1.5 ${select}`}>
                   {TONES.map((tone) => (
                     <option key={tone} value={tone}>
                       {tone.toLowerCase()}
@@ -125,12 +154,12 @@ function NewVersionForm({ onCreated }: { onCreated: () => void }) {
                 </select>
               </label>
             )}
-            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <label className="flex h-10 items-center gap-2 text-sm text-ink">
               <input type="checkbox" checked={step.requires_approver} onChange={(e) => update(index, { requires_approver: e.target.checked })} />
               Approver required
             </label>
             {steps.length > 2 && (
-              <button type="button" onClick={() => setSteps((s) => s.filter((_, i) => i !== index))} className="ml-auto text-xs text-rose-600 hover:underline">
+              <button type="button" onClick={() => setSteps((s) => s.filter((_, i) => i !== index))} className={`ml-auto ${buttonStyles.ghost} text-danger-700`}>
                 Remove
               </button>
             )}
@@ -144,12 +173,12 @@ function NewVersionForm({ onCreated }: { onCreated: () => void }) {
             onClick={() =>
               setSteps((s) => [...s, { offset_days: (s[s.length - 1]?.offset_days ?? 0) + 7, channel: "EMAIL", tone: "FIRM", requires_approver: true }])
             }
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+            className={buttonStyles.secondary}
           >
             Add step
           </button>
         )}
-        <label className="flex items-center gap-1.5 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-ink">
           <input type="checkbox" checked={makeDefault} onChange={(e) => setMakeDefault(e.target.checked)} />
           Use for new enrollments
         </label>
@@ -157,14 +186,18 @@ function NewVersionForm({ onCreated }: { onCreated: () => void }) {
           type="button"
           onClick={() => void submit()}
           disabled={busy}
-          className="ml-auto inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
+          className={`ml-auto ${buttonStyles.primary}`}
         >
           {busy && <Spinner />}
           Save version
         </button>
+        <button type="button" onClick={onCancel} className={buttonStyles.ghost}>
+          Cancel
+        </button>
       </div>
       {error && <ErrorMessage message={error} />}
-    </Card>
+      </div>
+    </Section>
   );
 }
 
@@ -172,6 +205,7 @@ export function SequencesView() {
   const user = useCurrentUser();
   const [state, setState] = useState<Loadable<Sequence[]>>({ kind: "loading" });
   const [reload, setReload] = useState(0);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -185,40 +219,49 @@ export function SequencesView() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Reminder Schedule</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          When each reminder is drafted, in which tone, and which steps need an approver. Drafts always wait for a person;
-          nothing is sent automatically.
-        </p>
-      </div>
-      {state.kind === "loading" && <Skeleton className="h-40 w-full rounded-xl" />}
+      <PageHeader
+        title="Reminder Schedule"
+        description="Manage the timing and tone of payment follow-ups. Drafts always wait for a person; nothing is sent automatically."
+        actions={
+          user.role === "ADMIN" && !editing ? (
+            <button type="button" onClick={() => setEditing(true)} className={buttonStyles.primary}>
+              Create new version
+            </button>
+          ) : undefined
+        }
+      />
+      {state.kind === "loading" && <Skeleton className="h-64 w-full rounded-xl" />}
       {state.kind === "error" && <ErrorMessage message={`Could not load the reminder schedules: ${state.message}`} />}
+      {editing && (
+        <NewVersionForm
+          onCreated={() => {
+            setEditing(false);
+            setReload((n) => n + 1);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      )}
       {state.kind === "ready" &&
         state.data.map((sequence) => (
-          <Card key={sequence.id} className="space-y-4 p-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-semibold text-slate-900">
-                {sequence.name} <span className="font-normal text-slate-500">v{sequence.version}</span>
-              </h2>
-              {sequence.is_default && (
-                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200">
-                  Default
-                </span>
-              )}
-              <span className="ml-auto text-xs text-slate-500">
-                {Object.entries(sequence.enrollment_counts.by_status)
-                  .map(([status, count]) => `${count} ${status.toLowerCase()}`)
-                  .join(" · ") || "No enrollments yet"}
+          <Section
+            key={sequence.id}
+            title={
+              <span className="inline-flex flex-wrap items-center gap-2">
+                {sequence.name} <span className="font-normal text-ink-subtle">version {sequence.version}</span>
+                {sequence.is_default && <StatusPill label="Used for new invoices" tone="brand" />}
               </span>
-            </div>
+            }
+            description={
+              Object.entries(sequence.enrollment_counts.by_status)
+                .map(([status, count]) => `${count} ${status.toLowerCase()}`)
+                .join(" · ") || "No invoices on this schedule yet"
+            }
+          >
             <Timeline sequence={sequence} />
-          </Card>
+          </Section>
         ))}
-      {user.role === "ADMIN" ? (
-        <NewVersionForm onCreated={() => setReload((n) => n + 1)} />
-      ) : (
-        <p className="text-sm text-slate-500">Only admins can create new schedule versions.</p>
+      {user.role !== "ADMIN" && (
+        <Notice tone="neutral">Viewing only. Only admins can create new schedule versions; saved versions never change.</Notice>
       )}
     </div>
   );

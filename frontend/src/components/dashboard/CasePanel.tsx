@@ -28,7 +28,9 @@ import { assignTask, cancelTask, createTask, getInvoiceTasks, markTaskDone, type
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { links } from "@/lib/url";
 
-import { ErrorMessage, Spinner } from "./ui";
+import { DISPUTE_STATUS, PROMISE_STATUS, labelFor } from "@/lib/status";
+
+import { ErrorMessage, Spinner, StatusPill, buttonStyles, inputStyles } from "./ui";
 
 const CASE_EVENTS = new Set([
   "PROMISE_RECORDED", "PROMISE_KEPT", "PROMISE_BROKEN", "PROMISE_CANCELLED", "SEQUENCE_ESCALATED",
@@ -37,18 +39,11 @@ const CASE_EVENTS = new Set([
   "TASK_OVERDUE", "REPLY_RECEIVED", "REPLY_REVIEWED",
 ]);
 
-const PROMISE_BADGES: Record<PromiseToPay["status"], string> = {
-  OPEN: "bg-sky-50 text-sky-800 border-sky-200",
-  KEPT: "bg-emerald-50 text-emerald-800 border-emerald-200",
-  BROKEN: "bg-rose-50 text-rose-800 border-rose-200",
-  CANCELLED: "bg-slate-50 text-slate-600 border-slate-200",
-};
 
-const inputClass = "mt-0.5 block w-full rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900";
-const buttonClass =
-  "inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50";
-const primaryClass =
-  "inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50";
+
+const inputClass = `mt-1.5 ${inputStyles.input}`;
+const buttonClass = buttonStyles.secondarySm;
+const primaryClass = buttonStyles.primarySm;
 
 function errorText(err: unknown): string {
   return err instanceof ApiError ? err.message : "Unexpected error.";
@@ -56,9 +51,9 @@ function errorText(err: unknown): string {
 
 function Box({ title, children, badge }: { title: string; children: ReactNode; badge?: ReactNode }) {
   return (
-    <div className="space-y-2 rounded-lg border border-slate-200 p-3">
+    <div className="space-y-3 rounded-xl border border-line p-4">
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+        <h4 className="text-sm font-semibold text-ink">{title}</h4>
         {badge}
       </div>
       {children}
@@ -69,7 +64,7 @@ function Box({ title, children, badge }: { title: string; children: ReactNode; b
 export function ChasingNote({ chasing }: { chasing: ChasingStatus | null }) {
   if (!chasing) return null;
   return (
-    <p role="status" className="rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
+    <p role="status" className="rounded-lg border border-line bg-slate-50 px-3 py-2 text-sm text-ink">
       {chasing.resumes
         ? `Chasing resumes. ${chasing.note}`
         : `Chasing stays stopped: ${chasing.blocked_by.map((b) => b.detail).join(" ")}`}
@@ -96,7 +91,7 @@ export function UserSelect({
       value={value ?? ""}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
-      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900"
+      className="h-9 rounded-lg border border-line-strong bg-white px-2.5 text-sm text-ink focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/25 disabled:opacity-60"
     >
       <option value="">Unassigned</option>
       {users.map((user) => (
@@ -135,7 +130,7 @@ function PromiseCard({
   return (
     <Box
       title={`Promise to pay ${formatMoney(promise.amount, promise.currency)} by ${formatDate(promise.promised_date)}`}
-      badge={<span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${PROMISE_BADGES[promise.status]}`}>{promise.status}</span>}
+      badge={<StatusPill label={labelFor(PROMISE_STATUS, promise.status).label} tone={labelFor(PROMISE_STATUS, promise.status).tone} />}
     >
       <p className="text-xs text-slate-600">
         Recorded {formatDateTime(promise.created_at)}
@@ -186,11 +181,17 @@ export function DisputeCard({
   users,
   isApprover,
   onChanged,
+  impact,
+  bare = false,
 }: {
   dispute: DisputeCase;
   users: AppUser[];
   isApprover: boolean;
   onChanged: (chasing: ChasingStatus | null) => void;
+  /** Shown before the resolution (the Disputes page puts "collection impact" here). */
+  impact?: ReactNode;
+  /** Without the outer border, for a page that frames it itself. */
+  bare?: boolean;
 }) {
   const [note, setNote] = useState("");
   const [outcome, setOutcome] = useState<"VALID" | "INVALID" | "">("");
@@ -213,109 +214,135 @@ export function DisputeCard({
     }
   };
 
-  return (
-    <Box
-      title={`Dispute: ${dispute.reason_display}`}
-      badge={
-        <span
-          className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-            open ? "border-rose-200 bg-rose-50 text-rose-800" : "border-slate-200 bg-slate-50 text-slate-600"
-          }`}
-        >
-          {dispute.status_display}
-        </span>
-      }
-    >
-      <p className="text-sm text-slate-700">{dispute.description}</p>
-      <p className="text-xs text-slate-600">
-        Opened {formatDateTime(dispute.created_at)} by {dispute.opened_by}
-        {dispute.reply ? " from a customer reply" : ""}.
-        {open && " Nothing is drafted, approved or sent for this invoice until an approver resolves it."}
-      </p>
-      {!open && (
-        <p className="text-xs text-slate-700">
-          Resolved {dispute.resolved_at ? formatDateTime(dispute.resolved_at) : ""} by {dispute.resolved_by}: {dispute.resolution}
+  const status = labelFor(DISPUTE_STATUS, dispute.status);
+  const sub = "space-y-2 border-t border-line pt-4";
+  const subTitle = "text-sm font-semibold text-ink";
+  const body = (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 className={subTitle}>Dispute: {dispute.reason_display}</h4>
+          {!bare && <StatusPill label={status.label} tone={status.tone} />}
+        </div>
+        <p className="text-sm text-ink">{dispute.description}</p>
+        <p className="text-xs text-ink-subtle">
+          Opened {formatDateTime(dispute.created_at)} by {dispute.opened_by}
+          {dispute.reply ? " from a customer reply" : ""}.
         </p>
-      )}
-      {open && (
-        <label className="flex items-center gap-2 text-xs text-slate-600">
-          Owner
-          <UserSelect
-            users={users}
-            value={dispute.owner?.id ?? null}
-            disabled={busy}
-            label="Dispute owner"
-            onChange={(id) => void act(() => assignDispute(dispute.id, id))}
-          />
-        </label>
-      )}
-      {dispute.notes.length > 0 && (
-        <ul className="space-y-1 border-l-2 border-slate-200 pl-2 text-xs text-slate-700">
-          {dispute.notes.map((entry) => (
-            <li key={entry.id}>
-              <span className="text-slate-500">
-                {formatDateTime(entry.created_at)} · {entry.author}:
-              </span>{" "}
-              {entry.text}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Internal note"
-          aria-label="Internal note"
-          className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-900"
-        />
-        <button
-          type="button"
-          disabled={busy || !note.trim()}
-          onClick={() => void act(() => addDisputeNote(dispute.id, note))}
-          className={buttonClass}
-        >
-          Add note
-        </button>
       </div>
-      {open &&
-        ((dispute.can_resolve?.allowed ?? isApprover) ? (
-          <div className="space-y-2 rounded-md bg-slate-50 p-2">
-            <div className="flex flex-wrap gap-3 text-xs text-slate-700" role="radiogroup" aria-label="Outcome">
-              <label className="flex items-center gap-1">
-                <input type="radio" checked={outcome === "INVALID"} onChange={() => setOutcome("INVALID")} />
+
+      <div className={sub}>
+        <h4 className={subTitle}>Owner and internal notes</h4>
+        {open ? (
+          <label className="flex flex-wrap items-center gap-3 text-sm text-ink-muted">
+            Owner
+            <UserSelect
+              users={users}
+              value={dispute.owner?.id ?? null}
+              disabled={busy}
+              label="Dispute owner"
+              onChange={(id) => void act(() => assignDispute(dispute.id, id))}
+            />
+          </label>
+        ) : (
+          <p className="text-sm text-ink-muted">Owner: {dispute.owner?.display_name ?? "none"}</p>
+        )}
+        {dispute.notes.length > 0 ? (
+          <ul className="space-y-2 border-l-2 border-line pl-3 text-sm text-ink">
+            {dispute.notes.map((entry) => (
+              <li key={entry.id}>
+                <span className="text-xs text-ink-subtle">
+                  {formatDateTime(entry.created_at)} · {entry.author}
+                </span>
+                <span className="block">{entry.text}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-ink-subtle">No notes yet. Notes are internal and never sent to the customer.</p>
+        )}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Add an internal note"
+            aria-label="Internal note"
+            className={`${inputStyles.input} sm:flex-1`}
+          />
+          <button
+            type="button"
+            disabled={busy || !note.trim()}
+            onClick={() => void act(() => addDisputeNote(dispute.id, note))}
+            className={buttonStyles.secondary}
+          >
+            Add note
+          </button>
+        </div>
+      </div>
+
+      {impact}
+
+      {open ? (
+        (dispute.can_resolve?.allowed ?? isApprover) ? (
+          <div className="space-y-3 rounded-xl border border-brand-200 bg-brand-50/40 p-4" aria-label="Resolve the dispute">
+            <div>
+              <h4 className={subTitle}>Resolution</h4>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                For approvers. Resolving never sends anything; at most the next step is drafted for review. Other holds on the
+                invoice stay in place.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 text-sm text-ink sm:flex-row sm:gap-6" role="radiogroup" aria-label="Outcome">
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={outcome === "INVALID"} onChange={() => setOutcome("INVALID")} className="h-4 w-4 accent-brand-600" />
                 Invoice stands (chasing may resume)
               </label>
-              <label className="flex items-center gap-1">
-                <input type="radio" checked={outcome === "VALID"} onChange={() => setOutcome("VALID")} />
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={outcome === "VALID"} onChange={() => setOutcome("VALID")} className="h-4 w-4 accent-brand-600" />
                 Customer is right (stop reminders)
               </label>
             </div>
             <textarea
               value={resolution}
               onChange={(event) => setResolution(event.target.value)}
-              placeholder="Resolution (required)"
+              placeholder="What was decided and why (required)"
               aria-label="Resolution"
               rows={2}
-              className="block w-full rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-900"
+              className={inputStyles.textarea}
             />
-            <button
-              type="button"
-              disabled={busy || !outcome || !resolution.trim()}
-              onClick={() => outcome && void act(() => resolveDispute(dispute.id, outcome, resolution))}
-              className={primaryClass}
-            >
-              {busy && <Spinner className="h-3 w-3" />}
-              Resolve dispute
-            </button>
-            <p className="text-[11px] text-slate-500">Resolving never sends anything; at most the next step is drafted for review.</p>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={busy || !outcome || !resolution.trim()}
+                onClick={() => outcome && void act(() => resolveDispute(dispute.id, outcome, resolution))}
+                className={buttonStyles.primary}
+              >
+                {busy && <Spinner className="h-3.5 w-3.5" />}
+                Resolve dispute
+              </button>
+            </div>
           </div>
         ) : (
-          <p className="text-xs text-slate-500">{dispute.can_resolve?.reason || "Only an approver can resolve a dispute."}</p>
-        ))}
+          <div className={sub}>
+            <h4 className={subTitle}>Resolution</h4>
+            <p className="text-sm text-ink-muted">{dispute.can_resolve?.reason || "Only an approver can resolve a dispute."}</p>
+          </div>
+        )
+      ) : (
+        <div className={sub}>
+          <h4 className={subTitle}>Resolution</h4>
+          <p className="text-sm text-ink">
+            {status.label}. {dispute.resolution}
+          </p>
+          <p className="text-xs text-ink-subtle">
+            Resolved {dispute.resolved_at ? formatDateTime(dispute.resolved_at) : ""} by {dispute.resolved_by}
+          </p>
+        </div>
+      )}
       {error && <ErrorMessage message={error} />}
-    </Box>
+    </div>
   );
+  return bare ? body : <div className="rounded-xl border border-line p-4">{body}</div>;
 }
 
 function NewPromiseForm({ invoice, onDone }: { invoice: Invoice; onDone: () => void }) {
@@ -414,10 +441,15 @@ function NewDisputeForm({ invoice, users, onDone }: { invoice: Invoice; users: A
   );
 }
 
-export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser[]; onChanged: (message?: string) => void }) {
+/**
+ * Completing or cancelling an open task: one note, with the rule for it stated inline (optional to complete,
+ * required to cancel; call tasks of a reminder step cannot be cancelled).
+ */
+export function TaskCompletion({ task, onChanged }: { task: Task; onChanged: (message?: string) => void }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const noteId = useId();
   const act = async (action: () => Promise<Task>, message?: string) => {
     setBusy(true);
     setError(null);
@@ -430,72 +462,99 @@ export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser
       setBusy(false);
     }
   };
+  return (
+    <div className="space-y-2">
+      <label htmlFor={noteId} className="block text-sm font-medium text-ink">
+        What was done?{" "}
+        <span className="font-normal text-ink-subtle">{task.step ? "(optional)" : "(optional to complete, required to cancel)"}</span>
+      </label>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input
+          id={noteId}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. Called; they will pay Friday"
+          aria-label="Task note"
+          className={`${inputStyles.input} sm:flex-1`}
+        />
+        <div className="flex gap-2">
+          {!task.step && (
+            <button
+              type="button"
+              disabled={busy || !note.trim()}
+              title={!note.trim() ? "Write why the task is cancelled first" : undefined}
+              onClick={() => void act(() => cancelTask(task.id, note), `"${task.title}" cancelled.`)}
+              className={buttonStyles.secondary}
+            >
+              Cancel task
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void act(
+                () => markTaskDone(task.id, note),
+                `"${task.title}" marked complete.${task.step ? " The reminder schedule moves on to its next step." : ""}`,
+              )
+            }
+            className={buttonStyles.primary}
+          >
+            {busy && <Spinner className="h-3.5 w-3.5" />}
+            Mark task complete
+          </button>
+        </div>
+      </div>
+      <p className="text-xs text-ink-subtle">
+        The note is kept in the history.
+        {task.step
+          ? " Completing this call task completes its reminder step; it cannot be cancelled."
+          : " Completing a task never resumes chasing by itself."}
+      </p>
+      {error && <ErrorMessage message={error} />}
+    </div>
+  );
+}
+
+/** A task inside the invoice drawer: title, owner, due date, then the completion controls. */
+export function TaskRow({ task, users, onChanged }: { task: Task; users: AppUser[]; onChanged: (message?: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const assign = async (id: number | null) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await assignTask(task.id, id);
+      onChanged(`"${task.title}" ${id === null ? "is now unassigned" : "was assigned"}.`);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
   const open = task.status === "OPEN";
   return (
-    <li className="space-y-1.5 py-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-slate-900">
-          {task.title}{" "}
-          <span className="text-xs text-slate-500">
-            · {task.kind_display}
+    <li className="space-y-3 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink">{task.title}</p>
+          <p className="mt-0.5 text-xs text-ink-subtle">
+            {task.kind_display}
             {open && ` · due ${formatDateTime(task.due_at)}`}
-          </span>
-          {task.is_overdue && <span className="ml-1 text-xs font-medium text-rose-700">overdue</span>}
-        </p>
+            {task.is_overdue && <span className="ml-1 font-semibold text-danger-700">· Overdue</span>}
+          </p>
+        </div>
         {open ? (
-          <UserSelect
-            users={users}
-            value={task.assignee?.id ?? null}
-            disabled={busy}
-            label="Assignee"
-            onChange={(id) => void act(() => assignTask(task.id, id), `"${task.title}" ${id === null ? "is now unassigned" : "was assigned"}.`)}
-          />
+          <UserSelect users={users} value={task.assignee?.id ?? null} disabled={busy} label="Assignee" onChange={(id) => void assign(id)} />
         ) : (
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-ink-subtle">
             {task.status === "DONE" ? `Done by ${task.done_by ?? "system"}` : `Cancelled by ${task.cancelled_by ?? "system"}`}
           </span>
         )}
       </div>
-      {task.detail && <p className="text-xs text-slate-600">{task.detail}</p>}
-      {task.completion_note && <p className="text-xs text-slate-600">Note: {task.completion_note}</p>}
-      {open && (
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="What was done? e.g. Called; they will pay Friday"
-              aria-label="Task note"
-              className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-900"
-            />
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void act(() => markTaskDone(task.id, note), `"${task.title}" marked complete.${task.step ? " The reminder schedule moves on to its next step." : ""}`)}
-              className={buttonClass}
-            >
-              {busy && <Spinner className="h-3 w-3" />}
-              Mark task complete
-            </button>
-            {!task.step && (
-              <button
-                type="button"
-                disabled={busy || !note.trim()}
-                onClick={() => void act(() => cancelTask(task.id, note), `"${task.title}" cancelled.`)}
-                className={buttonClass}
-              >
-                Cancel task
-              </button>
-            )}
-          </div>
-          <p className="text-[11px] text-slate-500">
-            The note is optional when completing and kept in the history.
-            {task.step
-              ? " Completing this call task completes its reminder step; it cannot be cancelled."
-              : " To cancel, write why (required). Completing a task never resumes chasing by itself."}
-          </p>
-        </div>
-      )}
+      {task.detail && <p className="text-sm text-ink-muted">{task.detail}</p>}
+      {task.completion_note && <p className="text-sm text-ink-muted">Note: {task.completion_note}</p>}
+      {open && <TaskCompletion task={task} onChanged={onChanged} />}
       {error && <ErrorMessage message={error} />}
     </li>
   );
@@ -541,7 +600,16 @@ function NewTaskForm({ invoice, users, onDone }: { invoice: Invoice; users: AppU
 }
 
 /** Promises, disputes, holds, tasks and their history for one invoice (M11). */
-export function CasePanel({ invoice: initial, onChanged }: { invoice: Invoice; onChanged?: () => void }) {
+export function CasePanel({
+  invoice: initial,
+  onChanged,
+  compact = false,
+}: {
+  invoice: Invoice;
+  onChanged?: () => void;
+  /** Inside the invoice drawer: holds and history are shown elsewhere there. */
+  compact?: boolean;
+}) {
   const user = useCurrentUser();
   // Re-read after every change so holds and open cases are current, not the dashboard's snapshot.
   const [invoice, setInvoice] = useState<Invoice>(initial);
@@ -599,13 +667,13 @@ export function CasePanel({ invoice: initial, onChanged }: { invoice: Invoice; o
   const visibleDisputes = disputes.filter((d) => d.status === "OPEN" || d === disputes[0]);
 
   return (
-    <section className="space-y-3" aria-label="Promises, disputes and tasks">
-      <h3 className="text-sm font-semibold text-slate-900">Promises, disputes and tasks</h3>
+    <section className="space-y-4" aria-label="Promises, disputes and tasks">
+      <h3 className="text-sm font-semibold text-ink">Promises, disputes and tasks</h3>
       {error && <ErrorMessage message={`Could not load: ${error}`} />}
       <ChasingNote chasing={chasing} />
 
-      {invoice.holds.length > 0 && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      {!compact && invoice.holds.length > 0 && (
+        <div className="rounded-lg border border-warning-300 bg-warning-50 px-3 py-2 text-xs text-warning-900">
           <p className="font-semibold">Chasing is stopped by {invoice.holds.length === 1 ? "a hold" : `${invoice.holds.length} holds`}:</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
             {invoice.holds.map((hold) => (
@@ -673,7 +741,7 @@ export function CasePanel({ invoice: initial, onChanged }: { invoice: Invoice; o
         <NewTaskForm invoice={invoice} users={users} onDone={() => changed()} />
       </Box>
 
-      {history.length > 0 && (
+      {!compact && history.length > 0 && (
         <details className="rounded-lg border border-slate-200 px-3 py-2">
           <summary className="cursor-pointer text-xs font-medium text-slate-700">Recent history</summary>
           <ol className="mt-2 space-y-1 text-xs text-slate-600">

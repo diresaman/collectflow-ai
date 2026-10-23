@@ -121,17 +121,17 @@ function Sidebar({ active, counts, onNavigate }: { active: string; counts: Recor
         href="/today"
         onClick={onNavigate}
         aria-label="CollectFlow AI, Today's Work"
-        className="flex items-center gap-2.5 rounded-lg px-5 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+        className="flex h-16 shrink-0 items-center gap-2.5 px-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
       >
         <Logo />
-        <span className="text-base font-semibold text-slate-900">CollectFlow AI</span>
+        <span className="text-base font-semibold text-ink">CollectFlow AI</span>
       </Link>
-      <nav aria-label="Main" className="flex-1 space-y-6 overflow-y-auto px-3 pb-4">
+      <nav aria-label="Main" className="flex-1 space-y-6 overflow-y-auto px-3 pt-4 pb-4">
         {NAV_GROUPS.map((group) => {
           const headingId = `nav-${group.title.toLowerCase().replace(/[^a-z]+/g, "-")}`;
           return (
             <div key={group.title}>
-              <p id={headingId} className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <p id={headingId} className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-subtle">
                 {group.title}
               </p>
               <ul className="space-y-0.5" aria-labelledby={headingId}>
@@ -145,21 +145,21 @@ function Sidebar({ active, counts, onNavigate }: { active: string; counts: Recor
                         onClick={onNavigate}
                         aria-current={isActive ? "page" : undefined}
                         title={item.label}
-                        className={`flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-                          isActive ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        className={`flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                          isActive ? "bg-brand-50 text-brand-700" : "text-ink-muted hover:bg-slate-100 hover:text-ink"
                         }`}
                       >
                         <NavIcon name={item.icon} />
                         <span className="min-w-0 flex-1 truncate">{item.label}</span>
                         {count > 0 &&
                           (item.count === "integrations" ? (
-                            <span className="rounded-full bg-rose-100 px-1.5 text-xs font-semibold text-rose-700" aria-label={`${count} problem(s)`}>
+                            <span className="rounded-full bg-danger-100 px-1.5 text-xs font-semibold text-danger-700" aria-label={`${count} problem(s)`}>
                               !
                             </span>
                           ) : (
                             <span
                               className={`min-w-5 rounded-full px-1.5 text-center text-xs font-semibold ${
-                                isActive ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-700"
+                                isActive ? "bg-brand-600 text-white" : "bg-slate-200 text-slate-700"
                               }`}
                               aria-label={`${count} waiting`}
                             >
@@ -175,19 +175,25 @@ function Sidebar({ active, counts, onNavigate }: { active: string; counts: Recor
           );
         })}
       </nav>
-      <div className="border-t border-slate-200 px-5 py-4">
-        <p className="truncate text-sm font-medium text-slate-900">{user.display_name}</p>
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs text-slate-500">{ROLE_LABELS[user.role]}</p>
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            disabled={signingOut}
-            className="rounded px-1 py-0.5 text-xs font-medium text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-60"
-          >
-            {signingOut ? "Signing out…" : "Sign out"}
-          </button>
+      <div className="flex items-center gap-3 border-t border-line px-4 py-4">
+        <span
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-semibold text-brand-700"
+          aria-hidden="true"
+        >
+          {(user.display_name || "?").charAt(0).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-ink">{user.display_name}</p>
+          <p className="text-xs text-ink-subtle">{ROLE_LABELS[user.role]}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          disabled={signingOut}
+          className="rounded-md px-2 py-1.5 text-xs font-medium text-ink-muted hover:bg-slate-100 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-60"
+        >
+          {signingOut ? "Signing out…" : "Sign out"}
+        </button>
       </div>
     </div>
   );
@@ -207,26 +213,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [open]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-slate-200 bg-white lg:block">
+    <div className="min-h-screen bg-canvas">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-62 border-r border-line bg-surface lg:block">
         <Sidebar active={active} counts={counts} />
       </aside>
 
       {/* Small screens: a top bar and a slide-in drawer with the same sidebar. */}
-      <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
+      <div className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-surface px-4 py-3 lg:hidden">
         <button
           type="button"
           onClick={() => setOpen(true)}
           aria-expanded={open}
           aria-controls="nav-drawer"
-          className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700"
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-line-strong px-3 text-sm font-medium text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-5 w-5" aria-hidden="true">
             <path strokeLinecap="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
           </svg>
           Menu
           {(counts.today ?? 0) > 0 && (
-            <span className="rounded-full bg-indigo-600 px-1.5 text-xs font-semibold text-white">{counts.today}</span>
+            <span className="rounded-full bg-brand-600 px-1.5 text-xs font-semibold text-white">{counts.today}</span>
           )}
         </button>
         <Link href="/today" className="flex items-center gap-2">
@@ -237,15 +243,26 @@ export function AppShell({ children }: { children: ReactNode }) {
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
           <div className="absolute inset-0 bg-slate-900/40" onClick={() => setOpen(false)} aria-hidden="true" />
-          <div id="nav-drawer" className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white shadow-xl">
+          <div id="nav-drawer" className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface shadow-xl">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Close menu"
+              autoFocus
+              className="absolute top-3.5 right-3 z-10 rounded-lg p-2 text-ink-subtle hover:bg-slate-100 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-5 w-5" aria-hidden="true">
+                <path strokeLinecap="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
             <Sidebar active={active} counts={counts} onNavigate={() => setOpen(false)} />
           </div>
         </div>
       )}
 
-      <div className="lg:pl-64">
+      <div className="lg:pl-62">
         <ConnectionNotice />
-        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">{children}</main>
+        <main className="mx-auto max-w-screen-xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">{children}</main>
       </div>
     </div>
   );

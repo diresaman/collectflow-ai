@@ -26,10 +26,10 @@ type SendError = { kind: "not_sent" | "uncertain"; message: string };
 
 function Banner({ tone, title, children }: { tone: "teal" | "rose" | "amber" | "sky"; title: string; children?: ReactNode }) {
   const styles = {
-    teal: "border-teal-200 bg-teal-50 text-teal-900",
-    rose: "border-rose-200 bg-rose-50 text-rose-900",
-    amber: "border-amber-300 bg-amber-50 text-amber-900",
-    sky: "border-sky-200 bg-sky-50 text-sky-900",
+    teal: "border-success-200 bg-success-50 text-success-900",
+    rose: "border-danger-200 bg-danger-50 text-danger-900",
+    amber: "border-warning-300 bg-warning-50 text-warning-900",
+    sky: "border-info-200 bg-info-50 text-info-900",
   }[tone];
   return (
     <div role="status" className={`space-y-1.5 rounded-lg border px-4 py-3 text-sm ${styles}`}>
@@ -104,7 +104,7 @@ function StatusBanner({ followUp, attempts, sender }: { followUp: FollowUp; atte
 
 function AttemptHistory({ state }: { state: Loadable<DeliveryAttempt[]> }) {
   if (state.kind === "loading") return <p className="text-xs text-slate-400">Loading delivery attempts…</p>;
-  if (state.kind === "error") return <p className="text-xs text-rose-600">Could not load delivery attempts.</p>;
+  if (state.kind === "error") return <p className="text-xs text-danger-600">Could not load delivery attempts.</p>;
   if (state.data.length === 0) return null;
   return (
     <section className="space-y-2">
@@ -166,7 +166,7 @@ function ConfirmDialog({
             <dd className="text-slate-900">{followUp.subject}</dd>
           </div>
         </dl>
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p className="rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-900">
           A real email will be sent through Gmail. This cannot be undone.
         </p>
         <div className="flex justify-end gap-2">
@@ -181,7 +181,7 @@ function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-500"
           >
             Send email
           </button>
@@ -313,7 +313,7 @@ export function DeliveryPanel({
               type="button"
               onClick={() => setConfirming(true)}
               disabled={!gmailReady || sending || withdrawing || sendError?.kind === "uncertain" || followUp.invoice_changed_fields.length > 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {sending && <Spinner />}
               {sending ? "Sending…" : "Send email…"}
