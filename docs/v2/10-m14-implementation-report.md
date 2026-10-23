@@ -205,7 +205,7 @@ to `collectflow_dev` only. The real database and the running stack were not touc
 
 No live Gemini call, Gmail send or Sheets read was made for M14.
 
-### 10.1 Production deployment record (2026-10-23): PARTIAL
+### 10.1 Production deployment record (2026-10-23): PASSED
 
 The deployment covered M13, M14 and the UX work (HEAD `96bedac`). The owner ran `backend/backups/deploy-m13.sh`;
 Claude verified the result read-only. Times are UTC.
@@ -216,15 +216,37 @@ Claude verified the result read-only. Times are UTC.
 | Rollback images | `collectflow-{api,worker,web}:pre-m13` = `0edc57667052`, `137cc5023d76`, `1b514d58a643` (M12) |
 | New images | api `a96708d810f7` (running since 11:09:04), web `0cce2d611845` (running since 11:09:56), worker `ed158895c363` (built, **not started**) |
 | Migrations | `invoices 0008` and `0009`, `followups 0007`, `insights 0001` applied at 11:09:21–22; 51 migrations in total; `manage.py check` clean |
-| **Worker** | **Not running.** It was stopped cleanly at 11:08:42 (script step 3, 0 jobs in flight), and the script ended before step 6 ("resume the worker"). The container is exited and still on the M12 image. The cause (a failed check or an interrupted run) is not visible in the logs. Until it is started, scheduled syncs, reply polls, the sequence tick, the promise and task checks, and the first risk and analytics calculation are paused. Integrations correctly reports the worker as failed |
+| Worker | Stopped cleanly at 11:08:42 (script step 3, 0 jobs in flight). The script ended before step 6 ("resume the worker"); the cause is not visible in the logs. The owner started it manually at **13:29:07** on image `ed158895c363`, with 0 restarts and no errors in the log. **The worker was down for about 2 h 20 min**: missed scheduled slots are not back-filled, by design, and nothing was in flight |
 | Record preservation | Follow-ups and clients are identical to the pre-deployment reference apart from the new columns (`670d87d3…`, `04ebcce0…`); all 9 follow-ups have kind INVOICE. All other content hashes and workflow states are identical. The only row differences are the new empty tables (`followups_statementline`, `insights_analyticssnapshot`), Django's migration, permission and content-type rows, and normal M12-worker activity between the backup and the pause (10 jobs, 2 sheet syncs, the mailbox cursor) |
 | Providers | 7 delivery attempts (unchanged; the last is the 06:10 live test email). 0 Gemini calls since the backup. 0 statements. No duplicate jobs |
 | Configuration | `.env`, the Gmail token and credential files, `GMAIL_READ_ENABLED=true`, the sender and the recipient allowlist are all unchanged |
 | Pages (signed out) | All 12 pages return 200, including `/approvals`. New API routes return 401 when signed out; an unknown route 404; a cross-origin write 403 |
 | API (signed in, in-process, rolled back) | Today, worklist, clients and client detail (paid history, communications), analytics (`not_computed`, as expected while the worker is stopped), forecast, follow-ups (`kind`, `statement`), replies, tasks, disputes and integrations: 200. Statement preview works; nothing is eligible yet. No role: 403. CSRF enforced on the recompute and statement writes. Risk and analytics computed correctly on production data inside the rolled-back transaction |
 
-**Status: API and web deployed and verified; worker pending.** To complete it, the owner runs
-`docker compose up -d --no-deps --no-build worker`. Claude then checks that the worker runs `ed158895c363`,
-that the first `insights.recompute` succeeds (risk scores and 5 analytics snapshots), that the scheduled jobs
-are healthy, and that there are still no sends or Gemini calls.
-Rollback stays available through the `pre-m13` images; the new columns have database defaults.
+**Verification after the worker restart:**
+
+| Check | Result |
+| --- | --- |
+| First jobs | `sequences.tick` (0 generated, 1 skipped), `inbox.poll` (0 ingested), `cases.monitor` and `insights.recompute` all SUCCEEDED. The recompute changed 2 clients and wrote 5 snapshots |
+| Risk scores | Both clients scored (12 and 8), with factor breakdowns, flagged low confidence because payment history is short. 0 unscored |
+| Analytics | The `aging`, `attribution`, `dso_cei`, `forecast` and `kpis` snapshots were computed at 13:29:15. Summary figures: 11,920.00 USD overdue, 9,072.00 USD expected in 30 days (estimate), DSO not yet available, 0 open promises. Aging: 1 invoice current, 8 in 1–30 days. DSO and CEI report `insufficient_history`, as designed. Attribution: no payments seen in the window |
+| `/clients` and `/analytics` | Both return calculated data (worklist ranked by priority, with next actions) |
+| Jobs | No duplicate idempotency keys; nothing pending, running or stuck |
+| Gmail | Still 7 delivery attempts (the last is the 06:10 live test email). No sends during or after the deployment |
+| Gemini | 0 calls since the backup. The last call was a classification at 08:20. No quota pause; 10 of the 15 daily calls used in the last 24 h |
+| Health | Sheets, Gmail sending, Gmail reading, reply polling, Gemini and worker: healthy. The four scheduled jobs are healthy |
+| Records | Follow-ups and clients are identical to the pre-deployment reference apart from the new columns. All other content hashes and workflow states are unchanged. New rows: 4 jobs, 1 sheet sync, 5 snapshots |
+
+**Final status: PASSED.** M13, M14 and the UX work are live (API `a96708d810f7`, worker `ed158895c363`,
+web `0cce2d611845`). Rollback stays available through the `pre-m13` images; the new columns have database
+defaults.
+
+**Remaining limitations:**
+- The live-provider acceptance test (M12.1) is still pending: the promise record, the TEST-M12-002 rejection,
+  cleanup of the TEST rows and the Stage C report.
+- The full regression suite and the browser test suite have not run on this code (M15).
+- The forecast puts overdue invoices without payment history in week 1, because their expected date is clamped
+  to today.
+- DSO and CEI are unavailable until about 2026-11-15.
+- The Integrations page does not yet list `insights.recompute` among its scheduled jobs (monitoring gap).
+- The M14 parameters marked "proposed" still await owner approval.
