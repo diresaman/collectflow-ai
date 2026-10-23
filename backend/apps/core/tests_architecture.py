@@ -13,7 +13,7 @@ from django.conf import settings
 from django.test import SimpleTestCase
 
 FORBIDDEN = ("apps.followups.delivery", "integrations.gmail")
-RESTRICTED_APPS = ("sequences", "inbox", "automation")
+RESTRICTED_APPS = ("sequences", "inbox", "automation", "insights")
 
 
 def imported_modules(path: Path) -> set[str]:

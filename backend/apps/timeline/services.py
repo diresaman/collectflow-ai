@@ -1,5 +1,6 @@
 """The only writer of TimelineEvent. Call it inside the transaction that makes the change it records."""
 
+from collections.abc import Callable
 from typing import Any
 
 from django.db import connection
@@ -18,12 +19,29 @@ def actor_fields(actor: Actor) -> dict[str, Any]:
     return {"actor_type": ActorType.USER, "actor": actor}
 
 
+# Called with the types of every batch of recorded events (M13: insights recompute after relevant changes).
+# A listener must not write timeline events itself and should defer work with transaction.on_commit.
+_listeners: list[Callable[[set[str]], None]] = []
+
+
+def subscribe(listener: Callable[[set[str]], None]) -> None:
+    if listener not in _listeners:
+        _listeners.append(listener)
+
+
+def _notify(types: set[str]) -> None:
+    for listener in _listeners:
+        listener(types)
+
+
 def record(event_type: str, *, actor: Actor, invoice: Any = None, client: Any = None, **payload: Any) -> TimelineEvent:
     if client is None and invoice is not None:
         client = invoice.client
-    return TimelineEvent.objects.create(
+    event = TimelineEvent.objects.create(
         type=event_type, invoice=invoice, client=client, payload=payload, **actor_fields(actor)
     )
+    _notify({event_type})
+    return event
 
 
 def build(event_type: str, *, actor: Actor, invoice: Any = None, client: Any = None, **payload: Any) -> TimelineEvent:
@@ -35,6 +53,8 @@ def build(event_type: str, *, actor: Actor, invoice: Any = None, client: Any = N
 
 def bulk_record(events: list[TimelineEvent]) -> None:
     TimelineEvent.objects.bulk_create(events)
+    if events:
+        _notify({event.type for event in events})
 
 
 # Append-only enforcement --------------------------------------------------------

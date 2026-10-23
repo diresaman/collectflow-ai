@@ -725,6 +725,35 @@ through deep links: `/?invoice=<id>` opens the invoice drawer, `/inbox?reply=<id
 - **Invoice drawer:** each hold links to the reply or dispute that owns it; the Inbox links to the
   invoice, the promise or dispute and its tasks.
 
+## Client risk and worklist (M13)
+
+A client is identified by the normalized email of its invoices (v2 design); every client name the
+sheet used for it is listed, nothing is merged further. Each client gets a **deterministic 0–100 risk
+score** from records only (no AI). The design fixes the maximum per factor; the mappings were approved
+by the owner in M13 and are tunable in settings (`RISK_*`):
+
+| Factor | Points |
+| --- | --- |
+| Oldest unpaid invoice in the sheet, days overdue | 35 × min(days, 90) / 90, rounded |
+| Broken promises in the last 180 days | 1 → 15, 2 or more → 25 |
+| Average days late on paid invoices (paid date = first sync showing PAID) | 20 × min(avg, 60) / 60; fewer than 3 measured payments → portfolio average, "low confidence" |
+| No reply to the last two reminders | 5 per reminder unanswered after 3 days |
+| Open dispute | 10 |
+
+Each score is stored on the client with every factor's points, sentence and source records, and the
+calculation time. The worker recalculates after any change that writes a relevant timeline event (sync,
+payment, reply, send, promise, dispute) and every hour. `POST /api/clients/recompute/` queues one by
+hand.
+
+**Clients (`/clients`):** the worklist ranks clients by **risk × outstanding amount, separately per
+currency** (never added or compared across currencies). Each row shows the top factors, a suggested
+next action taken from the Today rules (with who can act and why the user cannot), and what stops
+chasing. Urgent Today work (integration problems, replies to review, unknown deliveries) is shown above
+the ranking. The detail panel shows the full breakdown, payment behaviour (average days late, promises
+kept, reminders answered) and links to invoices, replies, disputes, promises and tasks. The score never
+drafts, approves, sends or releases a hold. APIs: `GET /api/worklist/`, `GET /api/clients/`,
+`GET /api/clients/{id}/`.
+
 ## Proactive automation
 
 ### Architecture

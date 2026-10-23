@@ -11,6 +11,7 @@ urlpatterns = [
     path("api/", include("apps.sequences.urls")),
     path("api/", include("apps.inbox.urls")),
     path("api/", include("apps.cases.urls")),
+    path("api/", include("apps.insights.urls")),
     path("api/", include("apps.automation.urls")),
 ]
 

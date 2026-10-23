@@ -1,5 +1,6 @@
 /**
- * Deep links between screens (M12): /?invoice=<id>, /inbox?reply=<id>, /disputes?case=<id>, /tasks?task=<id>.
+ * Deep links between screens (M12): /?invoice=<id>, /inbox?reply=<id>, /disputes?case=<id>, /tasks?task=<id>,
+ * and /clients?client=<id> (M13).
  * Pages render only in the browser after sign-in (SessionGate), so reading the URL at mount is safe.
  */
 export function queryParam(name: string): string | null {
@@ -21,4 +22,5 @@ export const links = {
   reply: (id: string) => `/inbox?reply=${id}`,
   dispute: (id: string) => `/disputes?case=${id}`,
   task: (id: string) => `/tasks?task=${id}`,
+  client: (id: string) => `/clients?client=${id}`,
 };

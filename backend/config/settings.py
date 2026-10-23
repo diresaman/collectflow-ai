@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "apps.sequences",
     "apps.inbox",
     "apps.cases",
+    "apps.insights",
     "apps.automation",
 ]
 
@@ -322,3 +323,20 @@ PROMISE_MAX_DAYS = int(os.environ.get("PROMISE_MAX_DAYS", "60"))
 CASES_MONITOR_MINUTES = int(os.environ.get("CASES_MONITOR_MINUTES", "60"))
 # Days until a new task from a reply or dispute is due.
 TASK_DUE_DAYS = int(os.environ.get("TASK_DUE_DAYS", "2"))
+
+# Client risk and worklist (M13)
+# ------------------------------------------------------------------------------
+# Factor maxima are from the v2 design; the mappings below were proposed in M13 and approved by the owner.
+
+# Days overdue (oldest unpaid invoice) that earn the full 35 points; linear below.
+RISK_OVERDUE_FULL_DAYS = int(os.environ.get("RISK_OVERDUE_FULL_DAYS", "90"))
+# Broken promises count within this many days (1 broken -> 15 points, 2 or more -> 25).
+RISK_BROKEN_PROMISE_WINDOW_DAYS = int(os.environ.get("RISK_BROKEN_PROMISE_WINDOW_DAYS", "180"))
+# Average days late that earns the full 20 points; linear below.
+RISK_LATE_FULL_DAYS = int(os.environ.get("RISK_LATE_FULL_DAYS", "60"))
+# Below this many measured payments a client's average days late uses the portfolio average.
+RISK_MIN_PAID_HISTORY = int(os.environ.get("RISK_MIN_PAID_HISTORY", "3"))
+# A send counts as unanswered only after this many days without a reply.
+RISK_REPLY_WAIT_DAYS = int(os.environ.get("RISK_REPLY_WAIT_DAYS", "3"))
+# Minutes between scheduled recomputes (time moves scores even when nothing changes).
+INSIGHTS_REFRESH_MINUTES = int(os.environ.get("INSIGHTS_REFRESH_MINUTES", "60"))

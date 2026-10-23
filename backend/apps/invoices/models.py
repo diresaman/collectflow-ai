@@ -17,10 +17,24 @@ class Client(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # M13 insights, written only by apps.insights.risk.recompute (null until the first recompute).
+    risk_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    # {"factors": [...], "outstanding": {currency: amount}, "as_of": date, ...}: every point and its facts.
+    risk_factors = models.JSONField(default=dict, blank=True)
+    # Fewer than RISK_MIN_PAID_HISTORY measured payments: average days late uses the portfolio average.
+    risk_low_confidence = models.BooleanField(default=False)
+    avg_days_late = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    promise_kept_rate = models.DecimalField(max_digits=5, decimal_places=4, null=True, blank=True)
+    response_rate = models.DecimalField(max_digits=5, decimal_places=4, null=True, blank=True)
+    metrics_computed_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ["display_name", "email"]
         constraints = [
             models.CheckConstraint(condition=Q(email=Lower("email")), name="client_email_lowercase"),
+            models.CheckConstraint(
+                condition=Q(risk_score__isnull=True) | Q(risk_score__lte=100), name="client_risk_score_range"
+            ),
         ]
 
     def __str__(self) -> str:

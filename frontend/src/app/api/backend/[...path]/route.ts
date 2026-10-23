@@ -42,6 +42,9 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     /^promises$/,
     /^disputes$/,
     new RegExp(`^disputes/${UUID}$`),
+    /^worklist$/,
+    /^clients$/,
+    new RegExp(`^clients/${UUID}$`),
   ],
   POST: [
     /^auth\/(login|logout)$/,
@@ -61,6 +64,7 @@ const ALLOWED_ROUTES: Record<Method, RegExp[]> = {
     new RegExp(`^promises/${UUID}/cancel$`),
     /^disputes$/,
     new RegExp(`^disputes/${UUID}/(assign|notes|resolve)$`),
+    /^clients\/recompute$/,
   ],
   PATCH: [new RegExp(`^follow-ups/${UUID}$`)],
 };
