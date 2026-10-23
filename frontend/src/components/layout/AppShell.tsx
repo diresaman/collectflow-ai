@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { ConnectionNotice } from "@/components/ApiStatus";
@@ -59,7 +60,11 @@ export const NAV_GROUPS: { title: string | null; items: Item[] }[] = [
   },
 ];
 
-export type NavHref = (typeof NAV_GROUPS)[number]["items"][number]["href"];
+/** The menu item for the current URL ("/" is Invoices; nested settings pages match their section). */
+function activeHref(pathname: string): string {
+  const hrefs = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href)).filter((href) => href !== "/");
+  return hrefs.find((href) => pathname === href || pathname.startsWith(`${href}/`)) ?? (pathname === "/" ? "/" : "");
+}
 
 /** Live counts from the Today report (one request a minute), keyed like Item.count. */
 function useCounts(): Record<string, number> {
@@ -178,7 +183,9 @@ function Sidebar({ active, counts, onNavigate }: { active: string; counts: Recor
   );
 }
 
-export function AppShell({ active, children }: { active: NavHref; children: ReactNode }) {
+export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const active = activeHref(pathname);
   const counts = useCounts();
   const [open, setOpen] = useState(false);
 
